@@ -18,9 +18,15 @@ on:
       image-name: 
         required: true
         description: Name of image to build & push
+        type: string
       build-args: 
         required: false
         description: Additional build args to use
+        type: string
+      dockerfile:
+        required: true
+        description: Path to dockerfile
+        type: string
 
 defaults:
   run:
@@ -28,13 +34,13 @@ defaults:
 
 jobs:
   main:
+    if: ${{ github.event.label.name == 'Run CICD' || github.ref == 'refs/heads/main' }}
     runs-on: self-hosted-builder
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
-          ref: ${{ inputs.sha }}
 
       - name: Clean runner cache
         run: | 
@@ -55,7 +61,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          file: Dockerfile
+          file: ${{ inputs.dockerfile }}
           push: true
           build-args: ${{ inputs.build-args }}
           cache-from: |

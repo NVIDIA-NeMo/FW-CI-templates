@@ -35,7 +35,7 @@ defaults:
 jobs:
   main:
     if: ${{ github.event.label.name == 'Run CICD' || github.ref == 'refs/heads/main' }}
-    runs-on: self-hosted-builder
+    runs-on: self-hosted-azure-builder
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

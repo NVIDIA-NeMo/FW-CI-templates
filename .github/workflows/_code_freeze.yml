@@ -25,7 +25,8 @@ on:
       type_of_release:
         type: string
         description: Type of release (major|minor|pre_release)
-
+    outputs:
+      release-branch: ${{ jobs.create-release-branch.outputs.version }}
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest
@@ -54,24 +55,8 @@ jobs:
           VERSION=$(python -c 'import ${{ inputs.python_package }}; print(${{ inputs.python_package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
-          echo git switch --force-create r$VERSION origin/main
-          echo git push -u origin r$VERSION --force
-
-      # - name: Create Release PR
-      #   uses: peter-evans/create-pull-request@v6
-      #   id: create-pull-request
-      #   with:
-      #     path: ${{ github.run_id }}
-      #     base: r${{ steps.release-branch.outputs.version }}
-      #     branch: ci/release-${{ steps.release-branch.outputs.version }}
-      #     title: 'Create Release candidate branch `${{ steps.release-branch.outputs.version }}`'
-      #     body: |
-      #       🚀 PR to release ${{ inputs.name_of_library }} `${{ steps.release-branch.outputs.version }}`.
-
-      #       Please verify version numbers before merge.
-      #     commit-message: "[🤖]: Howdy folks, let's release ${{ inputs.name_of_library }} `${{ steps.release-branch.outputs.version }}` !"
-      #     signoff: true
-      #     assignees: okoenig
+          echo git switch --force-create $VERSION origin/main
+          echo git push -u origin $VERSION --force
 
   bump-next-version:
     runs-on: ubuntu-latest

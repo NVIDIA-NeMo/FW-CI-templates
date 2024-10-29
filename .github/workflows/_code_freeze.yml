@@ -26,7 +26,10 @@ on:
         type: string
         description: Type of release (major|minor|pre_release)
     outputs:
-      release-branch: ${{ jobs.create-release-branch.outputs.version }}
+      release-branch: 
+        description: "Released version (same as its branch name)"
+        value: ${{ jobs.create-release-branch.outputs.version }}
+      
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest

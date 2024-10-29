@@ -25,9 +25,9 @@ on:
       type_of_release:
         type: string
         description: Type of release (major|minor|pre_release)
-      slack_endpoint:
-        type: string
-        description: Slack Webhook endpoint
+    secrets:
+      SLACK_RELEASE_ENDPOINT:
+        required: true
     outputs:
       release-branch: 
         description: "Released version (same as its branch name)"
@@ -134,4 +134,4 @@ jobs:
             ]
           }'
 
-          curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ inputs.slack_endpoint }} 
+          curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ secrets.SLACK_RELEASE_ENDPOINT }} 

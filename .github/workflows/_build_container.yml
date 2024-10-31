@@ -31,6 +31,12 @@ on:
         required: false
         description: Image label for pruning
         type: string
+      prune-filter-timerange:
+        required: false
+        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
+        type: string
+        default: 24h
+
 
 defaults:
   run:
@@ -50,7 +56,7 @@ jobs:
         env:
           LABEL: ${{ inputs.image-label }}
         run: | 
-          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=${{ inputs.prune-filter-timerange }}" --force
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

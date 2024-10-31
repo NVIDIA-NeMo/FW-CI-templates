@@ -28,7 +28,7 @@ on:
         description: Path to dockerfile
         type: string
       image-label:
-        required: true
+        required: false
         description: Image label for pruning
         type: string
 
@@ -47,8 +47,10 @@ jobs:
           path: ${{ github.run_id }}
 
       - name: Clean runner cache
+        env:
+          LABEL: ${{ inputs.image-label }}
         run: | 
-          docker system prune --filter "label=nemo.library=${{ inputs.image-label }}" --filter "until=24h" --force
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

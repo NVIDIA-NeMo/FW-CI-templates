@@ -17,3 +17,4 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           release-type: simple
+          skip-github-pull-request: true

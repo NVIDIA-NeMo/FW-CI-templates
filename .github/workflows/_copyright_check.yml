@@ -30,16 +30,17 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
-          find ./ -type f -name '*.py' -o -name '*.y*ml' -not -path "./.git/*" -not -path "./*__init__.py" | while read path; do
-              echo -en $path"\t"
-              head -n 10 $path | tr '\n' '\t' | sed 's/\t$/\n/'
-          done \
-             | egrep -iv 'Copyright.*NVIDIA CORPORATION.*' \
-             | while read line; do
-               echo $line | cut -d' ' -f1
-             done
+          # Files ending with .py should have Copyright notice in the first 10 lines
+          find_files_with_missing_copyright() {
+            find ./ -type f -name '*.py' -o -name '*.y*ml' -not -path "./.git/*" -not -path "./*__init__.py" | while read path; do
+                echo -en $path"\t"
+                head -n 10 $path | tr '\n' '\t' | sed 's/\t$/\n/'
+            done \
+              | egrep -iv 'Copyright.*NVIDIA CORPORATION.*' \
+              | while read line; do
+                echo $line | cut -d' ' -f1
+              done
           }
-
 
           declare RESULT=($(find_files_with_missing_copyright))  # (..) = array
 
@@ -50,5 +51,5 @@ jobs:
              done
              exit 1;
           else
-             echo "Ok: All Python and yaml files start with copyright notice"
+             echo "Ok: All (Python) files start with copyright notice"
           fi

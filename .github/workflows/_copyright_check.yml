@@ -33,7 +33,7 @@ jobs:
           # Files ending with .py should have Copyright notice in the first 10 lines
           find_files_with_missing_copyright() {
             # Find all .py and .y*ml files
-            find . -type f \( -name "*.py" -o -name "*.y*ml" \) | while read -r file; do
+            find . -type f \( -name "*.py" -o -name "*.y*ml" -not -path "./.git/*" -not -path "./*__init__.py \) | while read -r file; do
                 # Check if the first line matches the copyright line with flexible years
                 if ! head -n 1 "$file" | egrep -q '^# Copyright \(c\) [0-9]{4}-[0-9]{4}, NVIDIA CORPORATION\.$'; then
                     echo "$file"

@@ -32,17 +32,13 @@ jobs:
 
           # Files ending with .py should have Copyright notice in the first 10 lines
           find_files_with_missing_copyright() {
-            find ./ -type f -name '*.py' -not -path "./.git/*" -not -path "./*__init__.py" | while read path; do
-                echo -en $path"\t"
-                head -n 10 $path | tr '\n' '\t' | sed 's/\t$/\n/'
-            done \
-              | egrep -iv 'Copyright.*NVIDIA CORPORATION.*' \
-              | egrep -iv '*MIT.*Licen.e.*' \
-              | egrep -iv '*Copyright.*Apache.*' \
-              | egrep -iv '*Apache.*License.*' \
-              | while read line; do
-                echo $line | cut -d' ' -f1
-              done
+            # Find all .py and .y*ml files
+            find . -type f \( -name "*.py" -o -name "*.y*ml" \) | while read -r file; do
+                # Check if the first line matches the copyright line with flexible years
+                if ! head -n 1 "$file" | egrep -q '^# Copyright \(c\) [0-9]{4}-[0-9]{4}, NVIDIA CORPORATION\.$'; then
+                    echo "$file"
+                fi
+            done
           }
 
 
@@ -55,5 +51,5 @@ jobs:
              done
              exit 1;
           else
-             echo "Ok: All (Python) files start with copyright notice"
+             echo "Ok: All Python and yaml files start with copyright notice"
           fi

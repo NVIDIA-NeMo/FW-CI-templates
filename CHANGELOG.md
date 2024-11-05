@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.1.0...v0.2.0) (2024-11-05)
+
+
+### Features
+
+* Add copyright check ([#14](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/14)) ([e5e97f9](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/e5e97f952964eb729680a4f24286e661a2258fd0))
+
 ## [0.1.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.0.0...v0.1.0) (2024-11-04)
 
 

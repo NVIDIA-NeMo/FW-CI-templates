@@ -14,7 +14,7 @@
 name: Copyright check
 
 on: 
-  pull_request:
+  workflow_call:
 
 jobs:
   main:

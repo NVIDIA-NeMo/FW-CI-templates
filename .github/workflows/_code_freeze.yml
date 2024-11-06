@@ -32,7 +32,11 @@ on:
       release-branch: 
         description: "Released version (same as its branch name)"
         value: ${{ jobs.create-release-branch.outputs.version }}
-      
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+     
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest

@@ -16,6 +16,10 @@ name: Copyright check
 on: 
   workflow_call:
 
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+    
 jobs:
   main:
     runs-on: ubuntu-latest

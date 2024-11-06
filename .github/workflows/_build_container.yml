@@ -36,7 +36,10 @@ on:
         description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
         type: string
         default: 24h
-
+    outputs:
+      container-uri:
+        description: URI of container
+        value: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
 
 defaults:
   run:

@@ -22,18 +22,14 @@ on:
       python_package:
         type: string
         description: Name of Python package
-      prerelease_sha:
+      prerelease_ref:
         type: string
-        description: SHA to tag for prerelease
-        required: false
+        description: Ref to tag for prerelease
     secrets:
       PAT:
         required: true
       SLACK_RELEASE_ENDPOINT:
         required: true
-
-env:
-  prerelease_sha: ${{ inputs.prerelease_sha || github.sha }}
 
 defaults:
   run:
@@ -46,13 +42,15 @@ jobs:
     if: contains(fromJSON('["ko3n1g"]'), github.actor)
     outputs:
       version: ${{ steps.release-branch.outputs.version }}
+      sha: ${{ steps.checkout.outputs.commit }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        id: checkout
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          ref: ${{ env.prerelease_sha }}
+          ref: ${{ inputs.prerelease_ref }}
           token: ${{ secrets.PAT }}
 
       - name: Create tag & push
@@ -112,7 +110,7 @@ jobs:
         env:
           NAME_OF_LIBRARY: ${{ inputs.name_of_library }}
           VERSION: ${{ needs.create-prerelease-tag.outputs.version }}
-          SHA: ${{ env.prerelease_sha }}
+          SHA: ${{ needs.create-prerelease-tag.outputs.sha }}
         run: |
           MESSAGE='{
             "blocks": [
@@ -120,7 +118,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "[🤖]: '"$NAME_OF_LIBRARY"' has tagged a prerelease tag `'"$VERSION"'` 🎉 on commit sha `'"$SHA"'`."
+                  "text": "[🤖]: '"$NAME_OF_LIBRARY"' has tagged a prerelease tag `'"$VERSION"'` 🎉 on commit sha `'$SHA'`."
                 }
               }
             ]

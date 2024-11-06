@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.3.0...v0.3.1) (2024-11-06)
+
+
+### Bug Fixes
+
+* Always run build workflows ([#23](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/23)) ([afd4380](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/afd4380b5c18a3e4566919833c67dbb8b30e3d8c))
+
 ## [0.3.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.2.1...v0.3.0) (2024-11-06)
 
 

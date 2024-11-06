@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.2.1...v0.3.0) (2024-11-06)
+
+
+### Features
+
+* Output container URI from build workflow ([#20](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/20)) ([41d0fac](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/41d0fac62131b779a5e7a54db49cd26141608fac))
+
 ## [0.2.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.2.0...v0.2.1) (2024-11-06)
 
 

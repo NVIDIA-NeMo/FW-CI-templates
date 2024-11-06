@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: "Code freeze"
+name: Create pre-release
 
 on:
   workflow_call:
@@ -22,23 +22,26 @@ on:
       python_package:
         type: string
         description: Name of Python package
-      type_of_release:
+      prerelease_sha:
         type: string
-        description: Type of release (major|minor)
+        description: SHA to tag for prerelease
+        required: false
     secrets:
+      PAT:
+        required: true
       SLACK_RELEASE_ENDPOINT:
         required: true
-    outputs:
-      release-branch: 
-        description: "Released version (same as its branch name)"
-        value: ${{ jobs.create-release-branch.outputs.version }}
+
+env:
+  prerelease_sha: ${{ inputs.prerelease_sha || github.sha }}
 
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
-     
+
 jobs:
-  create-release-branch:
+  create-prerelease-tag:
+    environment: main
     runs-on: ubuntu-latest
     if: contains(fromJSON('["ko3n1g"]'), github.actor)
     outputs:
@@ -49,31 +52,27 @@ jobs:
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          ref: main
+          ref: ${{ env.prerelease_sha }}
+          token: ${{ secrets.PAT }}
 
-      - name: Get release branch ref
-        id: release-branch
+      - name: Create tag & push
         run: |
           cd ${{ github.run_id }}
                     
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python_package }}/package_info.py
-
           VERSION=$(python -c 'import ${{ inputs.python_package }}; print(${{ inputs.python_package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
-          echo git switch --force-create $VERSION origin/main
-          echo git push -u origin $VERSION --force
+          git tag -a r$VERSION -m "r$VERSION"
+          git push -u origin r$VERSION
 
   bump-next-version:
     runs-on: ubuntu-latest
-    needs: [create-release-branch]
+    needs: [create-prerelease-tag]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
-          fetch-depth: 0
-          fetch-tags: true
           ref: main
 
       - name: Bump version
@@ -85,21 +84,11 @@ jobs:
           MINOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
           PATCH=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
 
-          if [[ "${{ inputs.type_of_release }}" == "major" ]]; then
-            NEXT_MAJOR=$(( MAJOR + 1))
-            NEXT_MINOR=0
-            NEXT_PRE_RELEASE=rc0
-          else
-            NEXT_MAJOR=$MAJOR
-            NEXT_MINOR=$(( MINOR + 1))
-            NEXT_PRE_RELEASE=rc0
-          fi
+          NEXT_PRE_RELEASE=rc$(( $(echo $PRE_RELEASE | awk -F"rc" '{print $2}') + 1))
 
-          sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" ${{ inputs.python_package }}/package_info.py
-          sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" ${{ inputs.python_package }}/package_info.py
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRE_RELEASE'" ${{ inputs.python_package }}/package_info.py
 
-          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$PATCH$NEXT_PRE_RELEASE" | tee -a "$GITHUB_OUTPUT"
+          echo "version=$MAJOR.$MINOR.$PATCH$NEXT_PRE_RELEASE" | tee -a "$GITHUB_OUTPUT"
 
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@v6
@@ -116,10 +105,14 @@ jobs:
 
   notify:
     runs-on: ubuntu-latest
-    needs: [create-release-branch, bump-next-version]
+    needs: [create-prerelease-tag, bump-next-version]
     environment: main
     steps:
       - name: Main
+        env:
+          NAME_OF_LIBRARY: ${{ inputs.name_of_library }}
+          VERSION: ${{ needs.create-prerelease-tag.outputs.version }}
+          SHA: ${{ env.prerelease_sha }}
         run: |
           MESSAGE='{
             "blocks": [
@@ -127,10 +120,10 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "[🤖]: ${{ inputs.name_of_library }} has been frozen 🎉 to branch `${{ needs.create-release-branch.outputs.version }}`"
+                  "text": "[🤖]: '"$NAME_OF_LIBRARY"' has tagged a prerelease tag `'"$VERSION"'` 🎉 on commit sha `'"$SHA"'`."
                 }
               }
             ]
           }'
 
-          curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ secrets.SLACK_RELEASE_ENDPOINT }} 
+          echo curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ secrets.SLACK_RELEASE_ENDPOINT }}

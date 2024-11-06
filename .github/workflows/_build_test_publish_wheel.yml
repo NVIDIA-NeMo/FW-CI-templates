@@ -11,11 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: Create pre-release
+name: Build, test, and publish a PyPi wheel
 
 on:
   workflow_call:
     inputs:
+      dry-run:
+        required: false
+        description: Upload to PyPy Test instance
+        type: boolean
+        default: true
       image-name: 
         required: true
         description: Name of image to build & push
@@ -37,20 +42,13 @@ on:
         description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
         type: string
         default: 24h
-      name_of_library:
-        type: string
-        description: Name of Nemo library
-      python_package:
+      python-package:
         type: string
         description: Name of Python package
-      prerelease_ref:
+      container-workdir:
         type: string
-        description: Ref to tag for prerelease
+        description: Location of Python package
     secrets:
-      PAT:
-        required: true
-      SLACK_RELEASE_ENDPOINT:
-        required: true
       TWINE_USERNAME:
         required: true
       TWINE_PASSWORD:
@@ -62,7 +60,7 @@ defaults:
 
 jobs:
   build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.2.1
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.3.1
     with:
       image-name: ${{ inputs.image-name }}
       dockerfile: ${{ inputs.dockerfile }}
@@ -70,45 +68,73 @@ jobs:
       build-args: ${{ inputs.build-args }}
       prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
 
-  build-and-test-wheel:
+  build-wheel:
     needs: build-container
-    runs-on: self-hosted-builder
+    runs-on: self-hosted-azure-cpu
     container: ${{ needs.build-container.outputs.container-uri }}
     outputs:
-      version-number: ${{ steps.version-number.outputs.version }}
+      expected-version: ${{ steps.build.outputs.version }}
     env:
-      PYPROJECT_NAME: ${{ inputs.python_package }}
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      DRY_RUN: ${{ inputs.dry-run }}
     steps:
-      - name: Build and test wheel
-        id: version-number
+      - name: Build wheel
+        id: build
         run: |
-          cd ${{ github.run_id }}
+          cd ${{ inputs.container-workdir }}
+          ls -al 
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
+          fi
+
           EXPECTED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
 
-          python3 -m pip install --upgrade build
+          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
+
+          python3 -m pip install --upgrade build 
           python3 -m build
 
-          pip install dist/*.whl
+          ls -al ${{ inputs.container-workdir }}/dist/
 
-          cd ../
+      - name: Upload wheel 
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-wheel-${{ github.run_id }}
+          path: ${{ inputs.container-workdir }}/dist/
+          overwrite: true
+
+  test-wheel:
+    needs: build-wheel
+    runs-on: self-hosted-azure-cpu
+    container: nvcr.io/nvidia/pytorch:24.01-py3
+    env:
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
+    steps:
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: pip-wheel-${{ github.run_id }}
+          path: dist/${{ github.run_id }}/
+          
+      - name: Install wheel
+        run: |
+          cd dist/${{ github.run_id }}/
+
+          ls -al 
+
+          pip install *.whl
 
           INSTALLED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
           
           if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
             echo 'Wheel has an outdated version, mission abort immediately!'
             exit 1
-          fi
-
-          echo "version=$INSTALLED_VERSION" | tee -a "$GITHUB_OUTPUT"
-        
-      - name: Upload wheel 
-        uses: actions/upload-artifact@v4
-        with:
-          name: pip-wheel
-          path: ${{ github.run_id }}/dist/
+          fi        
 
   publish-wheel:
-    needs: build-and-test-wheel
+    needs: test-wheel
     runs-on: ubuntu-latest
     environment: 
       name: main
@@ -116,13 +142,16 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: pip-wheel
-          path: ${{ github.run_id }}/dist/
+          name: pip-wheel-${{ github.run_id }}
+          path: dist/
       
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
+          REPOSITORY=$([[ "$DRY_RUN" == "true" ]] && echo "testpypi" || echo "pypi")
+
           python3 -m pip install --upgrade twine
-          python3 -m twine upload --repository pypi ${{ github.run_id }}/dist/*
+          python3 -m twine upload --repository $REPOSITORY dist/*

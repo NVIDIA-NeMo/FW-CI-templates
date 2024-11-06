@@ -1,0 +1,129 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Create pre-release
+
+on:
+  workflow_call:
+    inputs:
+      name_of_library:
+        type: string
+        description: Name of Nemo library
+      python_package:
+        type: string
+        description: Name of Python package
+      prerelease_sha:
+        type: string
+        description: SHA to tag for prerelease
+        required: false
+    secrets:
+      PAT:
+        required: true
+      SLACK_RELEASE_ENDPOINT:
+        required: true
+
+env:
+  prerelease_sha: ${{ inputs.prerelease_sha || github.sha }}
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  create-prerelease-tag:
+    environment: main
+    runs-on: ubuntu-latest
+    if: contains(fromJSON('["ko3n1g"]'), github.actor)
+    outputs:
+      version: ${{ steps.release-branch.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          fetch-depth: 0
+          ref: ${{ env.prerelease_sha }}
+          token: ${{ secrets.PAT }}
+
+      - name: Create tag & push
+        run: |
+          cd ${{ github.run_id }}
+                    
+          VERSION=$(python -c 'import ${{ inputs.python_package }}; print(${{ inputs.python_package }}.__version__)')
+          echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
+
+          git tag -a r$VERSION -m "r$VERSION"
+          git push -u origin r$VERSION
+
+  bump-next-version:
+    runs-on: ubuntu-latest
+    needs: [create-prerelease-tag]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          ref: main
+
+      - name: Bump version
+        id: bump-version
+        run: |
+          cd ${{ github.run_id }}
+          PRE_RELEASE=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+          MAJOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
+          MINOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+          PATCH=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
+
+          NEXT_PRE_RELEASE=rc$(( $(echo $PRE_RELEASE | awk -F"rc" '{print $2}') + 1))
+
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRE_RELEASE'" ${{ inputs.python_package }}/package_info.py
+
+          echo "version=$MAJOR.$MINOR.$PATCH$NEXT_PRE_RELEASE" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Create Version Bump PR
+        uses: peter-evans/create-pull-request@v6
+        id: create-pull-request
+        with:
+          path: ${{ github.run_id }}
+          branch: ci/bump-${{ steps.bump-version.outputs.version }}
+          title: 'Version bump to `${{ steps.bump-version.outputs.version }}`'
+          body: |
+            🚀 Version bump ${{ inputs.name_of_library }} to `${{ steps.bump-version.outputs.version }}`
+          commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.name_of_library }} to `${{ steps.bump-version.outputs.version }}` !"
+          signoff: true
+          assignees: okoenig
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [create-prerelease-tag, bump-next-version]
+    environment: main
+    steps:
+      - name: Main
+        env:
+          NAME_OF_LIBRARY: ${{ inputs.name_of_library }}
+          VERSION: ${{ needs.create-prerelease-tag.outputs.version }}
+          SHA: ${{ env.prerelease_sha }}
+        run: |
+          MESSAGE='{
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "[🤖]: '"$NAME_OF_LIBRARY"' has tagged a prerelease tag `'"$VERSION"'` 🎉 on commit sha `'"$SHA"'`."
+                }
+              }
+            ]
+          }'
+
+          echo curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ secrets.SLACK_RELEASE_ENDPOINT }}

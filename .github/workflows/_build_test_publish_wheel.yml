@@ -1,0 +1,128 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Create pre-release
+
+on:
+  workflow_call:
+    inputs:
+      image-name: 
+        required: true
+        description: Name of image to build & push
+        type: string
+      build-args: 
+        required: false
+        description: Additional build args to use
+        type: string
+      dockerfile:
+        required: true
+        description: Path to dockerfile
+        type: string
+      image-label:
+        required: false
+        description: Image label for pruning
+        type: string
+      prune-filter-timerange:
+        required: false
+        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
+        type: string
+        default: 24h
+      name_of_library:
+        type: string
+        description: Name of Nemo library
+      python_package:
+        type: string
+        description: Name of Python package
+      prerelease_ref:
+        type: string
+        description: Ref to tag for prerelease
+    secrets:
+      PAT:
+        required: true
+      SLACK_RELEASE_ENDPOINT:
+        required: true
+      TWINE_USERNAME:
+        required: true
+      TWINE_PASSWORD:
+        required: true
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  build-container:
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.2.1
+    with:
+      image-name: ${{ inputs.image-name }}
+      dockerfile: ${{ inputs.dockerfile }}
+      image-label: ${{ inputs.image-label }}
+      build-args: ${{ inputs.build-args }}
+      prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
+
+  build-and-test-wheel:
+    needs: build-container
+    runs-on: self-hosted-builder
+    container: ${{ needs.build-container.outputs.container-uri }}
+    outputs:
+      version-number: ${{ steps.version-number.outputs.version }}
+    env:
+      PYPROJECT_NAME: ${{ inputs.python_package }}
+    steps:
+      - name: Build and test wheel
+        id: version-number
+        run: |
+          cd ${{ github.run_id }}
+          EXPECTED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
+
+          python3 -m pip install --upgrade build
+          python3 -m build
+
+          pip install dist/*.whl
+
+          cd ../
+
+          INSTALLED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
+          
+          if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
+            echo 'Wheel has an outdated version, mission abort immediately!'
+            exit 1
+          fi
+
+          echo "version=$INSTALLED_VERSION" | tee -a "$GITHUB_OUTPUT"
+        
+      - name: Upload wheel 
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-wheel
+          path: ${{ github.run_id }}/dist/
+
+  publish-wheel:
+    needs: build-and-test-wheel
+    runs-on: ubuntu-latest
+    environment: 
+      name: main
+    steps:  
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: pip-wheel
+          path: ${{ github.run_id }}/dist/
+      
+      - name: Release wheel
+        env:
+          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+        run: |
+          python3 -m pip install --upgrade twine
+          python3 -m twine upload --repository pypi ${{ github.run_id }}/dist/*

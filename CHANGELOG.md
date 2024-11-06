@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.2.0...v0.2.1) (2024-11-06)
+
+
+### Bug Fixes
+
+* Use shell defaults ([#18](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/18)) ([2bf7f78](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2bf7f788d351597d3c5159a312119689e81158eb))
+
 ## [0.2.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.1.0...v0.2.0) (2024-11-05)
 
 

@@ -48,6 +48,9 @@ on:
       container-workdir:
         type: string
         description: Location of Python package
+      environment:
+        type: string
+        description: Deployment environment
     secrets:
       TWINE_USERNAME:
         required: true
@@ -137,7 +140,7 @@ jobs:
     needs: test-wheel
     runs-on: ubuntu-latest
     environment: 
-      name: main
+      name: ${{ inputs.environment }}
     steps:  
       - name: Download wheel
         uses: actions/download-artifact@v4

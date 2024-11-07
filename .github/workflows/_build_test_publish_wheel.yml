@@ -91,7 +91,7 @@ jobs:
             sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
           fi
 
-          cmd=$(cat <<"EOF"
+          cmd=$(cat <<EOF
           import $PYPROJECT_NAME
 
           with open("version.txt", "w") as fh:

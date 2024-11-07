@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.4.0...v0.5.0) (2024-11-07)
+
+
+### Features
+
+* Action `Send Slack alert` ([#26](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/26)) ([738a898](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/738a89862e8f1072b9017419d3e2f89f91996fe3))
+
+
+### Bug Fixes
+
+* Use HEREDOC for version extraction ([#27](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/27)) ([26b50b1](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/26b50b1609d58847b883ae6ca5a85f82cb4792b7))
+
 ## [0.4.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.3.1...v0.4.0) (2024-11-07)
 
 

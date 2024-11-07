@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.7.0...v0.8.0) (2024-11-07)
+
+
+### Features
+
+* Allow building specific ref ([#34](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/34)) ([b1c72c3](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/b1c72c3f0cff573f8f052895413528d1eb0a3829))
+
 ## [0.7.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.6.0...v0.7.0) (2024-11-07)
 
 

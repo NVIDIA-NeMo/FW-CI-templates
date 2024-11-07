@@ -101,7 +101,7 @@ jobs:
 
           python -c "$cmd"
 
-          EXPECTED_VERSION=$(cat version.txt")
+          EXPECTED_VERSION=$(cat version.txt)
 
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
 

@@ -56,6 +56,10 @@ on:
         required: true
       TWINE_PASSWORD:
         required: true
+      SLACK_WEBHOOK_ADMIN:
+        required: true
+      SLACK_WEBHOOK:
+        required: true
     outputs:
       version:
         description: NeMo library version
@@ -63,7 +67,7 @@ on:
       pypi-name:
         description: NeMo library name on PyPi
         value: ${{ jobs.build-wheel.outputs.name }}
-
+      
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
@@ -180,3 +184,30 @@ jobs:
 
           python3 -m pip install --upgrade twine
           python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+
+  notify:
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [publish-wheel]
+    env:
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+      COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/NeMo-FW-CI-templates
+          ref: v0.5.0
+          path: send-slack-alert
+
+      - name: Send Slack alert
+        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        with:
+          message: >
+            <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
+
+            cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
+          webhook: ${{ env.SLACK_WEBHOOK }}

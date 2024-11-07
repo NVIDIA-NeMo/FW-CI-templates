@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.6.0...v0.7.0) (2024-11-07)
+
+
+### Features
+
+* Output name and version of wheel ([#31](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/31)) ([f3efeb7](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/f3efeb7543cddfa2538cfe9601dcc391c94c29f0))
+* Send alert on failed workflow ([#33](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/33)) ([acac33d](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/acac33d05f09a512f70f834543e94dd9ec74035e))
+
 ## [0.6.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.5.0...v0.6.0) (2024-11-07)
 
 

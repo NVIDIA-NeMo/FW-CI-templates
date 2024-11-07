@@ -47,9 +47,6 @@ on:
       container-workdir:
         type: string
         description: Location of Python package
-      environment:
-        type: string
-        description: Deployment environment
       library-name:
         type: string
         description: Name of Nemo library
@@ -77,7 +74,7 @@ jobs:
       prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
       python-package: ${{ inputs.python-package }}
       container-workdir: ${{ inputs.container-workdir }}
-      environment: ${{ inputs.environment }}
+      environment: main
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
@@ -139,6 +136,7 @@ jobs:
   notify:
     needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
+    environment: main
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version-number }}
       PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version-number }}/
@@ -155,7 +153,7 @@ jobs:
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         with:
           message: >
-            We have released ${{ env.PROJECT_NAME }} 🚀✨🎉
+            We have released `${{ env.PROJECT_NAME }}` 🚀✨🎉
 
             * <${{ env.GH_URL }}|GitHub release>
             * <${{ env.PYPI_URL }}|PyPi release>

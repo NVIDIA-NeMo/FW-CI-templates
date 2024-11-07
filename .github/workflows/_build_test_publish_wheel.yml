@@ -56,6 +56,13 @@ on:
         required: true
       TWINE_PASSWORD:
         required: true
+    outputs:
+      version:
+        description: NeMo library version
+        value: ${{ jobs.build-wheel.outputs.expected-version }}
+      pypi-name:
+        description: NeMo library name on PyPi
+        value: ${{ jobs.build-wheel.outputs.name }}
 
 defaults:
   run:
@@ -77,6 +84,7 @@ jobs:
     container: ${{ needs.build-container.outputs.container-uri }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
+      name: ${{ steps.build.outputs.name }}
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       DRY_RUN: ${{ inputs.dry-run }}
@@ -96,14 +104,18 @@ jobs:
 
           with open("version.txt", "w") as fh:
             fh.write($PYPROJECT_NAME.__version__)
+          with open("name.txt", "w") as fh:
+            fh.write($PYPROJECT_NAME.__package_name__)
           EOF
           )
 
           python -c "$cmd"
 
           EXPECTED_VERSION=$(cat version.txt)
+          NAME=$(cat name.txt | tr '_' '-')
 
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
 
           python3 -m pip install --upgrade build 
           python3 -m build

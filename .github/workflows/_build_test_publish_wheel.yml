@@ -91,9 +91,19 @@ jobs:
             sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
           fi
 
-          EXPECTED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
+          cmd=$(cat <<"EOF"
+          import $PYPROJECT_NAME
 
-          echo version="$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
+          with open("version.txt", "w") as fh:
+            fh.write($PYPROJECT_NAME.__version__)
+          EOF
+          )
+
+          python -c "$cmd"
+
+          EXPECTED_VERSION=$(cat version.txt")
+
+          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
 
           python3 -m pip install --upgrade build 
           python3 -m build

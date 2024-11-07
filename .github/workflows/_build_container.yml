@@ -15,6 +15,10 @@ name: Build container
 on: 
   workflow_call:
     inputs:
+      build-ref:
+        required: true
+        description: Ref (branch or SHA) to build
+        type: string
       image-name: 
         required: true
         description: Name of image to build & push
@@ -53,6 +57,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
+          ref: ${{ inputs.build-ref }}
 
       - name: Clean runner cache
         env:

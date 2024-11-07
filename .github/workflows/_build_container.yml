@@ -16,7 +16,8 @@ on:
   workflow_call:
     inputs:
       build-ref:
-        required: true
+        required: false
+        default: ${{ github.sha }}
         description: Ref (branch or SHA) to build
         type: string
       image-name: 

@@ -138,5 +138,5 @@ jobs:
           message: >
             We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library_name }}` 🚀✨🎉
 
-            PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. The ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+            PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
           webhook: ${{ env.SLACK_WEBHOOK }}

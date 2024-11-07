@@ -20,6 +20,10 @@ defaults:
 on:
   workflow_call:
     inputs:
+      release-ref:
+        required: true
+        description: Ref (SHA or branch) to release
+        type: string
       image-name: 
         required: true
         description: Name of image to build & push
@@ -64,9 +68,10 @@ env:
 
 jobs: 
   build-test-publish-wheel:
-    uses: NIVIDA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.6.0
+    uses: NIVIDA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.8.0
     with:
       dry-run: false
+      build-ref: ${{ inputs.release-ref }}
       image-name: ${{ inputs.image-name }}
       build-args: ${{ inputs.build-args }}
       dockerfile: ${{ inputs.dockerfile }}

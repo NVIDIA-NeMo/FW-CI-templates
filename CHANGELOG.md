@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.3.1...v0.4.0) (2024-11-07)
+
+
+### Features
+
+* Build, test, and publish a wheel ([#22](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/22)) ([52f538f](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/52f538f61d88ab240002b5a3eea28e1fca1c59d5))
+
 ## [0.3.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.3.0...v0.3.1) (2024-11-06)
 
 

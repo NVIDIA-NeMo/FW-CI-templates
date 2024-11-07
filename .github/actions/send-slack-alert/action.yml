@@ -1,0 +1,29 @@
+name: 'Send Slack alert'
+description: 'Send Slack alert'
+inputs:
+  message:
+    description: 'Alertmessage'
+    required: true
+  webhook:
+    description: 'Slack incoming webhook'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send Slack alert
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        MESSAGE=$(jq -cn --arg message "beep boop 🤖: ${{ inputs.message }}" '{
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": $message
+              }
+            }
+          ]
+        }')
+
+        curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ inputs.webhook }}

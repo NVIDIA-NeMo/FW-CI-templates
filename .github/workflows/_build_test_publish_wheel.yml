@@ -1,0 +1,160 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Build, test, and publish a PyPi wheel
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        required: false
+        description: Upload to PyPy Test instance
+        type: boolean
+        default: true
+      image-name: 
+        required: true
+        description: Name of image to build & push
+        type: string
+      build-args: 
+        required: false
+        description: Additional build args to use
+        type: string
+      dockerfile:
+        required: true
+        description: Path to dockerfile
+        type: string
+      image-label:
+        required: false
+        description: Image label for pruning
+        type: string
+      prune-filter-timerange:
+        required: false
+        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
+        type: string
+        default: 24h
+      python-package:
+        type: string
+        description: Name of Python package
+      container-workdir:
+        type: string
+        description: Location of Python package
+      environment:
+        type: string
+        description: Deployment environment
+    secrets:
+      TWINE_USERNAME:
+        required: true
+      TWINE_PASSWORD:
+        required: true
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  build-container:
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.3.1
+    with:
+      image-name: ${{ inputs.image-name }}
+      dockerfile: ${{ inputs.dockerfile }}
+      image-label: ${{ inputs.image-label }}
+      build-args: ${{ inputs.build-args }}
+      prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
+
+  build-wheel:
+    needs: build-container
+    runs-on: self-hosted-azure-cpu
+    container: ${{ needs.build-container.outputs.container-uri }}
+    outputs:
+      expected-version: ${{ steps.build.outputs.version }}
+    env:
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      DRY_RUN: ${{ inputs.dry-run }}
+    steps:
+      - name: Build wheel
+        id: build
+        run: |
+          cd ${{ inputs.container-workdir }}
+          ls -al 
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
+          fi
+
+          EXPECTED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
+
+          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
+
+          python3 -m pip install --upgrade build 
+          python3 -m build
+
+          ls -al ${{ inputs.container-workdir }}/dist/
+
+      - name: Upload wheel 
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-wheel-${{ github.run_id }}
+          path: ${{ inputs.container-workdir }}/dist/
+          overwrite: true
+
+  test-wheel:
+    needs: build-wheel
+    runs-on: self-hosted-azure-cpu
+    container: nvcr.io/nvidia/pytorch:24.01-py3
+    env:
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
+    steps:
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: pip-wheel-${{ github.run_id }}
+          path: dist/${{ github.run_id }}/
+          
+      - name: Install wheel
+        run: |
+          cd dist/${{ github.run_id }}/
+
+          ls -al 
+
+          pip install *.whl
+
+          INSTALLED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
+          
+          if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
+            echo 'Wheel has an outdated version, mission abort immediately!'
+            exit 1
+          fi        
+
+  publish-wheel:
+    needs: test-wheel
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ inputs.environment }}
+    steps:  
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: pip-wheel-${{ github.run_id }}
+          path: dist/
+      
+      - name: Release wheel
+        env:
+          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          REPOSITORY=$([[ "$DRY_RUN" == "true" ]] && echo "testpypi" || echo "pypi")
+
+          python3 -m pip install --upgrade twine
+          python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.5.0...v0.6.0) (2024-11-07)
+
+
+### Features
+
+* Add cherry pick workflow ([#29](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/29)) ([3cc12f9](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/3cc12f9f1085a8b085642cb127861d8d7d4de404))
+
 ## [0.5.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.4.0...v0.5.0) (2024-11-07)
 
 

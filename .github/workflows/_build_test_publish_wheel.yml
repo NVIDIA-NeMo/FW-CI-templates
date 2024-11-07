@@ -93,7 +93,7 @@ jobs:
 
           EXPECTED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
 
-          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo version="$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
 
           python3 -m pip install --upgrade build 
           python3 -m build

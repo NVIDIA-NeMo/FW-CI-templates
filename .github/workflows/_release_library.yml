@@ -1,0 +1,162 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: "Release"
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+on:
+  workflow_call:
+    inputs:
+      image-name: 
+        required: true
+        description: Name of image to build & push
+        type: string
+      build-args: 
+        required: false
+        description: Additional build args to use
+        type: string
+      dockerfile:
+        required: true
+        description: Path to dockerfile
+        type: string
+      image-label:
+        required: false
+        description: Image label for pruning
+        type: string
+      prune-filter-timerange:
+        required: false
+        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
+        type: string
+        default: 24h
+      python-package:
+        type: string
+        description: Name of Python package
+      container-workdir:
+        type: string
+        description: Location of Python package
+      environment:
+        type: string
+        description: Deployment environment
+      library-name:
+        type: string
+        description: Name of Nemo library
+    secrets:
+      TWINE_USERNAME:
+        required: true
+      TWINE_PASSWORD:
+        required: true
+      SLACK_RELEASE_ENDPOINT:
+        required: true
+
+env:
+  PROJECT_NAME: ${{ inputs.library-name }}
+  VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+
+jobs: 
+  build-test-publish-wheel:
+    uses: NIVIDA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.6.0
+    with:
+      dry-run: false
+      image-name: ${{ inputs.image-name }}
+      build-args: ${{ inputs.build-args }}
+      dockerfile: ${{ inputs.dockerfile }}
+      image-label: ${{ inputs.image-label }}
+      prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
+      python-package: ${{ inputs.python-package }}
+      container-workdir: ${{ inputs.container-workdir }}
+      environment: ${{ inputs.environment }}
+    secrets:
+      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      
+  create-gh-release:
+    needs: [build-test-publish-wheel]
+    runs-on: ubuntu-latest
+    environment: 
+      name: main
+    env:
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+
+      - name: Create release
+        id: version-number
+        run: |
+          cd ${{ github.run_id }}
+          
+          IS_PRERELEASE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
+          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            DATE=$(date +"%Y-%m-%d")
+            CHANGELOG="Prerelease: $NAME ($DATE)"
+          else
+            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+          fi
+
+          PAYLOAD=$(jq -nc \
+                      --arg TAG_NAME "v${VERSION}" \
+                      --arg CI_COMMIT_BRANCH "${{ github.sha }}" \
+                      --arg NAME "$NAME" \
+                      --arg BODY "$CHANGELOG" \
+                      --arg PRERELEASE "$IS_PRERELEASE" \
+                      '{
+                        "tag_name": $TAG_NAME,
+                        "target_commitish": $CI_COMMIT_BRANCH,
+                        "name": $NAME,
+                        "body": $BODY,
+                        "draft": false,
+                        "prerelease": $PRERELEASE,
+                        "generate_release_notes": false
+                      }'
+                  )
+
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/$REPOSITORY/releases \
+            -d "$PAYLOAD"
+
+  notify:
+    needs: [build-test-publish-wheel, create-gh-release]
+    runs-on: ubuntu-latest
+    env:
+      GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version-number }}
+      PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version-number }}/
+      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/NeMo-FW-CI-templates
+          ref: v0.5.0
+          path: send-slack-alert
+
+      - name: Send Slack alert
+        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        with:
+          message: >
+            We have released ${{ env.PROJECT_NAME }} 🚀✨🎉
+
+            * <${{ env.GH_URL }}|GitHub release>
+            * <${{ env.PYPI_URL }}|PyPi release>
+          webhook: ${{ env.SLACK_WEBHOOK }}

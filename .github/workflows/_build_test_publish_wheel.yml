@@ -16,6 +16,11 @@ name: Build, test, and publish a PyPi wheel
 on:
   workflow_call:
     inputs:
+      build-ref:
+        required: false
+        default: ${{ github.sha }}
+        description: Ref (branch or SHA) to build
+        type: string
       dry-run:
         required: false
         description: Upload to PyPy Test instance
@@ -74,8 +79,9 @@ defaults:
 
 jobs:
   build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.3.1
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.8.0
     with:
+      build-ref: ${{ inputs.build-ref }}
       image-name: ${{ inputs.image-name }}
       dockerfile: ${{ inputs.dockerfile }}
       image-label: ${{ inputs.image-label }}

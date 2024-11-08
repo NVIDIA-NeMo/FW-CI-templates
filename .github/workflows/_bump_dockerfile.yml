@@ -70,10 +70,10 @@ jobs:
           path: ${{ github.run_id }}
           branch: bump-ci-container--${{ inputs.source-ref }}-${{ steps.ref.outputs.date }}
           base: ${{ inputs.base-branch }}
-          title: 'Bump `${{ inputs.dockerfile }}` for `${{ inputs.source-ref }}` (${{ steps.ref.outputs.date }})'
+          title: 'beep boop 🤖: Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to Bump `${{ inputs.dockerfile }}`.  
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.dockerfile }}` to `${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}`.  
 
             📝 Please remember the following to-do's before merge: 
             - [ ] Verify the presubmit CI  

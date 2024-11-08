@@ -139,7 +139,7 @@ jobs:
   notify:
     needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
-    # environment: main
+    environment: main
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
@@ -158,7 +158,7 @@ jobs:
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         env:
           MESSAGE: |
-            We have released `${{ env.VERSION }}` of `${{ env.PROJECT_NAME }}` 🚀✨🎉
+            We have released \`${{ env.VERSION }}\` of \`NVIDIA ${{ env.PROJECT_NAME }}\` 🚀✨🎉
 
             • <${{ env.GH_URL }}|GitHub release>
             • <${{ env.PYPI_URL }}|PyPi release>

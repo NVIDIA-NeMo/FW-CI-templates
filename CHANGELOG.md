@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.9.1...v0.9.2) (2024-11-08)
+
+
+### Bug Fixes
+
+* Notification only for dry-run (part 2) ([#41](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/41)) ([2c798f7](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2c798f7a21228db355f79f264bf496a5936ec96d))
+
 ## [0.9.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.9.0...v0.9.1) (2024-11-08)
 
 

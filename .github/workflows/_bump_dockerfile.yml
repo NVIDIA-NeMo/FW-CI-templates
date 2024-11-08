@@ -31,6 +31,10 @@ on:
       PAT:
         required: true
 
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
 jobs:
   bump-dockerfile:
     runs-on: ubuntu-latest
@@ -48,9 +52,11 @@ jobs:
         run: |
           cd ${{ github.run_id }}      
           sha=$(git rev-parse HEAD)
+          repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${sha:0:7}" >> "$GITHUB_OUTPUT"
-          echo "date=$(date +%F)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha:0:7}" | tee -a "$GITHUB_OUTPUT"
+          echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
+          echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout ${{ github.repository }}
         uses: actions/checkout@v4
@@ -71,7 +77,7 @@ jobs:
           title: 'chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
         with:
           path: ${{ github.run_id }}
-          branch: bump-ci-container--${{ inputs.source-ref }}-${{ steps.ref.outputs.date }}
+          branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
           base: ${{ inputs.base-branch }}
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}

@@ -16,7 +16,7 @@ name: "Code freeze"
 on:
   workflow_call:
     inputs:
-      name_of_library:
+      library_name:
         type: string
         description: Name of Nemo library
       python_package:
@@ -24,9 +24,11 @@ on:
         description: Name of Python package
       type_of_release:
         type: string
-        description: Type of release (major|minor|pre_release)
+        description: Type of release (major|minor)
     secrets:
       SLACK_RELEASE_ENDPOINT:
+        required: true
+      SLACK_WEBHOOK_ADMIN:
         required: true
     outputs:
       release-branch: 
@@ -56,9 +58,7 @@ jobs:
         run: |
           cd ${{ github.run_id }}
                     
-          if [[ "${{ inputs.type_of_release }}" != "pre_release" ]]; then
-            sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python_package }}/package_info.py 
-          fi
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python_package }}/package_info.py
 
           VERSION=$(python -c 'import ${{ inputs.python_package }}; print(${{ inputs.python_package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
@@ -87,11 +87,7 @@ jobs:
           MINOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
           PATCH=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
 
-          if [[ "${{ inputs.type_of_release }}" == "pre_release" ]]; then
-            NEXT_MAJOR=$MAJOR
-            NEXT_MINOR=$MINOR
-            NEXT_PRE_RELEASE=rc$(( $(echo $PRE_RELEASE | awk -F"rc" '{print $2}') + 1))
-          elif [[ "${{ inputs.type_of_release }}" == "major" ]]; then
+          if [[ "${{ inputs.type_of_release }}" == "major" ]]; then
             NEXT_MAJOR=$(( MAJOR + 1))
             NEXT_MINOR=0
             NEXT_PRE_RELEASE=rc0
@@ -115,8 +111,8 @@ jobs:
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
           title: 'Version bump to `${{ steps.bump-version.outputs.version }}`'
           body: |
-            🚀 Version bump ${{ inputs.name_of_library }} to `${{ steps.bump-version.outputs.version }}`
-          commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.name_of_library }} to `${{ steps.bump-version.outputs.version }}` !"
+            🚀 Version bump ${{ inputs.library_name }} to `${{ steps.bump-version.outputs.version }}`
+          commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.library_name }} to `${{ steps.bump-version.outputs.version }}` !"
           signoff: true
           assignees: okoenig
 
@@ -124,19 +120,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-release-branch, bump-next-version]
     environment: main
+    env:
+      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
+      RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
+      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:
-      - name: Main
-        run: |
-          MESSAGE='{
-            "blocks": [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "[🤖]: ${{ inputs.name_of_library }} has been frozen 🎉 to branch `${{ needs.create-release-branch.outputs.version }}`"
-                }
-              }
-            ]
-          }'
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/NeMo-FW-CI-templates
+          ref: v0.5.0
+          path: send-slack-alert
 
-          curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ secrets.SLACK_RELEASE_ENDPOINT }} 
+      - name: Send Slack alert
+        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        with:
+          message: >
+            We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library_name }}` 🚀✨🎉
+
+            PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+          webhook: ${{ env.SLACK_WEBHOOK }}

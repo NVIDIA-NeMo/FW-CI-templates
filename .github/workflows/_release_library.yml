@@ -66,7 +66,7 @@ jobs:
   build-test-publish-wheel:
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.9.2
     with:
-      dry-run: false
+      dry-run: true # false
       build-ref: ${{ inputs.release-ref }}
       image-name: ${{ inputs.image-name }}
       build-args: ${{ inputs.build-args }}
@@ -75,7 +75,7 @@ jobs:
       prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
       python-package: ${{ inputs.python-package }}
       container-workdir: ${{ inputs.container-workdir }}
-      environment: main
+      environment: public # main
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

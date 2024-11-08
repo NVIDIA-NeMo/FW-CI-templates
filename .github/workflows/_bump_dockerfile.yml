@@ -57,6 +57,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           token: ${{ secrets.PAT }}
+          ref: ${{ inputs.base-branch }}
 
       - name: Bump Dockerfile
         run: |

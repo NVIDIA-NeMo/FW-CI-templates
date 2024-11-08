@@ -62,7 +62,7 @@ on:
       TWINE_PASSWORD:
         required: true
       SLACK_WEBHOOK_ADMIN:
-        required: true
+        required: false
       SLACK_WEBHOOK:
         required: false
     outputs:

@@ -64,7 +64,7 @@ on:
       SLACK_WEBHOOK_ADMIN:
         required: true
       SLACK_WEBHOOK:
-        required: true
+        required: false
     outputs:
       version:
         description: NeMo library version
@@ -193,7 +193,7 @@ jobs:
 
   notify:
     runs-on: ubuntu-latest
-    if: failure()
+    if: failure() && inputs.dry-run == 'true'
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

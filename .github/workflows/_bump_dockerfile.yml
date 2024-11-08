@@ -82,5 +82,5 @@ jobs:
             🙏 Please merge this PR only if the CI workflow completed successfully.
           commit-message: "[🤠]: Howdy folks, let's bump `${{ inputs.dockerfile }}` to ${{ steps.ref.outputs.short_sha }} !"
           signoff: true
-          reviewers: ${{ input.pr-reviewers }}
+          reviewers: ${{ inputs.pr-reviewers }}
           labels: '${{ inputs.cicd-label }}'

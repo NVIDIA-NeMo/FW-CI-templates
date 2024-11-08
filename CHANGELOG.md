@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.10.0...v0.11.0) (2024-11-08)
+
+
+### Features
+
+* Automation to bump dockerfile ([#45](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/45)) ([2999ca8](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2999ca84333bb6bb948bc3635c26bc25229897ac))
+
 ## [0.10.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.9.2...v0.10.0) (2024-11-08)
 
 

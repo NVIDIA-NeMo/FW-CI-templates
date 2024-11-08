@@ -32,10 +32,9 @@ on:
         required: true
 
 jobs:
-  bump-megatron:
+  bump-dockerfile:
     runs-on: ubuntu-latest
     environment: main
-    if: inputs.bump-megatron
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v4

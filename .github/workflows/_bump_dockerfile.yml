@@ -1,0 +1,94 @@
+# Regularly updates the CI container
+name: Bump dockerfile
+on:
+  workflow_call:
+    inputs:
+      source-repository:
+        type: string
+        required: true
+      source-ref: 
+        type: string
+        required: false
+        default: main
+      build-arg:
+        type: string
+        required: true
+      dockerfile:
+        type: string
+        required: true
+      base-branch:
+        type: string
+        required: false
+        default: main
+      cicd-label:
+        type: string
+        required: false
+        default: Run CICD
+      pr-reviewers:
+        type: string
+        required: false
+    secrets:
+      PAT:
+        required: true
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  bump-dockerfile:
+    runs-on: ubuntu-latest
+    environment: main
+    steps:
+      - name: Checkout ${{ inputs.source-repository }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source-repository }}
+          ref: ${{ inputs.source-ref }}
+          path: ${{ github.run_id }}
+
+      - name: Get latest source commit
+        id: ref
+        run: |
+          cd ${{ github.run_id }}      
+          sha=$(git rev-parse HEAD)
+          repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha:0:7}" | tee -a "$GITHUB_OUTPUT"
+          echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
+          echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Checkout ${{ github.repository }}
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          token: ${{ secrets.PAT }}
+          ref: ${{ inputs.base-branch }}
+
+      - name: Bump Dockerfile
+        run: |
+          cd ${{ github.run_id }}     
+          sed -i 's/^ARG ${{ inputs.build-arg }}=.*$/ARG ${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}/' ${{ inputs.dockerfile }}
+
+      - name: Create Bump PR
+        uses: peter-evans/create-pull-request@v6
+        id: create-pull-request
+        env:
+          title: 'chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
+        with:
+          path: ${{ github.run_id }}
+          branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
+          base: ${{ inputs.base-branch }}
+          title: ${{ env.title }}
+          token: ${{ secrets.PAT }}
+          body: |
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.dockerfile }}` to `${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}`.  
+
+            📝 Please remember the following to-do's before merge: 
+            - [ ] Verify the presubmit CI  
+
+            🙏 Please merge this PR only if the CI workflow completed successfully.
+          commit-message: ${{ env.title }}
+          signoff: true
+          reviewers: ${{ inputs.pr-reviewers }}
+          labels: '${{ inputs.cicd-label }}'

@@ -83,8 +83,8 @@ jobs:
   create-gh-release:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
-    environment: 
-      name: main
+    # environment: 
+      # name: main
     env:
       REPOSITORY: ${{ github.repository }}
       PROJECT_NAME: ${{ inputs.library-name }}
@@ -128,7 +128,7 @@ jobs:
                       }'
                   )
 
-          curl -L \
+          echo curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PAT }}" \

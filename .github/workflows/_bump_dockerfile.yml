@@ -67,11 +67,13 @@ jobs:
       - name: Create Bump PR
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
+        env:
+          title: 'beep boop 🤖: Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
         with:
           path: ${{ github.run_id }}
           branch: bump-ci-container--${{ inputs.source-ref }}-${{ steps.ref.outputs.date }}
           base: ${{ inputs.base-branch }}
-          title: 'beep boop 🤖: Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
+          title: ${{ env.title }}
           token: ${{ secrets.PAT }}
           body: |
             🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.dockerfile }}` to `${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}`.  
@@ -80,7 +82,7 @@ jobs:
             - [ ] Verify the presubmit CI  
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
-          commit-message: "[🤠]: Howdy folks, let's bump `${{ inputs.dockerfile }}` to ${{ steps.ref.outputs.short_sha }} !"
+          commit-message: ${{ env.title }}
           signoff: true
           reviewers: ${{ inputs.pr-reviewers }}
           labels: '${{ inputs.cicd-label }}'

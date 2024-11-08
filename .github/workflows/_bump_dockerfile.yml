@@ -68,7 +68,7 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
         env:
-          title: 'beep boop 🤖: Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
+          title: 'chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
         with:
           path: ${{ github.run_id }}
           branch: bump-ci-container--${{ inputs.source-ref }}-${{ steps.ref.outputs.date }}

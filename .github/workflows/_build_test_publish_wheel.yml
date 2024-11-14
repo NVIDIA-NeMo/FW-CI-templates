@@ -26,11 +26,11 @@ on:
         description: Upload to PyPy Test instance
         type: boolean
         default: true
-      image-name: 
+      image-name:
         required: true
         description: Name of image to build & push
         type: string
-      build-args: 
+      build-args:
         required: false
         description: Additional build args to use
         type: string
@@ -72,14 +72,14 @@ on:
       pypi-name:
         description: NeMo library name on PyPi
         value: ${{ jobs.build-wheel.outputs.name }}
-      
+
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
   build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.8.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.12.2
     with:
       build-ref: ${{ inputs.build-ref }}
       image-name: ${{ inputs.image-name }}
@@ -132,7 +132,7 @@ jobs:
 
           ls -al ${{ inputs.container-workdir }}/dist/
 
-      - name: Upload wheel 
+      - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
@@ -152,7 +152,7 @@ jobs:
         with:
           name: pip-wheel-${{ github.run_id }}
           path: dist/${{ github.run_id }}/
-          
+
       - name: Install wheel
         run: |
           cd dist/${{ github.run_id }}/
@@ -162,24 +162,24 @@ jobs:
           pip install *.whl
 
           INSTALLED_VERSION=$(python -c "import $PYPROJECT_NAME; print($PYPROJECT_NAME.__version__)")
-          
+
           if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
             echo 'Wheel has an outdated version, mission abort immediately!'
             exit 1
-          fi        
+          fi
 
   publish-wheel:
     needs: test-wheel
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: ${{ inputs.environment }}
-    steps:  
+    steps:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
           path: dist/
-      
+
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
@@ -197,7 +197,7 @@ jobs:
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
+      SLACK_WEBHOOK_ADMIN: '<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>'
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
       COMMIT_SHA: ${{ github.sha }}

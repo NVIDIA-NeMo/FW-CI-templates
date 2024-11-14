@@ -16,13 +16,13 @@ name: "Code freeze"
 on:
   workflow_call:
     inputs:
-      library_name:
+      library-name:
         type: string
         description: Name of Nemo library
-      python_package:
+      python-package:
         type: string
         description: Name of Python package
-      type_of_release:
+      release-type:
         type: string
         description: Type of release (major|minor)
     secrets:
@@ -58,9 +58,10 @@ jobs:
         run: |
           cd ${{ github.run_id }}
                     
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python_package }}/package_info.py
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^DEV/c\DEV = ''" ${{ inputs.python-package }}/package_info.py
 
-          VERSION=$(python -c 'import ${{ inputs.python_package }}; print(${{ inputs.python_package }}.__version__)')
+          VERSION=$(python -c 'import ${{ inputs.python-package }}; print(${{ inputs.python-package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
           echo git switch --force-create $VERSION origin/main
@@ -82,26 +83,28 @@ jobs:
         id: bump-version
         run: |
           cd ${{ github.run_id }}
-          PRE_RELEASE=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
-          MAJOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          PATCH=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
-
-          if [[ "${{ inputs.type_of_release }}" == "major" ]]; then
+          MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
+          MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+          
+          if [[ "${{ inputs.release-type }}" == "major" ]]; then
             NEXT_MAJOR=$(( MAJOR + 1))
             NEXT_MINOR=0
-            NEXT_PRE_RELEASE=rc0
           else
             NEXT_MAJOR=$MAJOR
             NEXT_MINOR=$(( MINOR + 1))
-            NEXT_PRE_RELEASE=rc0
           fi
+          
+          NEXT_PATCH=0
+          NEXT_PRERELEASE=rc0
+          NEXT_DEV=dev0
 
-          sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" ${{ inputs.python_package }}/package_info.py
-          sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" ${{ inputs.python_package }}/package_info.py
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRE_RELEASE'" ${{ inputs.python_package }}/package_info.py
+          sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^DEV/c\DEV = '$NEXT_DEV'" ${{ inputs.python-package }}/package_info.py
 
-          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$PATCH$NEXT_PRE_RELEASE" | tee -a "$GITHUB_OUTPUT"
+          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@v6
@@ -111,8 +114,8 @@ jobs:
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
           title: 'Version bump to `${{ steps.bump-version.outputs.version }}`'
           body: |
-            🚀 Version bump ${{ inputs.library_name }} to `${{ steps.bump-version.outputs.version }}`
-          commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.library_name }} to `${{ steps.bump-version.outputs.version }}` !"
+            🚀 Version bump ${{ inputs.library-name }} to `${{ steps.bump-version.outputs.version }}`
+          commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.library-name }} to `${{ steps.bump-version.outputs.version }}` !"
           signoff: true
           assignees: okoenig
 
@@ -136,7 +139,7 @@ jobs:
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         with:
           message: >
-            We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library_name }}` 🚀✨🎉
+            We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
 
             PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
           webhook: ${{ env.SLACK_WEBHOOK }}

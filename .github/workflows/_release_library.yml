@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: "Release"
+name: 'Release'
 
 defaults:
   run:
@@ -24,11 +24,11 @@ on:
         required: true
         description: Ref (SHA or branch) to release
         type: string
-      image-name: 
+      image-name:
         required: true
         description: Name of image to build & push
         type: string
-      build-args: 
+      build-args:
         required: false
         description: Additional build args to use
         type: string
@@ -62,7 +62,7 @@ on:
       SLACK_RELEASE_ENDPOINT:
         required: true
 
-jobs: 
+jobs:
   build-test-publish-wheel:
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.9.2
     with:
@@ -79,11 +79,11 @@ jobs:
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      
+
   create-gh-release:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: main
     outputs:
       is-prerelease: ${{ steps.version-number.outputs.is-prerelease }}
@@ -96,12 +96,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
+          ref: ${{ inputs.release-ref }}
 
       - name: Create release
         id: version-number
         run: |
           cd ${{ github.run_id }}
-          
+
           IS_PRERELEASE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
           NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 
@@ -209,7 +210,7 @@ jobs:
 
             • <${{ env.GH_URL }}|GitHub release>
             • <${{ env.PYPI_URL }}|PyPi release>
-            
+
         with:
           message: ${{ env.MESSAGE }}
           webhook: ${{ env.SLACK_WEBHOOK }}

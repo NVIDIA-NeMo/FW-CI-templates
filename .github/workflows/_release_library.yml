@@ -157,16 +157,16 @@ jobs:
         id: bump-version
         run: |
           cd ${{ github.run_id }}
-          MAJOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          PATCH=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
-          PRERELEASE=$(cat ${{ inputs.python_package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+          MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
+          MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+          PATCH=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
+          PRERELEASE=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
           NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
           NEXT_DEV=dev0
 
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" ${{ inputs.python_package }}/package_info.py
-          sed -i "/^DEV/c\DEV = '$NEXT_DEV'" ${{ inputs.python_package }}/package_info.py
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^DEV/c\DEV = '$NEXT_DEV'" ${{ inputs.python-package }}/package_info.py
 
           echo "version=$MAJOR.$MINOR.$PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 

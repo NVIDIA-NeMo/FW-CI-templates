@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.11.0...v0.12.0) (2024-11-14)
+
+
+### Features
+
+* Add `devN` to semver ([#47](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/47)) ([bed4ef2](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/bed4ef238f9feb71a6c7e6471ceec75894203765))
+
 ## [0.11.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.10.0...v0.11.0) (2024-11-08)
 
 

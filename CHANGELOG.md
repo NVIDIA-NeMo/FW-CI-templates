@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.12.0...v0.12.1) (2024-11-14)
+
+
+### Bug Fixes
+
+* Use `release-ref` for GH release ([#49](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/49)) ([617a29d](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/617a29d8e7b3bb4c6f56a081a07c9f284d8c5a93))
+
 ## [0.12.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.11.0...v0.12.0) (2024-11-14)
 
 

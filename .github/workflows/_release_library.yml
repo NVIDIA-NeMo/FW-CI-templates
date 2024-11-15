@@ -127,7 +127,7 @@ jobs:
                       --arg CI_COMMIT_BRANCH "$SHA" \
                       --arg NAME "$NAME" \
                       --arg BODY "$CHANGELOG" \
-                      --arg PRERELEASE "$IS_PRERELEASE" \
+                      --argjson PRERELEASE "$IS_PRERELEASE" \
                       '{
                         "tag_name": $TAG_NAME,
                         "target_commitish": $CI_COMMIT_BRANCH,
@@ -191,7 +191,7 @@ jobs:
           assignees: okoenig
 
   notify:
-    needs: [build-test-publish-wheel, create-gh-release, bump-next-version]
+    needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
     environment: main
     env:

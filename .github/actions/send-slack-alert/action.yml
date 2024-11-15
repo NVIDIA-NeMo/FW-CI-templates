@@ -9,12 +9,15 @@ inputs:
     required: true
 
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Send Slack alert
       shell: bash -x -e -u -o pipefail {0}
+      env:
+        MESSAGE: ${{ inputs.message }}
+        WEBHOOK: ${{ inputs.webhook }}
       run: |
-        MESSAGE=$(jq -cn --arg message "beep boop 🤖: ${{ inputs.message }}" '{
+        MESSAGE=$(jq -cn --arg message "beep boop 🤖: $MESSAGE" '{
           "blocks": [
             {
               "type": "section",
@@ -26,4 +29,4 @@ runs:
           ]
         }')
 
-        curl -X POST -H "Content-type: application/json" --data "$MESSAGE" ${{ inputs.webhook }}
+        curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $WEBHOOK

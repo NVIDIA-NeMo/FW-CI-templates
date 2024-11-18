@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.12.3...v0.13.0) (2024-11-18)
+
+
+### Features
+
+* Add `semantic-pr` ([#58](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/58)) ([038858a](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/038858a6b0ea67cf06419720b4fa59ea099ca089))
+
 ## [0.12.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.12.2...v0.12.3) (2024-11-15)
 
 

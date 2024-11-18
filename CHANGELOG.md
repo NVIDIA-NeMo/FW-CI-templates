@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.13.0...v0.14.0) (2024-11-18)
+
+
+### Features
+
+* Enable other file types (format) copyright checks ([#57](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/57)) ([5920070](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/5920070b61a591f79484ac53181e8a26e777ab3a))
+
 ## [0.13.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.12.3...v0.13.0) (2024-11-18)
 
 

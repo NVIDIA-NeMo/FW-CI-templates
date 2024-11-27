@@ -81,7 +81,7 @@ jobs:
         env:
           IS_DRY_RUN: ${{ inputs.dry-run }}
         run: |
-          if [[ "$IS_DRY_RUN" == "true" ]];
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
             ENVIRONMENT=public
           else
             ENVIRONMENT=main

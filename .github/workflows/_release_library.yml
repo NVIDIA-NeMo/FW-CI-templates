@@ -245,9 +245,9 @@ jobs:
           IS_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           if [[ "$IS_DRY_RUN" == "true" ]]; then
-            SLACK_CHANNEL=${{ secrets.SLACK_RELEASE_ENDPOINT }}
-          else
             SLACK_CHANNEL=${{ secrets.SLACK_WEBHOOK }}
+          else
+            SLACK_CHANNEL=${{ secrets.SLACK_RELEASE_ENDPOINT }}
           fi
 
           echo "main=$SLACK_CHANNEL" | tee -a "$GITHUB_OUTPUT"

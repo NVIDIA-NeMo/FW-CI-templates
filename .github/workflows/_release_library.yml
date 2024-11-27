@@ -54,6 +54,10 @@ on:
       library-name:
         type: string
         description: Name of Nemo library
+      dry-run:
+        type: boolean
+        required: true
+        description: Do not publish a wheel and GitHub release.
     secrets:
       TWINE_USERNAME:
         required: true
@@ -61,14 +65,35 @@ on:
         required: true
       SLACK_RELEASE_ENDPOINT:
         required: true
+      SLACK_WEBHOOK:
+        required: true
       PAT:
         required: true
 
 jobs:
+  select-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.environment.outputs.main }}
+    steps:
+      - name: main
+        id: environment
+        env:
+          IS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            ENVIRONMENT=public
+          else
+            ENVIRONMENT=main
+          fi
+
+          echo "main=$ENVIRONMENT" | tee -a "$GITHUB_OUTPUT"
+
   build-test-publish-wheel:
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.12.2
+    needs: [select-environment]
     with:
-      dry-run: false
+      dry-run: ${{ inputs.dry-run }}
       build-ref: ${{ inputs.release-ref }}
       image-name: ${{ inputs.image-name }}
       build-args: ${{ inputs.build-args }}
@@ -77,16 +102,16 @@ jobs:
       prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
       python-package: ${{ inputs.python-package }}
       container-workdir: ${{ inputs.container-workdir }}
-      environment: main
+      environment: ${{ needs.select-environment.outputs.env }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
 
   create-gh-release:
-    needs: [build-test-publish-wheel]
+    needs: [build-test-publish-wheel, select-environment]
     runs-on: ubuntu-latest
     environment:
-      name: main
+      name: ${{ needs.select-environment.outputs.env }}
     outputs:
       is-prerelease: ${{ steps.version-number.outputs.is-prerelease }}
     env:
@@ -99,13 +124,14 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.release-ref }}
-          token: ${{ secrets.PAT }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Create release
         id: version-number
         env:
           SHA: ${{ inputs.release-ref }}
           GH_TOKEN: ${{ secrets.PAT }}
+          IS_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           cd ${{ github.run_id }}
 
@@ -139,13 +165,19 @@ jobs:
                       }'
                   )
 
-          curl -L \
+          CMD=$(echo 'curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Authorization: Bearer '"$GH_TOKEN"'" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/$REPOSITORY/releases \
-            -d "$PAYLOAD"
+            -d "'"$PAYLOAD"'"')
+
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            echo "$CMD"
+          else
+            eval "$CMD"
+          fi
 
   bump-next-version:
     runs-on: ubuntu-latest
@@ -191,13 +223,12 @@ jobs:
           assignees: okoenig
 
   notify:
-    needs: [build-test-publish-wheel, create-gh-release]
+    needs: [build-test-publish-wheel, create-gh-release, select-environment]
     runs-on: ubuntu-latest
-    environment: main
+    environment: ${{ needs.select-environment.outputs.env }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
-      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       PROJECT_NAME: ${{ inputs.library-name }}
       VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
     steps:
@@ -207,6 +238,19 @@ jobs:
           repository: NVIDIA/NeMo-FW-CI-templates
           ref: v0.5.0
           path: send-slack-alert
+
+      - name: Select Slack channel
+        id: slack-channel
+        env:
+          IS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            SLACK_CHANNEL=${{ secrets.SLACK_WEBHOOK }}
+          else
+            SLACK_CHANNEL=${{ secrets.SLACK_RELEASE_ENDPOINT }}
+          fi
+
+          echo "main=$SLACK_CHANNEL" | tee -a "$GITHUB_OUTPUT"
 
       - name: Send Slack alert
         uses: ./send-slack-alert/.github/actions/send-slack-alert
@@ -219,4 +263,4 @@ jobs:
 
         with:
           message: ${{ env.MESSAGE }}
-          webhook: ${{ env.SLACK_WEBHOOK }}
+          webhook: ${{ steps.slack-channel.outputs.main }}

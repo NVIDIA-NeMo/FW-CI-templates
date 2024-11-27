@@ -71,8 +71,27 @@ on:
         required: true
 
 jobs:
+  select-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.environment.outputs.main }}
+    steps:
+      - name: main
+        id: environment
+        env:
+          IS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [[ "$IS_DRY_RUN" == "true" ]];
+            ENVIRONMENT=public
+          else
+            ENVIRONMENT=main
+          fi
+
+          echo "main=$ENVIRONMENT" | tee -a "$GITHUB_OUTPUT"
+
   build-test-publish-wheel:
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.12.2
+    needs: [select-environment]
     with:
       dry-run: ${{ inputs.dry-run }}
       build-ref: ${{ inputs.release-ref }}
@@ -83,16 +102,16 @@ jobs:
       prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
       python-package: ${{ inputs.python-package }}
       container-workdir: ${{ inputs.container-workdir }}
-      environment: main
+      environment: ${{ needs.select-environment.outputs.env }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
 
   create-gh-release:
-    needs: [build-test-publish-wheel]
+    needs: [build-test-publish-wheel, select-environment]
     runs-on: ubuntu-latest
     environment:
-      name: main
+      name: ${{ needs.select-environment.outputs.env }}
     outputs:
       is-prerelease: ${{ steps.version-number.outputs.is-prerelease }}
     env:
@@ -204,9 +223,9 @@ jobs:
           assignees: okoenig
 
   notify:
-    needs: [build-test-publish-wheel, create-gh-release]
+    needs: [build-test-publish-wheel, create-gh-release, select-environment]
     runs-on: ubuntu-latest
-    environment: main
+    environment: ${{ needs.select-environment.outputs.env }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/

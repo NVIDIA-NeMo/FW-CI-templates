@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.14.0...v0.15.0) (2024-11-27)
+
+
+### Features
+
+* Allow dry-run of release ([#62](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/62)) ([f50e61e](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/f50e61ebb84c4b811705ebe97cc247ebe22bb591))
+
 ## [0.14.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.13.0...v0.14.0) (2024-11-18)
 
 

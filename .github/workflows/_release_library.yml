@@ -173,7 +173,7 @@ jobs:
             https://api.github.com/repos/$REPOSITORY/releases \
             -d "$PAYLOAD")
 
-          if [[ "$IS_DRY_RUN" == "yes" ]]; then
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
             echo "$CMD"
           else
             eval "$CMD"

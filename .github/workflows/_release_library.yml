@@ -124,7 +124,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.release-ref }}
-          token: ${{ secrets.PAT | secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Create release
         id: version-number

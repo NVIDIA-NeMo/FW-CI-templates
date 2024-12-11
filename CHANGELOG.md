@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.2...v0.17.3) (2024-12-11)
+
+
+### Bug Fixes
+
+* Branch name ([#74](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/74)) ([6e205ab](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/6e205abef2bb98812f4ff89a5ef7fd6e56349d85))
+
 ## [0.17.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.1...v0.17.2) (2024-12-11)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.16.0...v0.17.0) (2024-12-11)
+
+
+### Features
+
+* Remove actor barrier ([#68](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/68)) ([c83c6c7](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/c83c6c7e43d5a4927ab7520a258fa19f8539b51d))
+
 ## [0.16.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.15.1...v0.16.0) (2024-12-11)
 
 

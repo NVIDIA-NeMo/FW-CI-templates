@@ -67,7 +67,7 @@ jobs:
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
           echo git switch --force-create r$VERSION origin/main
-          echo git push -u origin $VERSION --force
+          echo git push -u origin r$VERSION --force
 
   bump-next-version:
     runs-on: ubuntu-latest

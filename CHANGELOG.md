@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.0...v0.17.1) (2024-12-11)
+
+
+### Bug Fixes
+
+* Bump version of Slack ([#70](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/70)) ([8516287](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/8516287e5022ca1a8e1e0754d842bb6d81b0d0d7))
+
 ## [0.17.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.16.0...v0.17.0) (2024-12-11)
 
 

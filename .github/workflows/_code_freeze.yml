@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: "Code freeze"
+name: 'Code freeze'
 
 on:
   workflow_call:
@@ -25,20 +25,23 @@ on:
       release-type:
         type: string
         description: Type of release (major|minor)
+      freeze-commit:
+        type: string
+        description: Commit SHA to use for cut-off
     secrets:
       SLACK_RELEASE_ENDPOINT:
         required: true
       SLACK_WEBHOOK_ADMIN:
         required: true
     outputs:
-      release-branch: 
-        description: "Released version (same as its branch name)"
+      release-branch:
+        description: 'Released version (same as its branch name)'
         value: ${{ jobs.create-release-branch.outputs.version }}
 
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
-     
+
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest
@@ -51,7 +54,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          ref: main
+          ref: ${{ inputs.freeze-commit }}
 
       - name: Get release branch ref
         id: release-branch
@@ -85,7 +88,7 @@ jobs:
           cd ${{ github.run_id }}
           MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
           MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          
+
           if [[ "${{ inputs.release-type }}" == "major" ]]; then
             NEXT_MAJOR=$(( MAJOR + 1))
             NEXT_MINOR=0
@@ -93,7 +96,7 @@ jobs:
             NEXT_MAJOR=$MAJOR
             NEXT_MINOR=$(( MINOR + 1))
           fi
-          
+
           NEXT_PATCH=0
           NEXT_PRERELEASE=rc0
           NEXT_DEV=dev0
@@ -126,7 +129,7 @@ jobs:
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
-      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
+      SLACK_WEBHOOK_ADMIN: '<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

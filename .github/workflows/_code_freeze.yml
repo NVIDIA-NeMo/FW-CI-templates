@@ -45,7 +45,6 @@ defaults:
 jobs:
   create-release-branch:
     runs-on: ubuntu-latest
-    if: contains(fromJSON('["ko3n1g"]'), github.actor)
     outputs:
       version: ${{ steps.release-branch.outputs.version }}
     steps:

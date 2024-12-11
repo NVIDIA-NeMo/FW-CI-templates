@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.15.1...v0.16.0) (2024-12-11)
+
+
+### Features
+
+* Allow code-freeze on any commit ([#66](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/66)) ([61b1605](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/61b1605c52c9de69f545a2cc962fc9f71006d2da))
+
 ## [0.15.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.15.0...v0.15.1) (2024-12-11)
 
 

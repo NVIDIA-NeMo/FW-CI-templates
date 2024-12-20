@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.4...v0.18.0) (2024-12-20)
+
+
+### Features
+
+* Allow building without cache ([#80](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/80)) ([3356d23](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/3356d23dc2b0c5cde6653120c439c22df0c7702b))
+
 ## [0.17.4](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.3...v0.17.4) (2024-12-20)
 
 

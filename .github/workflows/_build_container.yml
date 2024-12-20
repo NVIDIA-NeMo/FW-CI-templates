@@ -103,6 +103,7 @@ jobs:
           cache-to: type=inline
           no-cache: ${{ !inputs.use-cache }}
           tags: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
+          pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
 
       - name: Update PR image

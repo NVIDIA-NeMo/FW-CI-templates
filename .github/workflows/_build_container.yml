@@ -101,6 +101,7 @@ jobs:
           cache-from: |
             ${{ env.CACHE }}
           cache-to: type=inline
+          no-cache: ${{ inputs.use-cache == 'false' }}
           tags: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
           context: ${{ github.run_id }}/
 

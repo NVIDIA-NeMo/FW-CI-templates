@@ -41,6 +41,11 @@ on:
         description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
         type: string
         default: 24h
+      use-cache:
+        required: false
+        type: boolean
+        description: 'Improve build-time by using a cache image'
+        default: true
     outputs:
       container-uri:
         description: URI of container
@@ -74,9 +79,18 @@ jobs:
           driver: docker
 
       - name: Pull cache images
+        if: ${{ inputs.use-cache == 'true' }}
         run: |
           docker pull nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }} || true
           docker pull nemoci.azurecr.io/${{ inputs.image-name }}:buildcache || true
+
+          CACHE="\
+          nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }}
+          nemoci.azurecr.io/${{ inputs.image-name }}:buildcache"
+
+          echo "CACHE<<EOF" >> $GITHUB_ENV
+          echo "$CACHE" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -85,10 +99,11 @@ jobs:
           push: true
           build-args: ${{ inputs.build-args }}
           cache-from: |
-            nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }}
-            nemoci.azurecr.io/${{ inputs.image-name }}:buildcache
+            ${{ env.CACHE }}
           cache-to: type=inline
+          no-cache: ${{ !inputs.use-cache }}
           tags: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
+          pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
 
       - name: Update PR image

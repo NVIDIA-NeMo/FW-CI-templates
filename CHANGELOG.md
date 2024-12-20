@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.4](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.3...v0.17.4) (2024-12-20)
+
+
+### Bug Fixes
+
+* Format notification message ([#79](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/79)) ([c0fc979](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/c0fc979100c81a22f49d6ded4e6801d991a50861))
+* gh release ([#77](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/77)) ([eb7b819](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/eb7b81984dbd00467540599b50df23fd0fca2de7))
+
 ## [0.17.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.17.2...v0.17.3) (2024-12-11)
 
 

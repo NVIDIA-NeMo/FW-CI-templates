@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.18.1...v0.18.2) (2024-12-21)
+
+
+### Bug Fixes
+
+* Add base branch to release workflow ([#85](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/85)) ([cfeda3a](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/cfeda3aaba3f89e3b8a4ddc5bb033c92411a90e6))
+
 ## [0.18.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.18.0...v0.18.1) (2024-12-20)
 
 

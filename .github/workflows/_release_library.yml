@@ -59,6 +59,10 @@ on:
         type: boolean
         required: true
         description: Do not publish a wheel and GitHub release.
+      version-bump-branch:
+        type: string
+        required: true
+        description: Branch to target for version bump
     secrets:
       TWINE_USERNAME:
         required: true
@@ -223,6 +227,7 @@ jobs:
           commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.library_name }} to `${{ steps.bump-version.outputs.version }}` !"
           signoff: true
           assignees: okoenig
+          base: ${{ inputs.version-bump-branch }}
 
   notify:
     needs: [build-test-publish-wheel, create-gh-release, select-environment]

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.18.2...v0.18.3) (2025-01-03)
+
+
+### Bug Fixes
+
+* Parse payload ([#87](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/87)) ([2c808e8](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2c808e8d8122eb427a0f751a121d07197c43a5ab))
+
 ## [0.18.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.18.1...v0.18.2) (2024-12-21)
 
 

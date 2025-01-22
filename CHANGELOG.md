@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.19.0...v0.19.1) (2025-01-22)
+
+
+### Bug Fixes
+
+* **bump-file:** Add label to PR ([#95](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/95)) ([a6ab06a](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/a6ab06a448def4439c22d198aff822b5ff0bc649))
+
 ## [0.19.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.18.4...v0.19.0) (2025-01-22)
 
 

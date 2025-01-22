@@ -16,43 +16,14 @@ name: Build, test, and publish a PyPi wheel
 on:
   workflow_call:
     inputs:
-      build-ref:
-        required: false
-        default: ${{ github.sha }}
-        description: Ref (branch or SHA) to build
-        type: string
       dry-run:
         required: false
         description: Upload to PyPy Test instance
         type: boolean
         default: true
-      image-name:
-        required: true
-        description: Name of image to build & push
-        type: string
-      build-args:
-        required: false
-        description: Additional build args to use
-        type: string
-      dockerfile:
-        required: true
-        description: Path to dockerfile
-        type: string
-      image-label:
-        required: false
-        description: Image label for pruning
-        type: string
-      prune-filter-timerange:
-        required: false
-        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
-        type: string
-        default: 24h
       python-package:
         type: string
         description: Name of Python package
-      container-workdir:
-        type: string
-        description: Location of Python package
       environment:
         type: string
         description: Deployment environment
@@ -78,20 +49,8 @@ defaults:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
-  build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.12.2
-    with:
-      build-ref: ${{ inputs.build-ref }}
-      image-name: ${{ inputs.image-name }}
-      dockerfile: ${{ inputs.dockerfile }}
-      image-label: ${{ inputs.image-label }}
-      build-args: ${{ inputs.build-args }}
-      prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
-
   build-wheel:
-    needs: build-container
-    runs-on: self-hosted-azure-cpu
-    container: ${{ needs.build-container.outputs.container-uri }}
+    runs-on: ubuntu-latest
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}
@@ -99,15 +58,22 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       DRY_RUN: ${{ inputs.dry-run }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+
       - name: Build wheel
         id: build
         run: |
-          cd ${{ inputs.container-workdir }}
+          cd ${{ github.run_id }}
           ls -al 
 
           if [[ "$DRY_RUN" == "true" ]]; then
             sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
           fi
+
+          pip install .
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME
@@ -130,19 +96,18 @@ jobs:
           python3 -m pip install --upgrade build 
           python3 -m build
 
-          ls -al ${{ inputs.container-workdir }}/dist/
+          ls -al ${{ github.run_id }}/dist/
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
-          path: ${{ inputs.container-workdir }}/dist/
+          path: ${{ github.run_id }}/dist/
           overwrite: true
 
   test-wheel:
     needs: build-wheel
-    runs-on: self-hosted-azure-cpu
-    container: nvcr.io/nvidia/pytorch:24.01-py3
+    runs-on: ubuntu-latest
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
@@ -224,6 +189,8 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-
+            
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
+
+
           webhook: ${{ env.SLACK_WEBHOOK }}

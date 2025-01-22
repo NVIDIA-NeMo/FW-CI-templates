@@ -1,4 +1,4 @@
-# Regularly updates the CI
+# Regularly updates the CI.
 name: Bump file
 on:
   workflow_call:

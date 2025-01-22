@@ -106,7 +106,7 @@ jobs:
           python3 -m pip install --upgrade build 
           python3 -m build
 
-          ls -al ${{ github.run_id }}/dist/
+          ls -al dist/
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4

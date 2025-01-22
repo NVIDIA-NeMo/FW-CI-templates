@@ -92,4 +92,4 @@ jobs:
           commit-message: ${{ env.title }}
           signoff: true
           reviewers: ${{ inputs.pr-reviewers }}
-          labels: '${{ inputs.cicd-label }}'
+          labels: '${{ inputs.cicd-labels }}'

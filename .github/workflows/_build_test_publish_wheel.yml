@@ -84,7 +84,7 @@ jobs:
           fi
 
           pip install --upgrade setuptools wheel build twine
-          pip install .
+          pip install --no-build-isolation .
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME

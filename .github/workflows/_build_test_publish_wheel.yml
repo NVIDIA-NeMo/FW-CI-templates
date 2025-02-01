@@ -178,7 +178,7 @@ jobs:
         run: |
           REPOSITORY=$([[ "$DRY_RUN" == "true" ]] && echo "testpypi" || echo "pypi")
 
-          python3 -m pip install --upgrade twine
+          python3 -m pip install --upgrade twine==6.0.1
           python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
 
   notify:

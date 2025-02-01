@@ -83,8 +83,7 @@ jobs:
             sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
           fi
 
-          pip install --upgrade setuptools==68.2.2 importlib-metadata==7.0.0 wheel build twine pybind11
-          pip install --no-build-isolation .
+          pip install .
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME

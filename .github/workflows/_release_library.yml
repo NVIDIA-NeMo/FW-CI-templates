@@ -25,33 +25,12 @@ on:
         required: true
         description: Ref (SHA or branch) to release
         type: string
-      image-name:
-        required: true
-        description: Name of image to build & push
-        type: string
-      build-args:
-        required: false
-        description: Additional build args to use
-        type: string
-      dockerfile:
-        required: true
-        description: Path to dockerfile
-        type: string
-      image-label:
-        required: false
-        description: Image label for pruning
-        type: string
-      prune-filter-timerange:
-        required: false
-        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
-        type: string
-        default: 24h
       python-package:
         type: string
         description: Name of Python package
-      container-workdir:
+      python-version:
         type: string
-        description: Location of Python package
+        description: Python version to use for build
       library-name:
         type: string
         description: Name of Nemo library
@@ -95,18 +74,12 @@ jobs:
           echo "main=$ENVIRONMENT" | tee -a "$GITHUB_OUTPUT"
 
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.12.2
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.20.0
     needs: [select-environment]
     with:
       dry-run: ${{ inputs.dry-run }}
-      build-ref: ${{ inputs.release-ref }}
-      image-name: ${{ inputs.image-name }}
-      build-args: ${{ inputs.build-args }}
-      dockerfile: ${{ inputs.dockerfile }}
-      image-label: ${{ inputs.image-label }}
-      prune-filter-timerange: ${{ inputs.prune-filter-timerange }}
       python-package: ${{ inputs.python-package }}
-      container-workdir: ${{ inputs.container-workdir }}
+      python-version: ${{ inputs.python-version }}
       environment: ${{ needs.select-environment.outputs.env }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}

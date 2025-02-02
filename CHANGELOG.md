@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.20.0...v0.20.1) (2025-02-02)
+
+
+### Bug Fixes
+
+* Twine in release workflow ([#98](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/98)) ([5ac6d36](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/5ac6d36b49007cb6a6d8c61785e41f4c63c70c9a))
+
 ## [0.20.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.19.1...v0.20.0) (2025-02-02)
 
 

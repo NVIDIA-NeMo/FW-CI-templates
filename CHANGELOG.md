@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.19.1...v0.20.0) (2025-02-02)
+
+
+### Features
+
+* Build wheel public infra ([#94](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/94)) ([3c6b8f9](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/3c6b8f941ee358ca69f09697b5123658803e7172))
+
 ## [0.19.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.19.0...v0.19.1) (2025-01-22)
 
 

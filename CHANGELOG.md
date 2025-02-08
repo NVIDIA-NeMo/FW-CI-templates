@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.1...v0.21.2) (2025-02-08)
+
+
+### Bug Fixes
+
+* Remove `run_id` ([#104](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/104)) ([d84582c](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/d84582cda9198fc89d0c30d2ec18643e9a61e1a0))
+
 ## [0.21.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.0...v0.21.1) (2025-02-08)
 
 

@@ -45,12 +45,10 @@ jobs:
         with:
           repository: ${{ inputs.source-repository }}
           ref: ${{ inputs.source-ref }}
-          path: ${{ github.run_id }}
 
       - name: Get latest source commit
         id: ref
         run: |
-          cd ${{ github.run_id }}      
           sha=$(git rev-parse HEAD)
           repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
@@ -61,7 +59,6 @@ jobs:
       - name: Checkout ${{ github.repository }}
         uses: actions/checkout@v4
         with:
-          path: ${{ github.run_id }}
           token: ${{ secrets.PAT }}
           ref: ${{ inputs.base-branch }}
 
@@ -80,8 +77,6 @@ jobs:
           VALUE: ${{ steps.ref.outputs.sha }}
           FILE: ${{ inputs.file }}
         run: |
-          cd ${{ github.run_id }}     
-
           ./yq 'eval(strenv(YAMLPATH)) = env(VALUE)' $FILE
 
       - name: Create Bump PR
@@ -90,7 +85,6 @@ jobs:
         env:
           title: "chore(beep boop 🤖): Bump `${{ inputs.argument }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
         with:
-          path: ${{ github.run_id }}
           branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
           base: ${{ inputs.base-branch }}
           title: ${{ env.title }}

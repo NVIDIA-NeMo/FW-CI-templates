@@ -85,14 +85,14 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
         env:
-          title: "chore(beep boop 🤖): Bump `${{ inputs.argument }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
+          title: "chore(🤖): Bump `source-repository` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
         with:
           branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
           base: ${{ inputs.base-branch }}
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ inputs.argument }}=${{ steps.ref.outputs.sha }}`.  
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ steps.ref.outputs.sha }}`.  
 
             📝 Please remember the following to-do's before merge: 
             - [ ] Verify the presubmit CI  

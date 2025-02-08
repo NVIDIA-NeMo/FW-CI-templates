@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.20.1...v0.21.0) (2025-02-08)
+
+
+### Features
+
+* Bump yaml file ([#100](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/100)) ([e1467ec](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/e1467ece5a49833dc623eeb4a425414bcac89dda))
+
 ## [0.20.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.20.0...v0.20.1) (2025-02-02)
 
 

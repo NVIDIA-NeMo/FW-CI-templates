@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.0...v0.21.1) (2025-02-08)
+
+
+### Bug Fixes
+
+* Install `yq` ([#102](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/102)) ([f50f0f8](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/f50f0f824607ce58da52653084dbc670cebb4017))
+
 ## [0.21.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.20.1...v0.21.0) (2025-02-08)
 
 

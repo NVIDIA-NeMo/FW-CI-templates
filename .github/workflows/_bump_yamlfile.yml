@@ -69,7 +69,6 @@ jobs:
         run: |
           wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY} -O yq && \
           chmod +x yq
-          wget https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64
 
       - name: Bump file
         env:
@@ -78,6 +77,9 @@ jobs:
           FILE: ${{ inputs.file }}
         run: |
           ./yq 'eval(strenv(YAMLPATH)) = env(VALUE)' $FILE
+
+      - name: Remove yq
+        run: rm yq
 
       - name: Create Bump PR
         uses: peter-evans/create-pull-request@v6

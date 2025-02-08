@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.2...v0.21.3) (2025-02-08)
+
+
+### Bug Fixes
+
+* Remove binary ([#106](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/106)) ([619801a](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/619801a2775e1fd6fd974a332a9698f7dbfe863b))
+
 ## [0.21.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.1...v0.21.2) (2025-02-08)
 
 

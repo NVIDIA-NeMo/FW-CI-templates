@@ -66,9 +66,13 @@ jobs:
           ref: ${{ inputs.base-branch }}
 
       - name: Install yq
+        env:
+          VERSION: v4.45.1
+          BINARY: yq_linux_amd64
         run: |
           wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY} -O yq && \
           chmod +x yq
+          wget https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64
 
       - name: Bump file
         env:

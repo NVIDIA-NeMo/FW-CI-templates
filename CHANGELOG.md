@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.5](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.4...v0.21.5) (2025-02-10)
+
+
+### Bug Fixes
+
+* Env var ([#110](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/110)) ([a6c82ef](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/a6c82ef02f306f36e6ab7485acca28ff2c08ca18))
+
 ## [0.21.4](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.3...v0.21.4) (2025-02-10)
 
 

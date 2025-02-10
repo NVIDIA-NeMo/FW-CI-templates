@@ -72,7 +72,7 @@ jobs:
 
       - name: Bump file
         env:
-          PATH: ${{ inputs.yaml-path }}
+          YAMLPATH: ${{ inputs.yaml-path }}
           VALUE: ${{ steps.ref.outputs.sha }}
           FILE: ${{ inputs.file }}
         run: |

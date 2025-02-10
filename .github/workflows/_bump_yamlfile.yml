@@ -76,7 +76,7 @@ jobs:
           VALUE: ${{ steps.ref.outputs.sha }}
           FILE: ${{ inputs.file }}
         run: |
-          ./yq 'eval(strenv(YAMLPATH)) = env(VALUE)' $FILE
+          ./yq -i 'eval(strenv(YAMLPATH)) = env(VALUE)' $FILE
 
       - name: Remove yq
         run: rm yq

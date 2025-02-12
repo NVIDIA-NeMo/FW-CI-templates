@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.6](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.5...v0.21.6) (2025-02-12)
+
+
+### Bug Fixes
+
+* Code-freeze ([fda9e7e](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/fda9e7e1958b096537fb0a5a77702b23183e3613))
+
 ## [0.21.5](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.4...v0.21.5) (2025-02-10)
 
 

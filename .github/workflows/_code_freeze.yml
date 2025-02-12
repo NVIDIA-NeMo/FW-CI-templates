@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: 'Code freeze'
+name: "Code freeze"
 
 on:
   workflow_call:
@@ -35,7 +35,7 @@ on:
         required: true
     outputs:
       release-branch:
-        description: 'Released version (same as its branch name)'
+        description: "Released version (same as its branch name)"
         value: ${{ jobs.create-release-branch.outputs.version }}
 
 defaults:
@@ -66,8 +66,8 @@ jobs:
           VERSION=$(python -c 'import ${{ inputs.python-package }}; print(${{ inputs.python-package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
-          echo git switch --force-create r$VERSION origin/main
-          echo git push -u origin r$VERSION --force
+          git switch --force-create r$VERSION origin/main
+          git push -u origin r$VERSION --force
 
   bump-next-version:
     runs-on: ubuntu-latest
@@ -114,7 +114,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
-          title: 'Version bump to `${{ steps.bump-version.outputs.version }}`'
+          title: "Version bump to `${{ steps.bump-version.outputs.version }}`"
           body: |
             🚀 Version bump ${{ inputs.library-name }} to `${{ steps.bump-version.outputs.version }}`
           commit-message: "[🤖]: Howdy folks, let's bump ${{ inputs.library-name }} to `${{ steps.bump-version.outputs.version }}` !"
@@ -128,7 +128,7 @@ jobs:
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
-      SLACK_WEBHOOK_ADMIN: '<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>'
+      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,6 +142,7 @@ jobs:
         with:
           message: >
             We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
-
+            
             PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+
           webhook: ${{ env.SLACK_WEBHOOK }}

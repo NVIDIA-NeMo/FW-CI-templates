@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.6...v0.22.0) (2025-02-17)
+
+
+### Features
+
+* Code freeze dry run ([#114](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/114)) ([7895abe](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/7895abed04480588b1d85c1bed143ec9b0f65316))
+
 ## [0.21.6](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.5...v0.21.6) (2025-02-12)
 
 

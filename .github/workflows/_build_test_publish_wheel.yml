@@ -30,7 +30,7 @@ on:
         default: 3.10
         required: false
       ref:
-        required: true
+        required: false
         description: Ref (SHA or branch) to release
         type: string
         default: ${{ github.sha }}

@@ -137,7 +137,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-release-branch, bump-next-version]
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    if: ${{ inputs.dry-run != true }}
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}

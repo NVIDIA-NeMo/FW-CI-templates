@@ -153,7 +153,7 @@ jobs:
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         with:
           message: >
-            We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
+            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
             
             PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
 

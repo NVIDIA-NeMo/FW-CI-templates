@@ -24,9 +24,6 @@ on:
       python-package:
         type: string
         description: Name of Python package
-      environment:
-        type: string
-        description: Deployment environment
       python-version:
         type: string
         description: Python version
@@ -36,6 +33,7 @@ on:
         required: true
         description: Ref (SHA or branch) to release
         type: string
+        default: ${{ github.sha }}
     secrets:
       TWINE_USERNAME:
         required: true

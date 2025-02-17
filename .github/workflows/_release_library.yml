@@ -74,7 +74,7 @@ jobs:
           echo "main=$ENVIRONMENT" | tee -a "$GITHUB_OUTPUT"
 
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.20.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@ko3n1g/fix/release-ref
     needs: [select-environment]
     with:
       dry-run: ${{ inputs.dry-run }}

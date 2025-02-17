@@ -55,42 +55,22 @@ on:
         required: true
 
 jobs:
-  select-environment:
-    runs-on: ubuntu-latest
-    outputs:
-      env: ${{ steps.environment.outputs.main }}
-    steps:
-      - name: main
-        id: environment
-        env:
-          IS_DRY_RUN: ${{ inputs.dry-run }}
-        run: |
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            ENVIRONMENT=public
-          else
-            ENVIRONMENT=main
-          fi
-
-          echo "main=$ENVIRONMENT" | tee -a "$GITHUB_OUTPUT"
-
   build-test-publish-wheel:
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@ko3n1g/fix/release-ref
-    needs: [select-environment]
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
-      environment: ${{ needs.select-environment.outputs.env }}
+      environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
       ref: ${{ inputs.release-ref }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
 
   create-gh-release:
-    needs: [build-test-publish-wheel, select-environment]
+    needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ needs.select-environment.outputs.env }}
+    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     outputs:
       is-prerelease: ${{ steps.version-number.outputs.is-prerelease }}
     env:
@@ -193,6 +173,7 @@ jobs:
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
+        if: ${{ inputs.dry-run == true }}
         with:
           path: ${{ github.run_id }}
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
@@ -205,9 +186,9 @@ jobs:
           base: ${{ inputs.version-bump-branch }}
 
   notify:
-    needs: [build-test-publish-wheel, create-gh-release, select-environment]
+    needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
-    environment: ${{ needs.select-environment.outputs.env }}
+    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
@@ -221,19 +202,6 @@ jobs:
           ref: v0.17.0
           path: send-slack-alert
 
-      - name: Select Slack channel
-        id: slack-channel
-        env:
-          IS_DRY_RUN: ${{ inputs.dry-run }}
-        run: |
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            SLACK_CHANNEL=${{ secrets.SLACK_WEBHOOK }}
-          else
-            SLACK_CHANNEL=${{ secrets.SLACK_RELEASE_ENDPOINT }}
-          fi
-
-          echo "main=$SLACK_CHANNEL" | tee -a "$GITHUB_OUTPUT"
-
       - name: Send Slack alert
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         env:
@@ -245,4 +213,4 @@ jobs:
 
         with:
           message: ${{ env.MESSAGE }}
-          webhook: ${{ steps.slack-channel.outputs.main }}
+          webhook: ${{ secrets.SLACK_RELEASE_ENDPOINT }}

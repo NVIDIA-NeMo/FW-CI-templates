@@ -69,9 +69,9 @@ jobs:
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python-package }}/package_info.py
           sed -i "/^DEV/c\DEV = ''" ${{ inputs.python-package }}/package_info.py
 
-          pip install -e .
+          pushd ${{ inputs.python-package }}
 
-          VERSION=$(python -c 'import ${{ inputs.python-package }}; print(${{ inputs.python-package }}.__version__)')
+          VERSION=$(python -c 'import package_info; print(package_info.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
           git switch --force-create r$VERSION origin/main

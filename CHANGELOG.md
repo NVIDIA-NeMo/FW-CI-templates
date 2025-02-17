@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.0...v0.22.1) (2025-02-17)
+
+
+### Bug Fixes
+
+* Build release-ref ([#116](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/116)) ([2b55c47](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2b55c47194546342c0c1a1b02ff8bc51ff0be451))
+
 ## [0.22.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.21.6...v0.22.0) (2025-02-17)
 
 

@@ -206,7 +206,7 @@ jobs:
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         env:
           MESSAGE: |
-            We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
+            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
 
             • <${{ env.GH_URL }}|GitHub release>
             • <${{ env.PYPI_URL }}|PyPi release>

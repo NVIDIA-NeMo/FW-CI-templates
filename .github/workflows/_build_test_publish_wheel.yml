@@ -24,18 +24,16 @@ on:
       python-package:
         type: string
         description: Name of Python package
-      environment:
-        type: string
-        description: Deployment environment
       python-version:
         type: string
         description: Python version
         default: 3.10
         required: false
       ref:
-        required: true
+        required: false
         description: Ref (SHA or branch) to release
         type: string
+        default: ${{ github.sha }}
     secrets:
       TWINE_USERNAME:
         required: true
@@ -166,9 +164,8 @@ jobs:
   publish-wheel:
     needs: test-wheel
     runs-on: ubuntu-latest
-    if: ${{ inputs.dry-run != true }}
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ inputs.dry-run && 'public' || 'main' }}
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v4
@@ -180,14 +177,15 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-          REPOSITORY: ${{ inputs.environment == 'main' && 'pypi' || 'testpypi' }}
+          REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
         run: |
           python3 -m pip install --upgrade twine==6.0.1
           python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
 
   notify:
     runs-on: ubuntu-latest
-    if: failure() && inputs.environment == 'public'
+    if: failure()
+    environment: public
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

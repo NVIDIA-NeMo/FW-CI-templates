@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.2...v0.22.3) (2025-02-17)
+
+
+### Bug Fixes
+
+* Flow of build wheel workflow ([#120](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/120)) ([124fcf8](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/124fcf83f72084441dbd37ed4788161f34464668))
+
 ## [0.22.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.1...v0.22.2) (2025-02-17)
 
 

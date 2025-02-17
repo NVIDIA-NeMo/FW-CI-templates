@@ -47,7 +47,7 @@ on:
         required: true
       TWINE_PASSWORD:
         required: true
-      SLACK_RELEASE_ENDPOINT:
+      SLACK_WEBHOOK_ADMIN:
         required: true
       SLACK_WEBHOOK:
         required: true
@@ -56,16 +56,17 @@ on:
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.22.1
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.22.3
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
-      environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
       ref: ${{ inputs.release-ref }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
   create-gh-release:
     needs: [build-test-publish-wheel]

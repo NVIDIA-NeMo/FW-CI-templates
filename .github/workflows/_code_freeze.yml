@@ -28,6 +28,10 @@ on:
       freeze-commit:
         type: string
         description: Commit SHA to use for cut-off
+      dry-run:
+        type: boolean
+        description: Dry-run code-freeze
+        default: true
     secrets:
       SLACK_RELEASE_ENDPOINT:
         required: true
@@ -47,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release-branch.outputs.version }}
+    env:
+      DRY_RUN: ${{ inputs.dry-run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,11 +69,16 @@ jobs:
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" ${{ inputs.python-package }}/package_info.py
           sed -i "/^DEV/c\DEV = ''" ${{ inputs.python-package }}/package_info.py
 
+          pip install -e .
+
           VERSION=$(python -c 'import ${{ inputs.python-package }}; print(${{ inputs.python-package }}.__version__)')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
           git switch --force-create r$VERSION origin/main
-          git push -u origin r$VERSION --force
+
+          if [[ "$DRY_RUN" != "true" ]]; then
+            git push -u origin r$VERSION --force
+          fi
 
   bump-next-version:
     runs-on: ubuntu-latest
@@ -111,6 +122,7 @@ jobs:
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
+        if: ${{ inputs.dry-run != 'true' }}
         with:
           path: ${{ github.run_id }}
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
@@ -125,6 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-release-branch, bump-next-version]
     environment: main
+    if: ${{ inputs.dry-run != 'true' }}
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
@@ -144,5 +157,6 @@ jobs:
             We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
             
             PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+
 
           webhook: ${{ env.SLACK_WEBHOOK }}

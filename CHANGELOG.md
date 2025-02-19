@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.5](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.4...v0.22.5) (2025-02-19)
+
+
+### Bug Fixes
+
+* Consistent naming of secrets ([#124](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/124)) ([f86821b](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/f86821b87c07bf0666d071338d39566db5665e32))
+
 ## [0.22.4](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.3...v0.22.4) (2025-02-17)
 
 

@@ -89,12 +89,12 @@ jobs:
           pip install .
 
           cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
+          import $PYPROJECT_NAME.package_info as package_info
 
           with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
+            fh.write(package_info.__version__)
           with open("name.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__package_name__)
+            fh.write(package_info.__package_name__)
           EOF
           )
 

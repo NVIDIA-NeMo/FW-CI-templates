@@ -33,7 +33,7 @@ on:
         description: Dry-run code-freeze
         default: true
     secrets:
-      SLACK_RELEASE_ENDPOINT:
+      SLACK_WEBHOOK:
         required: true
       SLACK_WEBHOOK_ADMIN:
         required: true
@@ -138,7 +138,7 @@ jobs:
     needs: [create-release-branch, bump-next-version]
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
-      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
       SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:

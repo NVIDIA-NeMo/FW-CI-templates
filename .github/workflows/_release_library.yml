@@ -214,4 +214,4 @@ jobs:
 
         with:
           message: ${{ env.MESSAGE }}
-          webhook: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
+          webhook: ${{ secrets.SLACK_WEBHOOK }}

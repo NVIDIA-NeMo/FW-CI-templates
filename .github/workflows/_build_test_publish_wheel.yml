@@ -88,7 +88,6 @@ jobs:
 
           pip install .
 
-          pushd $PYPROJECT_NAME
           cmd=$(cat <<EOF
           import package_info
 
@@ -98,9 +97,10 @@ jobs:
             fh.write(package_info.__package_name__)
           EOF
           )
-          popd
 
+          pushd $PYPROJECT_NAME
           python -c "$cmd"
+          popd
 
           EXPECTED_VERSION=$(cat version.txt)
           NAME=$(cat name.txt | tr '_' '-')

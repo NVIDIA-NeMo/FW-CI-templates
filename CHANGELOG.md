@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.6](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.5...v0.22.6) (2025-02-19)
+
+
+### Bug Fixes
+
+* Testpypi url for dry-runs ([#126](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/126)) ([34891f2](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/34891f2cc4e81507d1223762c42e23d663282952))
+
 ## [0.22.5](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.4...v0.22.5) (2025-02-19)
 
 

@@ -100,10 +100,9 @@ jobs:
 
           pushd $PYPROJECT_NAME
           python -c "$cmd"
-          popd
-
           EXPECTED_VERSION=$(cat version.txt)
           NAME=$(cat name.txt | tr '_' '-')
+          popd
 
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"

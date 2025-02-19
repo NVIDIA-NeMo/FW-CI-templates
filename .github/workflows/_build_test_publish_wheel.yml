@@ -146,16 +146,17 @@ jobs:
           pip install *.whl
 
           cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
+          import package_info
 
           with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
+            fh.write(package_info.__version__)
           EOF
           )
 
+          pushd $PYPROJECT_NAME
           python -c "$cmd"
-
           INSTALLED_VERSION=$(cat version.txt)
+          popd
 
           if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
             echo 'Wheel has an outdated version, mission abort immediately!'

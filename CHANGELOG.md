@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.7](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.6...v0.22.7) (2025-02-24)
+
+
+### Bug Fixes
+
+* Regrex parser of cherry-pick automation ([#129](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/129)) ([3bb3dc1](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/3bb3dc1b9c595bada0b1fb13119cabf17d555cdd))
+
 ## [0.22.6](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.5...v0.22.6) (2025-02-19)
 
 

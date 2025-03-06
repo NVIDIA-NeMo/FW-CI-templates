@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.7...v0.23.0) (2025-03-06)
+
+
+### Features
+
+* Support hatch ([#131](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/131)) ([5893564](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/5893564793e828be04d15465b2ffdffd19fb3e77))
+
 ## [0.22.7](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.6...v0.22.7) (2025-02-24)
 
 

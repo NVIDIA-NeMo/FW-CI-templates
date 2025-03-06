@@ -34,6 +34,11 @@ on:
         description: Ref (SHA or branch) to release
         type: string
         default: ${{ github.sha }}
+      packaging:
+        required: false
+        description: "Packaging tool (supported: setuptools, hatch)"
+        type: string
+        default: setuptools
     secrets:
       TWINE_USERNAME:
         required: true
@@ -64,6 +69,7 @@ jobs:
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       DRY_RUN: ${{ inputs.dry-run }}
+      PACKAGING: ${{ inputs.packaging }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,11 +88,16 @@ jobs:
           cd ${{ github.run_id }}
           ls -al 
 
-          if [[ "$DRY_RUN" == "true" ]]; then
-            sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py 
-          fi
+          pip install -e .
 
-          pip install .
+          if [[ "$DRY_RUN" == "true" ]]; then
+            if [[ "$PACKAGING" == "setuptools" ]]; then
+              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py
+            else
+              RANDOM_DEV=$((RANDOM % 9000 + 1000))
+              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")             
+              hatch version $VERSION
+          fi
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME

@@ -95,6 +95,7 @@ jobs:
               sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py
             else
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
+              pip install hatch
               VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")             
               hatch version $VERSION
             fi

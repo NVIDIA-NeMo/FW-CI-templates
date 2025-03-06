@@ -97,6 +97,7 @@ jobs:
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
               VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")             
               hatch version $VERSION
+            fi
           fi
 
           cmd=$(cat <<EOF

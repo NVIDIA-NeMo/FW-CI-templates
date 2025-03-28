@@ -79,7 +79,7 @@ jobs:
           driver: docker
 
       - name: Pull cache images
-        if: ${{ inputs.use-cache == 'true' }}
+        if: ${{ inputs.use-cache == true }}
         run: |
           docker pull nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }} || true
           docker pull nemoci.azurecr.io/${{ inputs.image-name }}:buildcache || true

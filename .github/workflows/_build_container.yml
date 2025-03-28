@@ -44,7 +44,7 @@ on:
       use-cache:
         required: false
         type: boolean
-        description: 'Improve build-time by using a cache image'
+        description: "Improve build-time by using a cache image"
         default: true
     outputs:
       container-uri:
@@ -85,8 +85,8 @@ jobs:
           docker pull nemoci.azurecr.io/${{ inputs.image-name }}:buildcache || true
 
           CACHE="\
-          nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }}
-          nemoci.azurecr.io/${{ inputs.image-name }}:buildcache"
+          nemoci.azurecr.io/${{ inputs.image-name }}:buildcache
+          nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.event.pull_request.number || 'buildcache' }}"
 
           echo "CACHE<<EOF" >> $GITHUB_ENV
           echo "$CACHE" >> $GITHUB_ENV

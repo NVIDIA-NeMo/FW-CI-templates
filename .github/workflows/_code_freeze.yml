@@ -56,14 +56,14 @@ jobs:
     env:
       DRY_RUN: ${{ inputs.dry-run }}
     environment:
-      name: ${{ inputs.PAT && 'main' || 'public' }}
+      name: ${{ secrets.PAT && 'main' || 'public' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          token: ${{ inputs.PAT || github.token }}
+          token: ${{ secrets.PAT || github.token }}
           ref: ${{ inputs.freeze-commit }}
 
       - name: Get release branch ref

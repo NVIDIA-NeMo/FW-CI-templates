@@ -32,11 +32,6 @@ on:
         type: boolean
         description: Dry-run code-freeze
         default: true
-      packaging:
-        required: false
-        description: "Packaging tool (supported: setuptools, hatch)"
-        type: string
-        default: setuptools
       use-pat:
         required: false
         description: "Use PAT for checkout"

@@ -37,6 +37,8 @@ on:
         required: true
       SLACK_WEBHOOK_ADMIN:
         required: true
+      PAT:
+        required: false
     outputs:
       release-branch:
         description: "Released version (same as its branch name)"
@@ -59,6 +61,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
+          token: ${{ inputs.PAT || github.token }}
           ref: ${{ inputs.freeze-commit }}
 
       - name: Get release branch ref

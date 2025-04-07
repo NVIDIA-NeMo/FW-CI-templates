@@ -55,6 +55,8 @@ jobs:
       version: ${{ steps.release-branch.outputs.version }}
     env:
       DRY_RUN: ${{ inputs.dry-run }}
+    environment:
+      name: ${{ inputs.PAT && 'main' || 'public' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

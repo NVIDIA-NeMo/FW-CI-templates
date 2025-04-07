@@ -37,6 +37,11 @@ on:
         description: "Use PAT for checkout"
         type: boolean
         default: false
+      packaging:
+        required: false
+        description: "Packaging tool (supported: setuptools, hatch)"
+        type: string
+        default: setuptools
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -104,10 +109,15 @@ jobs:
 
       - name: Bump version
         id: bump-version
+        env:
+          PACKAGING: ${{ inputs.packaging }}
         run: |
           cd ${{ github.run_id }}
-          MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+
+          pushd ${{ inputs.python-package }}
+
+          MAJOR=$(python -c "import package_info; print(package_info.MAJOR)")
+          MINOR=$(python -c "import package_info; print(package_info.MINOR)")
 
           if [[ "${{ inputs.release-type }}" == "major" ]]; then
             NEXT_MAJOR=$(( MAJOR + 1))
@@ -121,11 +131,17 @@ jobs:
           NEXT_PRERELEASE=rc0
           NEXT_DEV=dev0
 
-          sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^DEV/c\DEV = '$NEXT_DEV'" ${{ inputs.python-package }}/package_info.py
+          if [[ "$PACKAGING" == "setuptools" ]]; then
+            sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" package_info.py
+            sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" package_info.py
+            sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" package_info.py
+            sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" package_info.py
+            sed -i "/^DEV/c\DEV = '$NEXT_DEV'" package_info.py
+          elif [[ "$PACKAGING" == "hatch" ]]; then
+            sed -i "/^__version__/c\__version__ = '$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV'" package_info.py
+          fi
+
+          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 
           echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 

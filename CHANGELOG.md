@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.23.0...v0.24.0) (2025-04-07)
+
+
+### Features
+
+* Allow PAT for code-freeze ([#134](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/134)) ([fa60306](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/fa6030653685031a0b8d77359211e568db1a5450))
+
 ## [0.23.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.22.7...v0.23.0) (2025-03-06)
 
 

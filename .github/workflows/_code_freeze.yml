@@ -143,8 +143,6 @@ jobs:
 
           echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 
-          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
-
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request

@@ -32,6 +32,16 @@ on:
         type: boolean
         description: Dry-run code-freeze
         default: true
+      packaging:
+        required: false
+        description: "Packaging tool (supported: setuptools, hatch)"
+        type: string
+        default: setuptools
+      use-pat:
+        required: false
+        description: "Use PAT for checkout"
+        type: boolean
+        default: false
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -56,14 +66,14 @@ jobs:
     env:
       DRY_RUN: ${{ inputs.dry-run }}
     environment:
-      name: ${{ secrets.PAT && 'main' || 'public' }}
+      name: ${{ inputs.PAT && 'main' || 'public' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          token: ${{ secrets.PAT || github.token }}
+          token: ${{ inputs.use-pat && secrets.PAT || github.token }}
           ref: ${{ inputs.freeze-commit }}
 
       - name: Get release branch ref

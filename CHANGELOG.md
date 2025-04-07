@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.24.1...v0.24.2) (2025-04-07)
+
+
+### Bug Fixes
+
+* Input instead secret ([#138](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/138)) ([9714040](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/97140404755d3552a47d171cf6cab3466cf53264))
+
 ## [0.24.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.24.0...v0.24.1) (2025-04-07)
 
 

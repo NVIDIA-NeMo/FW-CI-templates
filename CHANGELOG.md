@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.24.3...v0.25.0) (2025-04-07)
+
+
+### Features
+
+* Support hatchling for code-freeze ([#142](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/142)) ([aa1fecc](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/aa1fecc1f77888951c4758049cc7927d65c2db6a))
+
 ## [0.24.3](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.24.2...v0.24.3) (2025-04-07)
 
 

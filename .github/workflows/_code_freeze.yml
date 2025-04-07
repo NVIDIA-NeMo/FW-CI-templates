@@ -86,7 +86,7 @@ jobs:
 
           pushd ${{ inputs.python-package }}
 
-          VERSION=$(python -c 'import package_info; print(package_info.__version__)')
+          VERSION=$(python -c 'import package_info; print(f"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}")')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
 
           git switch --force-create r$VERSION origin/main

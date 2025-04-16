@@ -126,13 +126,16 @@ jobs:
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
-            
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
 
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME:main
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
+            echo "$CACHE_FROM" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
 
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV

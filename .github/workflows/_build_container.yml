@@ -94,12 +94,12 @@ jobs:
           driver: docker
 
       - name: No cache
-        if: ${{ inputs.use-cache == 'false' }}
+        if: ${{ inputs.use-cache == false }}
         run: |
           echo "CACHE_FROM=" >> $GITHUB_ENV
 
       - name: Configure inline cache
-        if: ${{ inputs.use-cache == 'true' && inputs.use-inline-cache == 'true' }}
+        if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
 
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
@@ -160,7 +160,7 @@ jobs:
           fi
 
       - name: Configure registry cache
-        if: ${{ inputs.use-cache == 'true' && inputs.use-inline-cache == 'false' }}
+        if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
         run: |
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true

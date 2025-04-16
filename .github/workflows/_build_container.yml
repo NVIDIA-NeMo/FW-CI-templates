@@ -91,7 +91,7 @@ jobs:
         with:
           # We use `docker` driver as this speeds things up for
           # trivial (non-multi-stage) builds.
-          driver: ${{ inputs.use-cache == true ?? 'docker' || 'docker-container' }}
+          driver: ${{ inputs.use-cache == true && 'docker' || 'docker-container' }}
 
       - name: No cache
         if: ${{ inputs.use-cache == false }}

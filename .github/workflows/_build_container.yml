@@ -182,7 +182,7 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
             
             CACHE_TO="\
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
             echo "$CACHE_TO" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -207,7 +207,7 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
             
             CACHE_TO="\
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
+            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
             echo "$CACHE_TO" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV

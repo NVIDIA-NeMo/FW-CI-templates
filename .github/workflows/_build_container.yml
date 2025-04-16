@@ -157,20 +157,74 @@ jobs:
       - name: Configure registry cache
         if: ${{ inputs.use-cache == 'true' && inputs.use-inline-cache == 'false' }}
         run: |
-          # CACHE_FROM
-          echo "CACHE_FROM=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main" >> $GITHUB_ENV
-
-          if [[ -n "$PR_NUMBER" ]]; then
-            echo "CACHE_FROM=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER" >> $GITHUB_ENV
-          fi
-
-          # CACHE_TO
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            echo "CACHE_TO=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main,mode=max" >> $GITHUB_ENV
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:main"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_FROM" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            
+            CACHE_TO="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
           elif [[ -n "$PR_NUMBER" ]]; then
-            echo "CACHE_TO=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max" >> $GITHUB_ENV
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER || true
+
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_FROM" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            
+            CACHE_TO="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
           else
-            echo "CACHE_TO=" >> $GITHUB_ENV
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+            
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_FROM" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            
+            CACHE_TO=""
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
           fi
 
       - name: Build and push
@@ -185,8 +239,6 @@ jobs:
             ${{ env.CACHE_TO }}
           no-cache: ${{ !inputs.use-cache }}
           tags: |
-            nemoci.azurecr.io/$IMAGE_NAME:${{ github.run_id }}
-            nemoci.azurecr.io/$IMAGE_NAME:${{ github.event.pull_request.number }}
-            nemoci.azurecr.io/$IMAGE_NAME:buildcache
+            ${{ env.TAGS }}
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/

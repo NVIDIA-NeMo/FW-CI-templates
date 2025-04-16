@@ -51,6 +51,11 @@ on:
         type: boolean
         description: "Use inline cache (only if use-cache is true)"
         default: true
+      runner:
+        required: false
+        type: string
+        description: "Runner to use"
+        default: self-hosted-azure-builder
     outputs:
       container-uri:
         description: URI of container
@@ -62,7 +67,7 @@ defaults:
 
 jobs:
   main:
-    runs-on: self-hosted-azure-builder
+    runs-on: ${{ inputs.runner }}
     env:
       IMAGE_NAME: ${{ inputs.image-name }}
       PR_NUMBER: ${{ github.event.pull_request.number }}

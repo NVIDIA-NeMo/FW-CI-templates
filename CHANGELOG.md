@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.25.2...v0.26.0) (2025-04-17)
+
+
+### Features
+
+* Support registry cache ([#148](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/148)) ([b6d0175](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/b6d017500881281cd81545f1631efcf5a2db1da4))
+
 ## [0.25.2](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.25.1...v0.25.2) (2025-04-08)
 
 

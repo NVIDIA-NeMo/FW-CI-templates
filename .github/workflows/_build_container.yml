@@ -166,8 +166,6 @@ jobs:
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
         run: |
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:main"
@@ -188,9 +186,6 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
           elif [[ -n "$PR_NUMBER" ]]; then
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER || true
-
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
@@ -213,8 +208,6 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
           else
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
             

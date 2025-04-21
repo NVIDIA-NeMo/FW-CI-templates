@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.26.0...v0.27.0) (2025-04-21)
+
+
+### Features
+
+* Use custom cache-from ([#150](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/150)) ([154a24d](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/154a24d89c9d9601adbbd6d91a6a075b8e6b9390))
+
 ## [0.26.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.25.2...v0.26.0) (2025-04-17)
 
 

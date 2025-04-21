@@ -56,6 +56,11 @@ on:
         type: string
         description: "Runner to use"
         default: self-hosted-azure-builder
+      cache-from:
+        required: false
+        type: string
+        description: "Cache from"
+        default: ""
     outputs:
       container-uri:
         description: URI of container
@@ -114,7 +119,11 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${TAGS}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
             
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
@@ -134,8 +143,13 @@ jobs:
             nemoci.azurecr.io/$IMAGE_NAME:main
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_FROM" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
 
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
@@ -155,7 +169,11 @@ jobs:
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_FROM" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
 
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
@@ -176,7 +194,11 @@ jobs:
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_FROM" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
             
             CACHE_TO="\
@@ -198,7 +220,11 @@ jobs:
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_FROM" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
             
             CACHE_TO="\
@@ -218,7 +244,11 @@ jobs:
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_FROM" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
             echo "EOF" >> $GITHUB_ENV
             
             CACHE_TO=""

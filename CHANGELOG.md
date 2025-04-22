@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.27.0...v0.27.1) (2025-04-22)
+
+
+### Bug Fixes
+
+* Add branch name to bump workflow ([#152](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/152)) ([74d4897](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/74d48975a7c92f30546b851b8b81a41bb150620e))
+
 ## [0.27.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.26.0...v0.27.0) (2025-04-21)
 
 

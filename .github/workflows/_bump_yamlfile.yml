@@ -87,7 +87,7 @@ jobs:
         env:
           title: "chore(🤖): Bump `${{ inputs.source-repository }}` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
         with:
-          branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
+          branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
           base: ${{ inputs.base-branch }}
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}

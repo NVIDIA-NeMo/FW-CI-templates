@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.27.1...v0.28.0) (2025-05-02)
+
+
+### Features
+
+* checkout submodules recursively before building ([#154](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/154)) ([77f4c1e](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/77f4c1ea74ad3b7ff324021c0efea8f0607c4d87))
+
 ## [0.27.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.27.0...v0.27.1) (2025-04-22)
 
 

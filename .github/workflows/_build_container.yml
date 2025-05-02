@@ -84,6 +84,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.build-ref }}
+          submodules: 'recursive'
 
       - name: Clean runner cache
         env:

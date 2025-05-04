@@ -89,6 +89,7 @@ permissions:
 jobs:
   main:
     runs-on: ${{ inputs.runner }}
+    environment: nemo-ci
     env:
       IMAGE_NAME: ${{ inputs.image-name }}
       PR_NUMBER: ${{ github.event.pull_request.number }}

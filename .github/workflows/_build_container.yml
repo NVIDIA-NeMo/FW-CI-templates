@@ -61,6 +61,11 @@ on:
         type: string
         description: "Cache from"
         default: ""
+      has-azure-credentials:
+        required: false
+        description: "Whether to use Azure credentials to login to ACR"
+        type: boolean
+        default: false
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -91,12 +96,12 @@ jobs:
       RUN_ID: ${{ github.run_id }}
     steps:
       - name: Install Azure CLI
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: ${{ inputs.has-azure-credentials }}
         run: |
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
       - name: Azure Login
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: ${{ inputs.has-azure-credentials }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -104,7 +109,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure ACR Login
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: ${{ inputs.has-azure-credentials }}
         run: |
           az acr login --name nemoci
 

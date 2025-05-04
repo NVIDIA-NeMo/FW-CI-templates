@@ -64,19 +64,10 @@ on:
     secrets:
       AZURE_CLIENT_ID:
         required: false
-        type: string
-        description: "Azure client ID"
-        default: ""
       AZURE_TENANT_ID:
         required: false
-        type: string
-        description: "Azure tenant ID"
-        default: ""
       AZURE_SUBSCRIPTION_ID:
         required: false
-        type: string
-        description: "Azure subscription ID"
-        default: ""
     outputs:
       container-uri:
         description: URI of container

@@ -139,10 +139,16 @@ jobs:
         run: |
           echo "CACHE_FROM=" >> $GITHUB_ENV
 
+      - name: Set PR_NUMBER from branch if needed
+        run: |
+          if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull_request/([0-9]+) ]]; then
+            export PR_NUMBER="${BASH_REMATCH[1]}"
+            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          fi
+
       - name: Configure inline cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
-
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
 

@@ -61,6 +61,21 @@ on:
         type: string
         description: "Cache from"
         default: ""
+      azure-client-id:
+        required: false
+        type: string
+        description: "Azure client ID"
+        default: ""
+      azure-subscription-id:
+        required: false
+        type: string
+        description: "Azure subscription ID"
+        default: ""
+      azure-tenant-id:
+        required: false
+        type: string
+        description: "Azure tenant ID"
+        default: ""
     outputs:
       container-uri:
         description: URI of container
@@ -69,6 +84,10 @@ on:
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   main:
@@ -79,6 +98,24 @@ jobs:
       GH_REF: ${{ github.ref }}
       RUN_ID: ${{ github.run_id }}
     steps:
+      - name: Install Azure CLI
+        if: ${{ inputs.azure-client-id != '' }}
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Azure Login
+        if: ${{ inputs.azure-client-id != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure ACR Login
+        if: ${{ inputs.azure-client-id != '' }}
+        run: |
+          az acr login --name nemoci
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -114,7 +151,7 @@ jobs:
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:main"
-            
+
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -126,7 +163,7 @@ jobs:
               echo "${TAGS}" >> $GITHUB_ENV
             fi
             echo "EOF" >> $GITHUB_ENV
-            
+
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
 
           elif [[ -n "$PR_NUMBER" ]]; then
@@ -144,7 +181,7 @@ jobs:
             nemoci.azurecr.io/$IMAGE_NAME:main
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
-            
+
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
               echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
@@ -160,7 +197,7 @@ jobs:
 
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
-            
+
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -201,7 +238,7 @@ jobs:
               echo "${CACHE_FROM}" >> $GITHUB_ENV
             fi
             echo "EOF" >> $GITHUB_ENV
-            
+
             CACHE_TO="\
             type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
@@ -212,7 +249,7 @@ jobs:
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
-            
+
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -227,7 +264,7 @@ jobs:
               echo "${CACHE_FROM}" >> $GITHUB_ENV
             fi
             echo "EOF" >> $GITHUB_ENV
-            
+
             CACHE_TO="\
             type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
@@ -237,7 +274,7 @@ jobs:
           else
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
-            
+
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -251,7 +288,7 @@ jobs:
               echo "${CACHE_FROM}" >> $GITHUB_ENV
             fi
             echo "EOF" >> $GITHUB_ENV
-            
+
             CACHE_TO=""
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
             echo "$CACHE_TO" >> $GITHUB_ENV

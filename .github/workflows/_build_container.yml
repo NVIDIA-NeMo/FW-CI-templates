@@ -306,10 +306,10 @@ jobs:
           set -e
 
           if [[ $EXISTS -eq 0 ]]; then
-            echo "Image $FULL_IMAGE_TAG exists in ACR. Skipping build."
+            echo "Image $IMAGE_TAG exists in ACR. Skipping build."
             echo "skip-build=true" >> $GITHUB_OUTPUT
           else
-            echo "Image $FULL_IMAGE_TAG does not exist in ACR. Proceeding with build."
+            echo "Image $IMAGE_TAG does not exist in ACR. Proceeding with build."
             echo "skip-build=false" >> $GITHUB_OUTPUT
           fi
 
@@ -330,11 +330,11 @@ jobs:
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
 
-    - name: Set container_uri
-      id: set_container_uri
-      run: |
-        if [[ -n "$IMAGE_TAG" ]]; then
-          echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
-        else
-          echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID" >> $GITHUB_OUTPUT
-        fi
+      - name: Set container_uri
+        id: set_container_uri
+        run: |
+          if [[ -n "$IMAGE_TAG" ]]; then
+            echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID" >> $GITHUB_OUTPUT
+          fi

@@ -83,10 +83,6 @@ on:
         required: false
       AZURE_SUBSCRIPTION_ID:
         required: false
-    outputs:
-      container-uri:
-        description: URI of container
-        value: ${{ steps.set_container_uri.outputs.container_uri }}
 
 defaults:
   run:
@@ -106,6 +102,8 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REF: ${{ github.ref }}
       RUN_ID: ${{ github.run_id }}
+    outputs:
+      container-uri: ${{ steps.set_container_uri.outputs.container_uri }}
     steps:
       - name: Install Azure CLI
         if: ${{ inputs.has-azure-credentials }}
@@ -184,7 +182,7 @@ jobs:
       - name: Configure inline cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
-          
+
           if [[ -n "$IMAGE_TAG" ]]; then
 
             docker pull nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG || true

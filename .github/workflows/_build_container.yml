@@ -66,6 +66,16 @@ on:
         description: "Whether to use Azure credentials to login to ACR"
         type: boolean
         default: false
+      skip-build-if-exists:
+        required: false
+        description: "Whether to skip the build and push of the image if it already exists via the full-image-tag"
+        type: boolean
+        default: false
+      image-tag:
+        required: false
+        description: "The image tag to use. Otherwise, this is generated using the run id"
+        type: string
+        default: ""
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -76,7 +86,7 @@ on:
     outputs:
       container-uri:
         description: URI of container
-        value: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
+        value: ${{ steps.set_container_uri.outputs.container_uri }}
 
 defaults:
   run:
@@ -92,6 +102,7 @@ jobs:
     environment: nemo-ci
     env:
       IMAGE_NAME: ${{ inputs.image-name }}
+      IMAGE_TAG: ${{ inputs.image-tag }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REF: ${{ github.ref }}
       RUN_ID: ${{ github.run_id }}
@@ -134,6 +145,37 @@ jobs:
           # trivial (non-multi-stage) builds.
           driver: ${{ inputs.use-inline-cache == true && 'docker' || 'docker-container' }}
 
+      - name: Set TAGS and PR_NUMBER
+        run: |
+          if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull-request/([0-9]+) ]]; then
+            export PR_NUMBER="${BASH_REMATCH[1]}"
+            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          fi
+
+          if [[ -n "$IMAGE_TAG" ]]; then
+            echo "TAGS=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_ENV
+          elif [[ "$GH_REF" == "refs/heads/main" ]]; then
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:main"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          elif [[ -n "$PR_NUMBER" ]]; then
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
       - name: No cache
         if: ${{ inputs.use-cache == false }}
         run: |
@@ -142,21 +184,9 @@ jobs:
       - name: Configure inline cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
-          if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull-request/([0-9]+) ]]; then
-            export PR_NUMBER="${BASH_REMATCH[1]}"
-            echo $PR_NUMBER
-          fi
 
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:main"
-
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
@@ -171,13 +201,6 @@ jobs:
           elif [[ -n "$PR_NUMBER" ]]; then
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
             docker pull nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER || true
-
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME:main
@@ -196,13 +219,6 @@ jobs:
 
           else
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
-
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME:main
@@ -223,18 +239,7 @@ jobs:
       - name: Configure registry cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
         run: |
-          if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull-request/([0-9]+) ]]; then
-            export PR_NUMBER="${BASH_REMATCH[1]}"
-            echo $PR_NUMBER
-          fi
-
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:main"
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
@@ -253,13 +258,6 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
           elif [[ -n "$PR_NUMBER" ]]; then
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
-
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main
@@ -279,12 +277,6 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
           else
-            TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
-
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
@@ -303,7 +295,26 @@ jobs:
 
           fi
 
+      - name: Check if build can be skipped
+        id: check_skip_build
+        if: ${{ inputs.skip-build-if-exists && inputs.image-tag != '' && inputs.has-azure-credentials }}
+        run: |
+          # Query ACR for the tag
+          set +e
+          az acr repository show-manifests --name nemoci --repository "$IMAGE_NAME" --query "[?tags[?@=='$IMAGE_TAG']]" | grep -q "$IMAGE_TAG"
+          EXISTS=$?
+          set -e
+
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $FULL_IMAGE_TAG exists in ACR. Skipping build."
+            echo "skip-build=true" >> $GITHUB_OUTPUT
+          else
+            echo "Image $FULL_IMAGE_TAG does not exist in ACR. Proceeding with build."
+            echo "skip-build=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push
+        if: ${{ steps.check_skip_build.outputs.skip-build != 'true' }}
         uses: docker/build-push-action@v5
         with:
           file: ${{ github.run_id }}/${{ inputs.dockerfile }}
@@ -318,3 +329,12 @@ jobs:
             ${{ env.TAGS }}
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
+
+    - name: Set container_uri
+      id: set_container_uri
+      run: |
+        if [[ -n "$IMAGE_TAG" ]]; then
+          echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        else
+          echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID" >> $GITHUB_OUTPUT
+        fi

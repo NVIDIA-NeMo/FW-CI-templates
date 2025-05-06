@@ -183,13 +183,7 @@ jobs:
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
 
-          if [[ -n "$IMAGE_TAG" ]]; then
-
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG || true
-            echo "CACHE_FROM=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_ENV
-            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
-
-          elif [[ "$GH_REF" == "refs/heads/main" ]]; then
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
             docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
@@ -243,12 +237,7 @@ jobs:
       - name: Configure registry cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
         run: |
-          if [[ -n "$IMAGE_TAG" ]]; then
-
-            echo "CACHE_FROM=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$IMAGE_TAG" >> $GITHUB_ENV
-            echo "CACHE_TO=type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$IMAGE_TAG,mode=max" >> $GITHUB_ENV
-
-          elif [[ "$GH_REF" == "refs/heads/main" ]]; then
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
 
             CACHE_FROM="\
             nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"

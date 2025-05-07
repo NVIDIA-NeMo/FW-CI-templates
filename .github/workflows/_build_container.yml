@@ -66,16 +66,6 @@ on:
         description: "Whether to use Azure credentials to login to ACR"
         type: boolean
         default: false
-      skip-build-if-exists:
-        required: false
-        description: "Whether to skip the build and push of the image if it already exists via the full-image-tag"
-        type: boolean
-        default: false
-      image-tag:
-        required: false
-        description: "The image tag to use. Otherwise, this is generated using the run id"
-        type: string
-        default: ""
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -83,6 +73,10 @@ on:
         required: false
       AZURE_SUBSCRIPTION_ID:
         required: false
+    outputs:
+      container-uri:
+        description: URI of container
+        value: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
 
 defaults:
   run:
@@ -150,9 +144,7 @@ jobs:
             echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
           fi
 
-          if [[ -n "$IMAGE_TAG" ]]; then
-            echo "TAGS=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_ENV
-          elif [[ "$GH_REF" == "refs/heads/main" ]]; then
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
             TAGS="\
             nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
             nemoci.azurecr.io/$IMAGE_NAME:main"
@@ -293,26 +285,7 @@ jobs:
 
           fi
 
-      - name: Check if build can be skipped
-        id: check_skip_build
-        if: ${{ inputs.skip-build-if-exists && inputs.image-tag != '' && inputs.has-azure-credentials }}
-        run: |
-          # Query ACR for the tag
-          set +e
-          az acr repository show-manifests --name nemoci --repository "$IMAGE_NAME" --query "[?tags[?@=='$IMAGE_TAG']]" | grep -q "$IMAGE_TAG"
-          EXISTS=$?
-          set -e
-
-          if [[ $EXISTS -eq 0 ]]; then
-            echo "Image $IMAGE_TAG exists in ACR. Skipping build."
-            echo "skip-build=true" >> $GITHUB_OUTPUT
-          else
-            echo "Image $IMAGE_TAG does not exist in ACR. Proceeding with build."
-            echo "skip-build=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build and push
-        if: ${{ steps.check_skip_build.outputs.skip-build != 'true' }}
         uses: docker/build-push-action@v5
         with:
           file: ${{ github.run_id }}/${{ inputs.dockerfile }}
@@ -327,12 +300,3 @@ jobs:
             ${{ env.TAGS }}
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
-
-      - name: Set container_uri
-        id: set_container_uri
-        run: |
-          if [[ -n "$IMAGE_TAG" ]]; then
-            echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "container_uri=nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID" >> $GITHUB_OUTPUT
-          fi

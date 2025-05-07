@@ -92,12 +92,9 @@ jobs:
     environment: nemo-ci
     env:
       IMAGE_NAME: ${{ inputs.image-name }}
-      IMAGE_TAG: ${{ inputs.image-tag }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REF: ${{ github.ref }}
       RUN_ID: ${{ github.run_id }}
-    outputs:
-      container-uri: ${{ steps.set_container_uri.outputs.container_uri }}
     steps:
       - name: Install Azure CLI
         if: ${{ inputs.has-azure-credentials }}

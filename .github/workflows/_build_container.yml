@@ -63,7 +63,7 @@ on:
         default: ""
       has-azure-credentials:
         required: false
-        description: "Whether to use Azure credentials to login to ACR"
+        description: "Whether to use Azure credentials to login to the Azure Container Registry"
         type: boolean
         default: false
     secrets:

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.28.0...v0.29.0) (2025-05-08)
+
+
+### Features
+
+* Update has-azure-credentials description ([#158](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/158)) ([b55ccb2](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/b55ccb21585f7f6830577af4e66b498b1edcf813))
+
 ## [0.28.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.27.1...v0.28.0) (2025-05-02)
 
 

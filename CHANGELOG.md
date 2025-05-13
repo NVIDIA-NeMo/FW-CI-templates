@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.30.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.29.0...v0.30.0) (2025-05-13)
+
+
+### Features
+
+* Allow a docker build to target a stage ([#161](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/161)) ([639cdc5](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/639cdc58b54abadb0e6f79d26f8683290c92cea4))
+* Ensure cherry-picks are signed ([#160](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/160)) ([6ec9a26](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/6ec9a26626943ddd27572e4087a739893c4b0bee))
+
 ## [0.29.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.28.0...v0.29.0) (2025-05-08)
 
 

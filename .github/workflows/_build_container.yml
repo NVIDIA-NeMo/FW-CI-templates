@@ -66,6 +66,11 @@ on:
         description: "Whether to use Azure credentials to login to the ACR"
         type: boolean
         default: false
+      target:
+        required: false
+        description: "The docker build stage to target"
+        type: string
+        default: ""
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -297,3 +302,4 @@ jobs:
             ${{ env.TAGS }}
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
+          target: ${{ inputs.target }}

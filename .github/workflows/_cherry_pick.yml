@@ -45,7 +45,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          set -x  
+          set -x
           set +e
 
           git config --global user.email "nemo-bot@nvidia.com"
@@ -80,11 +80,11 @@ jobs:
               echo Release branch does not yet exist, will not  cherry-pick
               continue
             fi
-            
+
             (
               git fetch origin $RELEASE_BRANCH:$RELEASE_BRANCH
               git switch --force-create cherry-pick-$PR_ID-$RELEASE_BRANCH $RELEASE_BRANCH
-              git cherry-pick $SHA
+              git cherry-pick -s $SHA
               git push -u origin --force cherry-pick-$PR_ID-$RELEASE_BRANCH
               git checkout ${CI_DEFAULT_BRANCH:-main}
             )
@@ -95,9 +95,9 @@ jobs:
               PR_URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
               MESSAGE="Hi @$AUTHOR 👋,
-              
+
               we've cherry picked #$PR_ID into `$RELEASE_BRANCH` for you! 🚀
-              
+
               Please review and approve this cherry pick by your convenience!"
 
               PAYLOAD=$(jq \
@@ -122,7 +122,7 @@ jobs:
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/pulls \
                 -d "$PAYLOAD")
-                
+
               NEW_PR_ID=$(echo -E $NEW_PR | jq '.number')
               curl -L \
                 -X POST \
@@ -131,7 +131,7 @@ jobs:
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/pulls/$NEW_PR_ID/requested_reviewers \
                 -d '{"reviewers":["'$AUTHOR'"]}'
-              
+
               curl -L \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
@@ -143,10 +143,10 @@ jobs:
             else
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
-              MESSAGE="Hey <@$USERNAME>: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible). 
-              
+              MESSAGE="Hey <@$USERNAME>: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
+
               Please resolve manually and create a PR.
-              
+
               cc: $SLACK_WEBHOOK_ADMIN"
 
               MESSAGE=$(jq -cn --arg message "beep boop 🤖: $MESSAGE" '{
@@ -161,7 +161,7 @@ jobs:
                 ]
               }')
 
-              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $SLACK_WEBHOOK 
+              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $SLACK_WEBHOOK
 
             fi
 

@@ -37,6 +37,7 @@ jobs:
             ci
             chore
             revert
+            cherry-pick
 
       - name: PR title length
         if: always()

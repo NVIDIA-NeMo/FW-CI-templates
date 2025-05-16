@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.30.0...v0.31.0) (2025-05-16)
+
+
+### Features
+
+* Update cherry-pick to use "cp" to pass the semantic PR check ([#163](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/163)) ([2adab04](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/2adab042916722ae254f3c2610d75c12404fa0c8))
+
 ## [0.30.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.29.0...v0.30.0) (2025-05-13)
 
 

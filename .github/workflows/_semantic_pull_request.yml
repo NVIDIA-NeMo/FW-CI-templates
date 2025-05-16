@@ -37,6 +37,7 @@ jobs:
             ci
             chore
             revert
+            cp
 
       - name: PR title length
         if: always()

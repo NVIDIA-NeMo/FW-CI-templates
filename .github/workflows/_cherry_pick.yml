@@ -103,7 +103,7 @@ jobs:
               PAYLOAD=$(jq \
                 -n \
                 -c \
-                --arg TITLE "Cherry pick \`$PR_TITLE ($PR_ID)\` into \`$RELEASE_BRANCH\`" \
+                --arg TITLE "cp: \`$PR_TITLE ($PR_ID)\` into \`$RELEASE_BRANCH\`" \
                 --arg HEAD "cherry-pick-$PR_ID-$RELEASE_BRANCH" \
                 --arg RELEASE_BRANCH "$RELEASE_BRANCH" \
                 --arg BODY "beep boop [🤖]: $MESSAGE" \

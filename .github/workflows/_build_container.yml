@@ -82,8 +82,6 @@ on:
         required: false
       AZURE_SUBSCRIPTION_ID:
         required: false
-      GH_TOKEN:
-        required: false
     outputs:
       container-uri:
         description: URI of container
@@ -295,8 +293,6 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v5
-        env:
-          GH_TOKEN: ${{ inputs.GH_TOKEN }}
         with:
           file: ${{ github.run_id }}/${{ inputs.dockerfile }}
           push: true
@@ -311,5 +307,4 @@ jobs:
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
           target: ${{ inputs.target }}
-          secrets: |
-            GH_TOKEN=${{ env.GH_TOKEN }}
+          secrets: ${{ inputs.secrets }}

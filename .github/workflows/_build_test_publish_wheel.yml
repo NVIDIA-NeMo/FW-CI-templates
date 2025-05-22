@@ -36,7 +36,7 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch)"
+        description: "Packaging tool (supported: setuptools, hatch, uv)"
         type: string
         default: setuptools
     secrets:
@@ -77,16 +77,31 @@ jobs:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
-      - name: Setup Python ${{ inputs.python-version }}
+      - name: Get Python version
+        id: python-version
+        run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            if [ -f "${{ github.run_id }}/.python-version" ]; then
+              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            else
+              echo "Error: .python-version file not found for uv packaging"
+              exit 1
+            fi
+          else
+            PYTHON_VERSION="${{ inputs.python-version }}"
+          fi
+          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ inputs.python-version }}"
+          python-version: "${{ steps.python-version.outputs.version }}"
 
       - name: Build wheel
         id: build
         run: |
           cd ${{ github.run_id }}
-          ls -al 
+          ls -al
 
           pip install -e .
 
@@ -96,7 +111,7 @@ jobs:
             else
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
               pip install hatch
-              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")             
+              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")
               hatch version $VERSION
             fi
           fi
@@ -119,7 +134,7 @@ jobs:
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
 
-          python3 -m pip install --upgrade build 
+          python3 -m pip install --upgrade build
           python3 -m build
 
           ls -al dist/
@@ -144,16 +159,31 @@ jobs:
           name: pip-wheel-${{ github.run_id }}
           path: dist/${{ github.run_id }}/
 
-      - name: Setup Python ${{ inputs.python-version }}
+      - name: Get Python version
+        id: python-version
+        run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            if [ -f "${{ github.run_id }}/.python-version" ]; then
+              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            else
+              echo "Error: .python-version file not found for uv packaging"
+              exit 1
+            fi
+          else
+            PYTHON_VERSION="${{ inputs.python-version }}"
+          fi
+          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ inputs.python-version }}"
+          python-version: "${{ steps.python-version.outputs.version }}"
 
       - name: Install wheel
         run: |
           cd dist/${{ github.run_id }}/
 
-          ls -al 
+          ls -al
 
           pip install *.whl
 
@@ -219,7 +249,7 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-            
+
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 

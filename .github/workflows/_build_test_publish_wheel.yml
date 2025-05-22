@@ -173,6 +173,7 @@ jobs:
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
+      PACKAGING: ${{ inputs.packaging }}
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v4

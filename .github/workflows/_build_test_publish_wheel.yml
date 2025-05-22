@@ -27,7 +27,7 @@ on:
       python-version:
         type: string
         description: Python version
-        default: 3.10
+        default: "3.10"
         required: false
       ref:
         required: false

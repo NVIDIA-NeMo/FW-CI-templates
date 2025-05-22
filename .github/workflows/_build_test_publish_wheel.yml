@@ -108,6 +108,12 @@ jobs:
             # Install uv
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="$HOME/.cargo/bin:$PATH"
+
+            # Create and activate virtual environment
+            uv venv .venv
+            source .venv/bin/activate
+
+            # Install the package in editable mode
             uv pip install -e .
           else
             pip install -e .

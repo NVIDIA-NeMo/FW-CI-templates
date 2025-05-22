@@ -109,11 +109,8 @@ jobs:
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="$HOME/.cargo/bin:$PATH"
 
-            # Create and activate virtual environment
             uv venv .venv
             source .venv/bin/activate
-
-            # Install the package in editable mode
             uv pip install -e .
           else
             pip install -e .
@@ -175,6 +172,12 @@ jobs:
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
       PACKAGING: ${{ inputs.packaging }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.ref }}
+
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
@@ -203,11 +206,25 @@ jobs:
 
       - name: Install wheel
         run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            # Install uv
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+
+            # Create and activate virtual environment
+            uv venv .venv
+            source .venv/bin/activate
+          fi
+
           cd dist/${{ github.run_id }}/
 
           ls -al
 
-          pip install *.whl
+          if [[ "$PACKAGING" == "uv" ]]; then
+            uv pip install *.whl
+          else
+            pip install *.whl
+          fi
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME

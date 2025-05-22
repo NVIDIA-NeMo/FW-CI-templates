@@ -103,8 +103,17 @@ jobs:
           cd ${{ github.run_id }}
           ls -al
 
-          pip install -e .
+          # Install the package to import and check the version in a later step
+          if [[ "$PACKAGING" == "uv" ]]; then
+            # Install uv
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            uv pip install -e .
+          else
+            pip install -e .
+          fi
 
+          # If this is a dry run, update the patch version to a random number to upload to test-pypi
           if [[ "$DRY_RUN" == "true" ]]; then
             if [[ "$PACKAGING" == "setuptools" ]]; then
               sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py
@@ -116,6 +125,15 @@ jobs:
             fi
           fi
 
+          # Build the wheel
+          if [[ "$PACKAGING" == "uv" ]]; then
+            uv build .
+          else
+            python3 -m pip install --upgrade build
+            python3 -m build
+          fi
+
+          # Get the expected version and name of the package
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME
 
@@ -133,9 +151,6 @@ jobs:
 
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
-
-          python3 -m pip install --upgrade build
-          python3 -m build
 
           ls -al dist/
 

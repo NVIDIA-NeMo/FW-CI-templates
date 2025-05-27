@@ -27,7 +27,7 @@ on:
       python-version:
         type: string
         description: Python version
-        default: 3.10
+        default: "3.10"
         required: false
       ref:
         required: false
@@ -36,7 +36,7 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch)"
+        description: "Packaging tool (supported: setuptools, hatch, uv)"
         type: string
         default: setuptools
     secrets:
@@ -77,30 +77,64 @@ jobs:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
-      - name: Setup Python ${{ inputs.python-version }}
+      - name: Get Python version
+        id: python-version
+        run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            if [ -f "${{ github.run_id }}/.python-version" ]; then
+              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            else
+              echo "Error: .python-version file not found for uv packaging"
+              exit 1
+            fi
+          else
+            PYTHON_VERSION="${{ inputs.python-version }}"
+          fi
+          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ inputs.python-version }}"
+          python-version: "${{ steps.python-version.outputs.version }}"
 
       - name: Build wheel
         id: build
         run: |
           cd ${{ github.run_id }}
-          ls -al 
+          ls -al
 
-          pip install -e .
+          # Install the package to import and check the version in a later step
+          if [[ "$PACKAGING" == "uv" ]]; then
+            # Install uv
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            uv venv .venv
+            source .venv/bin/activate
+            uv pip install -e .
+          else
+            pip install -e .
+          fi
 
+          # If this is a dry run, update the patch version to a random number to upload to test-pypi
           if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ "$PACKAGING" == "setuptools" ]]; then
+            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
               sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" $PYPROJECT_NAME/package_info.py
             else
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
               pip install hatch
-              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")             
+              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")
               hatch version $VERSION
             fi
           fi
 
+          # Build the wheel
+          if [[ "$PACKAGING" == "uv" ]]; then
+            uv build .
+          else
+            python3 -m pip install --upgrade build
+            python3 -m build
+          fi
+
+          # Get the expected version and name of the package
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME
 
@@ -119,9 +153,6 @@ jobs:
           echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
 
-          python3 -m pip install --upgrade build 
-          python3 -m build
-
           ls -al dist/
 
       - name: Upload wheel
@@ -137,25 +168,60 @@ jobs:
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
+      PACKAGING: ${{ inputs.packaging }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.ref }}
+
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
           path: dist/${{ github.run_id }}/
 
-      - name: Setup Python ${{ inputs.python-version }}
+      - name: Get Python version
+        id: python-version
+        run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            if [ -f "${{ github.run_id }}/.python-version" ]; then
+              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            else
+              echo "Error: .python-version file not found for uv packaging"
+              exit 1
+            fi
+          else
+            PYTHON_VERSION="${{ inputs.python-version }}"
+          fi
+          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ inputs.python-version }}"
+          python-version: "${{ steps.python-version.outputs.version }}"
 
       - name: Install wheel
         run: |
+          if [[ "$PACKAGING" == "uv" ]]; then
+            # Install uv
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+
+            # Create and activate virtual environment
+            uv venv .venv
+            source .venv/bin/activate
+          fi
+
           cd dist/${{ github.run_id }}/
 
-          ls -al 
+          ls -al
 
-          pip install *.whl
+          if [[ "$PACKAGING" == "uv" ]]; then
+            uv pip install *.whl
+          else
+            pip install *.whl
+          fi
 
           cmd=$(cat <<EOF
           import $PYPROJECT_NAME
@@ -219,7 +285,7 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-            
+
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 

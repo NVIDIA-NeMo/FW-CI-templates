@@ -107,8 +107,6 @@ jobs:
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
             curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH="$HOME/.cargo/bin:$PATH"
-
             uv venv .venv
             source .venv/bin/activate
             uv pip install -e .
@@ -209,7 +207,6 @@ jobs:
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
             curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH="$HOME/.cargo/bin:$PATH"
 
             # Create and activate virtual environment
             uv venv .venv

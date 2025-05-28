@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.32.0...v0.33.0) (2025-05-28)
+
+
+### Features
+
+* Update release workflow to use latest publish wheel workflow ([#168](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/168)) ([81ccfd5](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/81ccfd5ad0c36023aadf0191820d7205207ab83d))
+
 ## [0.32.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.31.0...v0.32.0) (2025-05-27)
 
 

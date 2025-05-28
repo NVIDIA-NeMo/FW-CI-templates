@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.31.0...v0.32.0) (2025-05-27)
+
+
+### Features
+
+* Add ability to build pypi wheel using uv ([#166](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/166)) ([5e59741](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/5e597419e2b6fca5a92a6b5a80a34ad888a38c0b))
+
 ## [0.31.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.30.0...v0.31.0) (2025-05-16)
 
 

@@ -42,6 +42,11 @@ on:
         type: string
         required: true
         description: Branch to target for version bump
+      packaging:
+        required: false
+        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        type: string
+        default: setuptools
     secrets:
       TWINE_USERNAME:
         required: true
@@ -56,12 +61,13 @@ on:
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.22.3
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.32.0
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
+      packaging: ${{ inputs.packaging }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

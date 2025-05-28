@@ -31,6 +31,8 @@ on:
       python-version:
         type: string
         description: Python version to use for build
+        required: false
+        default: "3.10"
       library-name:
         type: string
         description: Name of Nemo library

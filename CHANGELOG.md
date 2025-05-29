@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.33.0...v0.34.0) (2025-05-29)
+
+
+### Features
+
+* Update release_library to have create-gh-release be optional ([#170](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/170)) ([258bc1f](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/258bc1f72c02facebb363fe421a049c040cdec08))
+
 ## [0.33.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.32.0...v0.33.0) (2025-05-28)
 
 

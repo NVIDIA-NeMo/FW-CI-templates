@@ -49,6 +49,11 @@ on:
         description: "Packaging tool (supported: setuptools, hatch, uv)"
         type: string
         default: setuptools
+      create-gh-release:
+        required: false
+        description: Create a GitHub release
+        type: boolean
+        default: true
     secrets:
       TWINE_USERNAME:
         required: true
@@ -80,6 +85,7 @@ jobs:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    if: ${{ inputs.create-gh-release == true }}
     outputs:
       is-prerelease: ${{ steps.version-number.outputs.is-prerelease }}
     env:

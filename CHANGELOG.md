@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.34.0...v0.35.0) (2025-06-02)
+
+
+### Features
+
+* Flag for enabling pull cache ([#172](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/172)) ([6cff542](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/6cff5421341ffe2c20312f1af4c1bb66fa0e8ab7))
+
 ## [0.34.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.33.0...v0.34.0) (2025-05-29)
 
 

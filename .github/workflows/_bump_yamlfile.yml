@@ -53,6 +53,7 @@ jobs:
         with:
           repository: ${{ inputs.source-repository }}
           ref: ${{ inputs.source-ref }}
+          token: ${{ secrets.PAT }}
 
       - name: Get latest source commit
         id: ref

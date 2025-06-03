@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.36.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.35.0...v0.36.0) (2025-06-03)
+
+
+### Features
+
+* Add close inactive issue pr template ([#174](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/174)) ([4036420](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/403642042ad89e2b7fc730cea3e94ea912f1dc9a))
+* Allow gpg signing ([#176](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/176)) ([413f01e](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/413f01e2c705a2ce964cbf1d2ce02665ec623b7f))
+* Allow overriding pr metadata ([#175](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/175)) ([586fd6b](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/586fd6bf80e6c90c2e81f4079a5471a60249a276))
+
 ## [0.35.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.34.0...v0.35.0) (2025-06-02)
 
 

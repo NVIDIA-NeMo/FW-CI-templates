@@ -94,6 +94,7 @@ jobs:
         run: sudo apt-get install -y gnupg2
 
       - name: Import GPG key
+        id: gpg-action
         uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
         if: ${{ inputs.use-gpgkey }}
         with:
@@ -123,3 +124,4 @@ jobs:
           signoff: true
           reviewers: ${{ inputs.pr-reviewers }}
           labels: "${{ inputs.cicd-labels }}"
+          committer: "${{ steps.gpg-action.outputs.name }} <${{ steps.gpg-action.outputs.email }}>"

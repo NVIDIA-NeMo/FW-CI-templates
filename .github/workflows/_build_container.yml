@@ -71,6 +71,11 @@ on:
         description: "The docker build stage to target"
         type: string
         default: ""
+      enable-pull-cache:
+        required: false
+        description: "Whether to enable pull cache"
+        type: boolean
+        default: true
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -124,7 +129,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.build-ref }}
-          submodules: 'recursive'
+          submodules: "recursive"
 
       - name: Clean runner cache
         env:
@@ -138,6 +143,7 @@ jobs:
           # We use `docker` driver as this speeds things up for
           # trivial (non-multi-stage) builds.
           driver: ${{ inputs.use-inline-cache == true && 'docker' || 'docker-container' }}
+          buildkitd-config: ${{ inputs.enable-pull-cache == true && '/etc/buildkit/buildkitd.toml' || null }}
 
       - name: Set TAGS and PR_NUMBER
         run: |

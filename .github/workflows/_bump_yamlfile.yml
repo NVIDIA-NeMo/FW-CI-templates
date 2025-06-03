@@ -27,9 +27,17 @@ on:
       pr-reviewers:
         type: string
         required: false
+      use-gpgkey:
+        type: boolean
+        required: false
+        default: false
     secrets:
       PAT:
         required: true
+      GPG_KEY:
+        required: false
+      GPG_PASSPHRASE:
+        required: false
 
 defaults:
   run:
@@ -80,6 +88,18 @@ jobs:
 
       - name: Remove yq
         run: rm yq
+
+      - name: Install GPG
+        run: sudo apt-get install -y gnupg2
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
+        if: ${{ inputs.use-gpgkey }}
+        with:
+          gpg_private_key: ${{ secrets.GPG_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
 
       - name: Create Bump PR
         uses: peter-evans/create-pull-request@v6

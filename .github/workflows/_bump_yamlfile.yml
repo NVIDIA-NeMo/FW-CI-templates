@@ -30,6 +30,9 @@ on:
       pr-branch:
         type: string
         required: false
+      pr-title:
+        type: string
+        required: false
     secrets:
       PAT:
         required: true
@@ -97,12 +100,12 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
         env:
-          title: "chore(🤖): Bump `${{ inputs.source-repository }}` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
+          default-title: "chore(🤖): Bump `${{ inputs.source-repository }}` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
           default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
         with:
           branch: ${{ inputs.pr-branch || env.default-branch }}
           base: ${{ inputs.base-branch }}
-          title: ${{ env.title }}
+          title: ${{ inputs.pr-title || env.default-title }}
           token: ${{ secrets.PAT }}
           body: |
             🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ steps.ref.outputs.sha }}`.  

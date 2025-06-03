@@ -2,6 +2,7 @@ name: Stale-Close-Inactive-Issues-PRs
 on:
   schedule:
     - cron: "30 1 * * *"
+  workflow_call:
 
 jobs:
   close-issues:

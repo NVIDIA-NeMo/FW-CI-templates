@@ -27,6 +27,9 @@ on:
       pr-reviewers:
         type: string
         required: false
+      pr-branch:
+        type: string
+        required: false
     secrets:
       PAT:
         required: true
@@ -86,8 +89,9 @@ jobs:
         id: create-pull-request
         env:
           title: "chore(🤖): Bump `${{ inputs.source-repository }}` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
+          default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
         with:
-          branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
+          branch: ${{ inputs.pr-branch || env.default-branch }}
           base: ${{ inputs.base-branch }}
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}

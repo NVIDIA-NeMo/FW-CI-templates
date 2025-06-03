@@ -66,9 +66,13 @@ jobs:
           ref: ${{ inputs.base-branch }}
 
       - name: Rebase against ${{ inputs.pr-branch || env.default-branch }}
+        env:
+          default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
         run: |
-          git fetch origin ${{ inputs.pr-branch || env.default-branch }}
-          git rebase origin/${{ inputs.pr-branch || env.default-branch }}
+          if git ls-remote --exit-code origin ${{ inputs.pr-branch || env.default-branch }}; then
+            git fetch origin ${{ inputs.pr-branch || env.default-branch }}
+            git rebase origin/${{ inputs.pr-branch || env.default-branch }}
+          fi
 
       - name: Install yq
         env:

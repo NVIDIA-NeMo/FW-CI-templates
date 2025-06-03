@@ -136,7 +136,7 @@ jobs:
             - [ ] Verify the presubmit CI  
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
-          commit-message: ${{ env.title }}
+          commit-message: ${{ env.default-title }}
           signoff: true
           reviewers: ${{ inputs.pr-reviewers }}
           labels: "${{ inputs.cicd-labels }}"

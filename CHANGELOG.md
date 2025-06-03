@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.36.0...v0.36.1) (2025-06-03)
+
+
+### Bug Fixes
+
+* Empty commit message ([#178](https://github.com/NVIDIA/NeMo-FW-CI-templates/issues/178)) ([dedc794](https://github.com/NVIDIA/NeMo-FW-CI-templates/commit/dedc79412f4467c11eeffa3b9afbac3ca537279c))
+
 ## [0.36.0](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.35.0...v0.36.0) (2025-06-03)
 
 

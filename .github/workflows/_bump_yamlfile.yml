@@ -65,6 +65,11 @@ jobs:
           token: ${{ secrets.PAT }}
           ref: ${{ inputs.base-branch }}
 
+      - name: Rebase against ${{ inputs.pr-branch || env.default-branch }}
+        run: |
+          git fetch origin ${{ inputs.pr-branch || env.default-branch }}
+          git rebase origin/${{ inputs.pr-branch || env.default-branch }}
+
       - name: Install yq
         env:
           VERSION: v4.45.1

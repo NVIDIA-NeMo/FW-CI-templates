@@ -276,7 +276,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: NVIDIA/NeMo-FW-CI-templates
+          repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0
           path: send-slack-alert
 

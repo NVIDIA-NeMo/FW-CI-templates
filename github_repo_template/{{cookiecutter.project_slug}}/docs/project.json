@@ -1,0 +1,1 @@
+{"name": "{{cookiecutter.project_slug.lower()}}", "version": "{{cookiecutter.version}}"}

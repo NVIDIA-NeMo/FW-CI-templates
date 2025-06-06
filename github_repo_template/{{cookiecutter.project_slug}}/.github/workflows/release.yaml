@@ -1,0 +1,54 @@
+# Copyright (c) {{cookiecutter.year}}, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: "Release {{cookiecutter.project_slug}}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-ref:
+        description: Ref (SHA or branch name) to release
+        required: true
+        type: string
+      dry-run:
+        description: Do not publish a wheel and GitHub release.
+        required: true
+        default: true
+        type: boolean
+      create-gh-release:
+        description: Create a GitHub release
+        required: true
+        default: true
+        type: boolean
+      version-bump-branch:
+        description: Branch for version bump
+        required: true
+        type: string
+
+jobs:
+  release:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@v0.34.0
+    with:
+      release-ref: {% raw %}${{ inputs.release-ref }}{% endraw %}
+      python-package: {{cookiecutter.package_name}}
+      library-name: {{cookiecutter.project_slug}}
+      dry-run: {% raw %}${{ inputs.dry-run }}{% endraw %}
+      version-bump-branch: {% raw %}${{ inputs.version-bump-branch }}{% endraw %}
+      create-gh-release: {% raw %}${{ inputs.create-gh-release }}{% endraw %}
+      packaging: uv
+    secrets:
+      TWINE_USERNAME: {% raw %}${{ secrets.TWINE_USERNAME }}{% endraw %}
+      TWINE_PASSWORD: {% raw %}${{ secrets.TWINE_PASSWORD }}{% endraw %}
+      SLACK_WEBHOOK_ADMIN: {% raw %}${{ secrets.SLACK_WEBHOOK_ADMIN }}{% endraw %}
+      SLACK_WEBHOOK: {% raw %}${{ secrets.SLACK_RELEASE_ENDPOINT }}{% endraw %}
+      PAT: {% raw %}${{ secrets.PAT }}{% endraw %}

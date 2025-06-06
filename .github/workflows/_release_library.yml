@@ -68,7 +68,7 @@ on:
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.32.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.32.0
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
@@ -213,7 +213,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: NVIDIA/NeMo-FW-CI-templates
+          repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0
           path: send-slack-alert
 

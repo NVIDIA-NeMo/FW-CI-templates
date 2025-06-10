@@ -21,7 +21,7 @@ on:
       - "pull-request/[0-9]+"
 
 concurrency:
-  group: {% raw %}${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'main' }}-${{ github.event_name }}{% endraw % }
+  group: {% raw %}${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'main' }}-${{ github.event_name }}{% endraw %}
   cancel-in-progress: true
 
 permissions:
@@ -86,12 +86,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - script: L0_Unit_Tests_GPU
+          - script: L2_Functional_Tests_GPU
             runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
             timeout: 30
-          - script: L0_Unit_Tests_CPU
-            runner: linux-amd64-cpu16
-            cpu-only: true
     needs: [cicd-unit-tests]
     runs-on: {% raw %}${{ matrix.runner }}{% endraw %}
     name: {% raw %}${{ matrix.is_optional && 'PLEASEFIXME_' || '' }}${{ matrix.script }}{% endraw %}
@@ -105,7 +102,6 @@ jobs:
           runner: {% raw %}${{ runner.name }}{% endraw %}
           script: {% raw %}${{ matrix.script }}{% endraw %}
           timeout: {% raw %}${{ matrix.timeout || 10 }}{% endraw %}
-          is_unit_test: "true"
           image: {{cookiecutter.package_name}}
           cpu-only: {% raw %}${{ matrix.cpu-only || false }}{% endraw %}
           has-azure-credentials: "true"
@@ -213,7 +209,7 @@ jobs:
 
   Coverage:
     runs-on: ubuntu-latest
-    needs: [pre-flight, Nemo_CICD_Test]
+    needs: [Nemo_CICD_Test]
     strategy:
       matrix:
         flag: [unit-test, e2e]

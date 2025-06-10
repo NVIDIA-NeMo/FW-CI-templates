@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# Copyright (c) {{cookiecutter.year}}, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,8 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM nvcr.io/nvidia/pytorch:25.05-py3
-
-ENV PIP_CONSTRAINT=""
-
-WORKDIR /workspace
+CUDA_VISIBLE_DEVICES="" coverage run -a --data-file=/workspace/.coverage --source=/workspace/ -m pytest tests/unit_tests -m "not pleasefixme" --cpu --with_downloads

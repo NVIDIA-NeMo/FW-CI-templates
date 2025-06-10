@@ -191,3 +191,9 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+[tool.coverage.run]
+concurrency = ["thread", "multiprocessing"]
+omit = ["/tmp/*"]
+
+[tool.coverage.paths]
+source = ["{{cookiecutter.package_name}}/", "/workspace/{{cookiecutter.package_name}}"]

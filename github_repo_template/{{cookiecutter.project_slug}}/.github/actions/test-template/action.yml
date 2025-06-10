@@ -36,7 +36,7 @@ inputs:
   image:
     description: "Image to use for test"
     required: false
-    default: "nemo_lm"
+    default: "{{cookiecutter.package_name}}"
   cpu-only:
     description: "Run tests on CPU only"
     required: false
@@ -140,7 +140,7 @@ runs:
     - name: Checkout repository
       uses: actions/checkout@v2
       with:
-        path: NeMo-LM
+        path: {{cookiecutter.project_slug}}
 
     - name: Start container
       shell: bash
@@ -164,7 +164,7 @@ runs:
           --env HYDRA_FULL_ERROR=1 \
           --env HF_HOME=/home/TestData/HF_HOME \
           --env RUN_ID={% raw %}${{ github.run_id }}{% endraw %} \
-          --volume $(pwd)/NeMo-LM:/workspace \
+          --volume $(pwd)/{{cookiecutter.project_slug}}:/workspace \
           --volume $MNT_PATH/TestData:/home/TestData \
           nemoci.azurecr.io/{% raw %}${{ inputs.image }}:${{ github.run_id }}{% endraw %} \
           bash -c "sleep $(( {% raw %}${{ inputs.timeout }}{% endraw %} * 60 + 60))"
@@ -173,7 +173,6 @@ runs:
 
         echo "$cmd" | tee "retry_job.sh"
         bash retry_job.sh
-        docker exec -t nemo_container_{% raw %}${{ github.run_id }}{% endraw %} bash -c 'pip install -e .'
 
     - name: Create run-script
       id: create
@@ -189,6 +188,7 @@ runs:
           set -e
 
           docker exec -t nemo_container_{% raw %}${{ github.run_id }}{% endraw %} bash -c '\
+            uv pip install --no-deps -e . && \
             bash tests/{% raw %}${{ inputs.is_unit_test == 'true' && 'unit_tests' || 'functional_tests' }}{% endraw %}/{% raw %}${{ inputs.script }}{% endraw %}.sh && \
             echo "Finished successfully." || echo "Did not finish."'
         ) 2>&1 | tee err.log

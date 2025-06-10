@@ -71,11 +71,10 @@ on:
         description: "The docker build stage to target"
         type: string
         default: ""
-      secrets:
-        required: false
-        description: "Secrets to pass to the build"
-        type: string
     secrets:
+      BUILD_SECRETS:
+        required: false
+        description: "BUILD_SECRETS to use for the build"
       AZURE_CLIENT_ID:
         required: false
       AZURE_TENANT_ID:
@@ -307,4 +306,4 @@ jobs:
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
           target: ${{ inputs.target }}
-          secrets: ${{ inputs.secrets }}
+          secrets: ${{ secrets.BUILD_SECRETS }}

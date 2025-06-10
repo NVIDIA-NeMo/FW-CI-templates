@@ -71,16 +71,14 @@ on:
         description: "The docker build stage to target"
         type: string
         default: ""
-      build-secrets:
-        required: false
-        description: "BUILD_SECRETS to use for the build"
-        type: string
     secrets:
       AZURE_CLIENT_ID:
         required: false
       AZURE_TENANT_ID:
         required: false
       AZURE_SUBSCRIPTION_ID:
+        required: false
+      GH_TOKEN:
         required: false
     outputs:
       container-uri:
@@ -307,4 +305,5 @@ jobs:
           pull: ${{ !inputs.use-cache }}
           context: ${{ github.run_id }}/
           target: ${{ inputs.target }}
-          secrets: ${{ inputs.build-secrets }}
+          secrets: |
+            GH_TOKEN=${{ secrets.GH_TOKEN }}

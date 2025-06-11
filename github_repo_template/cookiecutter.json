@@ -1,0 +1,8 @@
+{
+    "project_name": "NeMo-Project",
+    "project_description": "NeMo project description",
+    "project_slug": "{{ cookiecutter.project_name.replace(' ', '-') }}",
+    "package_name": "{{ cookiecutter.project_slug.lower().replace('-', '_') }}",
+    "version": "0.1.0",
+    "year": "2025"
+}

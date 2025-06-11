@@ -1,0 +1,7 @@
+[
+    {
+        "preferred": true,
+        "version": "{{cookiecutter.version}}",
+        "url": "../{{cookiecutter.version}}"
+    }
+]

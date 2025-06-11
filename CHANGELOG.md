@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.37.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.36.1...v0.37.0) (2025-06-11)
+
+
+### Features
+
+* Add initial github repo template ([#180](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/180)) ([a949ef0](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a949ef08be0c67422c3ec7d98d626a8f862f445d))
+* Support build secrets ([#165](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/165)) ([aae98b7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/aae98b78f569837e580055232f61d0fbc2d48bfc))
+
+
+### Bug Fixes
+
+* Correct references to repo after org move ([#181](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/181)) ([b18f5a1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/b18f5a1cee592e129e6d3eb2a0f608544b59c2e2))
+
 ## [0.36.1](https://github.com/NVIDIA/NeMo-FW-CI-templates/compare/v0.36.0...v0.36.1) (2025-06-03)
 
 

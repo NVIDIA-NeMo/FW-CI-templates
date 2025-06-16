@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.37.0...v0.38.0) (2025-06-16)
+
+
+### Features
+
+* Allow skipping the publish ([#183](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/183)) ([5ae5be3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5ae5be3ee45f72617d16c29b1fe6333397988bad))
+
 ## [0.37.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.36.1...v0.37.0) (2025-06-11)
 
 

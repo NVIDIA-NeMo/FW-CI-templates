@@ -39,6 +39,11 @@ on:
         description: "Packaging tool (supported: setuptools, hatch, uv)"
         type: string
         default: setuptools
+      no-publish:
+        required: false
+        description: Do not publish the wheel
+        type: boolean
+        default: false
     secrets:
       TWINE_USERNAME:
         required: true
@@ -47,6 +52,8 @@ on:
       SLACK_WEBHOOK_ADMIN:
         required: false
       SLACK_WEBHOOK:
+        required: false
+      GH_TOKEN:
         required: false
     outputs:
       version:
@@ -99,9 +106,16 @@ jobs:
 
       - name: Build wheel
         id: build
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           cd ${{ github.run_id }}
           ls -al
+
+          if [[ "$GH_TOKEN" != "" ]]; then
+            echo "machine github.com login x-access-token password $GH_TOKEN" > ~/.netrc
+            chmod 600 ~/.netrc
+          fi
 
           # Install the package to import and check the version in a later step
           if [[ "$PACKAGING" == "uv" ]]; then
@@ -245,6 +259,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.dry-run && 'public' || 'main' }}
+    if: inputs.no-publish == false
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v4
@@ -285,7 +300,7 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-
+            
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 

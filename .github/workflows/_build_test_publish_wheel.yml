@@ -53,6 +53,8 @@ on:
         required: false
       SLACK_WEBHOOK:
         required: false
+      GH_TOKEN:
+        required: false
     outputs:
       version:
         description: NeMo library version
@@ -104,9 +106,16 @@ jobs:
 
       - name: Build wheel
         id: build
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           cd ${{ github.run_id }}
           ls -al
+
+          if [[ "$GH_TOKEN" != "" ]]; then
+            echo "machine github.com login x-access-token password $GH_TOKEN" > ~/.netrc
+            chmod 600 ~/.netrc
+          fi
 
           # Install the package to import and check the version in a later step
           if [[ "$PACKAGING" == "uv" ]]; then

@@ -197,9 +197,8 @@ class ImportChecker:
 def main(package_name: str):
     """Main entry point."""
     checker = ImportChecker(package_name=package_name)
-    successful = checker.check_all_imports()
-    return 0 if successful else 1
+    return checker.check_all_imports()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

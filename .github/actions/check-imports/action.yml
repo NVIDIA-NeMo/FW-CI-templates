@@ -14,4 +14,4 @@ runs:
   steps:
     - name: Check imports
       shell: bash -x -e -u -o pipefail {0}
-      run: ${{ inputs.python-binary }} ${{ github.action_path }}/check_imports.py --package-name ${{ inputs.package-name }}
+      run: ${{ inputs.python-binary }} ${GITHUB_ACTION_PATH}/check_imports.py --package-name ${{ inputs.package-name }}

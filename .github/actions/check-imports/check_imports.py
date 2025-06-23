@@ -185,7 +185,7 @@ class ImportChecker:
                     if line.strip():
                         print(f"  {line}")
 
-        return self.failure_count > 0
+        return self.failure_count == 0
 
 
 @click.command()

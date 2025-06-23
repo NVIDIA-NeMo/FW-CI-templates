@@ -12,6 +12,10 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Install dependencies
+      run: |
+        ${{ inputs.python-binary }} -m pip install -r ${{ github.action_path }}/requirements.txt
+
     - name: Check imports
       shell: bash -x -e -u -o pipefail {0}
       run: ${{ inputs.python-binary }} ${{ github.action_path }}/check_imports.py --package-name ${{ inputs.package-name }}

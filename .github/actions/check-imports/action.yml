@@ -1,0 +1,17 @@
+name: "Check imports"
+description: "Check imports"
+inputs:
+  package-name:
+    description: "Package name to check imports for"
+    required: true
+  python-binary:
+    description: "Python binary to use"
+    required: false
+    default: "python"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check imports
+      shell: bash -x -e -u -o pipefail {0}
+      run: ${{ inputs.python-binary }} ${{ githun.actions_path }}/check_imports.py --package-name ${{ inputs.package-name }}

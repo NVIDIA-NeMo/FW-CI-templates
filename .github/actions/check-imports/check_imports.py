@@ -67,8 +67,11 @@ class ImportChecker:
         """Discover all Python modules in the given package path."""
         modules = []
 
+        package = importlib.import_module(package_path)
+        package_path = package.__path__[0]
+
         # Walk through all Python files
-        for root, dirs, files in os.walk(package_path):
+        for root, dirs, files in os.walk(package.__path__[0]):
             # Skip hidden directories and __pycache__
             dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
 

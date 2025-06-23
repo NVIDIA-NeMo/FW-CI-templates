@@ -82,7 +82,11 @@ class ImportChecker:
                     if module_parts.endswith(".__init__"):
                         module_parts = module_parts[:-9]  # Remove .__init__
 
-                    full_module_name = f"{self.package_name}.{module_parts}" if module_parts else self.package_name
+                    full_module_name = (
+                        f"{self.package_name}.{module_parts}"
+                        if module_parts
+                        else self.package_name
+                    )
 
                     if not self.should_skip_module(full_module_name):
                         modules.append(full_module_name)
@@ -139,17 +143,30 @@ class ImportChecker:
                 self.failures[module_name] = error_msg
 
         """Print a summary of the import check results."""
-        total = self.success_count + self.failure_count + self.graceful_count + self.skipped_count
+        total = (
+            self.success_count
+            + self.failure_count
+            + self.graceful_count
+            + self.skipped_count
+        )
 
         print("\n" + "=" * 60)
         print("IMPORT CHECK SUMMARY")
         print("=" * 60)
         print(f"Total modules checked: {total}")
-        print(f"Successful imports:    {self.success_count} ({self.success_count / total * 100:.1f}%)")
-        print(f"Gracefully handled:    {self.graceful_count} ({self.graceful_count / total * 100:.1f}%)")
-        print(f"Failed imports:        {self.failure_count} ({self.failure_count / total * 100:.1f}%)")
+        print(
+            f"Successful imports:    {self.success_count} ({self.success_count / total * 100:.1f}%)"
+        )
+        print(
+            f"Gracefully handled:    {self.graceful_count} ({self.graceful_count / total * 100:.1f}%)"
+        )
+        print(
+            f"Failed imports:        {self.failure_count} ({self.failure_count / total * 100:.1f}%)"
+        )
         if self.skipped_count > 0:
-            print(f"Skipped modules:       {self.skipped_count} ({self.skipped_count / total * 100:.1f}%)")
+            print(
+                f"Skipped modules:       {self.skipped_count} ({self.skipped_count / total * 100:.1f}%)"
+            )
 
         if self.graceful_failures:
             print(f"\n🟡 GRACEFULLY HANDLED ({len(self.graceful_failures)}):")
@@ -168,7 +185,7 @@ class ImportChecker:
                     if line.strip():
                         print(f"  {line}")
 
-        return 0 if self.failure_count > 0 else 1
+        return self.failure_count > 0
 
 
 @click.command()

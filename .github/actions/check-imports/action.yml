@@ -13,6 +13,7 @@ runs:
   using: "composite"
   steps:
     - name: Install dependencies
+      shell: bash -x -e -u -o pipefail {0}
       run: |
         ${{ inputs.python-binary }} -m pip install -r ${{ github.action_path }}/requirements.txt
 

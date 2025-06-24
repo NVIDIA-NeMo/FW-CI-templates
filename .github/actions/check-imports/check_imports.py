@@ -13,7 +13,7 @@
 # limitations under the License.
 #!/usr/bin/env python3
 """
-Import checker script for megatron.hub package.
+Import checker script a Python package.
 
 This script recursively discovers all Python modules in the specified package
 and attempts to import them, reporting any import errors.
@@ -31,7 +31,7 @@ import click
 class ImportChecker:
     """Check imports for all modules in a package."""
 
-    def __init__(self, package_name: str = "megatron.hub", verbose: bool = False):
+    def __init__(self, package_name: str, verbose: bool = False):
         self.package_name = package_name
         self.success_count = 0
         self.failure_count = 0

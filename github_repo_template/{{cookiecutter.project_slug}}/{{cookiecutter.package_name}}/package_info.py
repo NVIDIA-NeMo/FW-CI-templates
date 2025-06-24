@@ -25,8 +25,8 @@ __shortversion__ = ".".join(map(str, VERSION[:3]))
 __version__ = ".".join(map(str, VERSION[:3])) + "".join(VERSION[3:])
 
 __package_name__ = "{{cookiecutter.package_name}}"
-__contact_names__ = "{{cookiecutter.project_name}}"
-__contact_emails__ = "contact@example.com"
+__contact_names__ = "NVIDIA"
+__contact_emails__ = "nemo-toolkit@nvidia.com"
 __homepage__ = "https://github.com/NVIDIA-NeMo/{{cookiecutter.project_slug}}"
 __repository_url__ = "https://github.com/NVIDIA-NeMo/{{cookiecutter.project_slug}}"
 __download_url__ = "https://github.com/NVIDIA-NeMo/{{cookiecutter.project_slug}}/releases"

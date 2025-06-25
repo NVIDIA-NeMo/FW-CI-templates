@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.40.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.39.0...v0.40.0) (2025-06-25)
+
+
+### Features
+
+* Bump tomlfile ([#190](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/190)) ([006c4b9](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/006c4b94c70f3b28fdedc97dd8298d2655d32ecb))
+
+
+### Bug Fixes
+
+* Fix template ([#186](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/186)) ([50197f3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/50197f3d9bb4d6bd07115aa2c3b197c7c20f4a2e))
+
 ## [0.39.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.38.0...v0.39.0) (2025-06-24)
 
 

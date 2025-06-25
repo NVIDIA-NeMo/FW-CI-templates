@@ -1,0 +1,136 @@
+# Regularly updates the CI.
+name: Bump yamlfile
+on:
+  workflow_call:
+    inputs:
+      source-repository:
+        type: string
+        required: true
+      source-ref:
+        type: string
+        required: false
+        default: main
+      toml-path:
+        type: string
+        required: true
+      file:
+        type: string
+        required: true
+      base-branch:
+        type: string
+        required: false
+        default: main
+      cicd-labels:
+        type: string
+        required: false
+        default: Run CICD
+      pr-reviewers:
+        type: string
+        required: false
+      use-gpgkey:
+        type: boolean
+        required: false
+        default: false
+      pr-branch:
+        type: string
+        required: false
+      pr-title:
+        type: string
+        required: false
+    secrets:
+      PAT:
+        required: true
+      GPG_KEY:
+        required: false
+      GPG_PASSPHRASE:
+        required: false
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  bump-file:
+    runs-on: ubuntu-latest
+    environment: main
+    steps:
+      - name: Checkout ${{ inputs.source-repository }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source-repository }}
+          ref: ${{ inputs.source-ref }}
+          token: ${{ secrets.PAT }}
+
+      - name: Get latest source commit
+        id: ref
+        run: |
+          sha=$(git rev-parse HEAD)
+          repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha:0:7}" | tee -a "$GITHUB_OUTPUT"
+          echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
+          echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Checkout ${{ github.repository }}
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          ref: ${{ inputs.base-branch }}
+
+      - name: Rebase against ${{ inputs.pr-branch || env.default-branch }}
+        env:
+          default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
+        run: |
+          if git ls-remote --exit-code origin ${{ inputs.pr-branch || env.default-branch }}; then
+            git fetch origin ${{ inputs.pr-branch || env.default-branch }}
+            git rebase origin/${{ inputs.pr-branch || env.default-branch }}
+          fi
+
+      - name: Install toml
+        run: |
+          pip install toml-cli
+
+      - name: Bump file
+        env:
+          TOMLPATH: ${{ inputs.toml-path }}
+          VALUE: ${{ steps.ref.outputs.sha }}
+          FILE: ${{ inputs.file }}
+        run: |
+          toml set --toml-path $FILE $TOMLPATH $VALUE
+
+      - name: Install GPG
+        run: sudo apt-get install -y gnupg2
+
+      - name: Import GPG key
+        id: gpg-action
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
+        if: ${{ inputs.use-gpgkey }}
+        with:
+          gpg_private_key: ${{ secrets.GPG_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Create Bump PR
+        uses: peter-evans/create-pull-request@v6
+        id: create-pull-request
+        env:
+          default-title: "chore(🤖): Bump `${{ inputs.source-repository }}` to `${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
+          default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
+        with:
+          branch: ${{ inputs.pr-branch || env.default-branch }}
+          base: ${{ inputs.base-branch }}
+          title: ${{ inputs.pr-title || env.default-title }}
+          token: ${{ secrets.PAT }}
+          body: |
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ steps.ref.outputs.sha }}`.  
+
+            📝 Please remember the following to-do's before merge: 
+            - [ ] Verify the presubmit CI  
+
+            🙏 Please merge this PR only if the CI workflow completed successfully.
+          commit-message: ${{ env.default-title }}
+          signoff: true
+          reviewers: ${{ inputs.pr-reviewers }}
+          labels: "${{ inputs.cicd-labels }}"
+          committer: "${{ steps.gpg-action.outputs.name }} <${{ steps.gpg-action.outputs.email }}>"

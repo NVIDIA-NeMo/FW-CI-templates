@@ -14,6 +14,12 @@
 name: Cherry pick
 on:
   workflow_call:
+    inputs:
+      target-branches-pattern:
+        description: 'Regex pattern to match target branch names from PR labels'
+        required: false
+        default: 'r[0-9]+\.[0-9]+\.[0-9]+'
+        type: string
     secrets:
       PAT:
         required: true
@@ -44,6 +50,7 @@ jobs:
           SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCHES_PATTERN: ${{ inputs.target-branches-pattern }}
         run: |
           set -x
           set +e
@@ -66,7 +73,7 @@ jobs:
           LABELS=$(echo -E $PR | jq '.labels | [.[].name] | join(",")' | tr -d '"')
           AUTHOR=$(echo -E $PR | jq '.user.login' | tr -d '"')
 
-          TARGET_BRANCHES=$(echo "$LABELS" | egrep -o 'r[0-9]+\.[0-9]+\.[0-9]+')
+          TARGET_BRANCHES=$(echo "$LABELS" | egrep -o "$TARGET_BRANCHES_PATTERN")
 
           if [[ $TARGET_BRANCHES == '' ]]; then
             echo Nothing to cherry-pick

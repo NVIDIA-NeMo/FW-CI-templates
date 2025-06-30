@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.41.0...v0.42.0) (2025-06-30)
+
+
+### Features
+
+* Add build-docs template to repo-template ([#197](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/197)) ([2f2ad2a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2f2ad2a5b92f75b30480dec3c3c931dd3282ceb5))
+
 ## [0.41.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.40.1...v0.41.0) (2025-06-30)
 
 

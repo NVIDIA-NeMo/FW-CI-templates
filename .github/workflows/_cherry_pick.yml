@@ -16,7 +16,7 @@ on:
   workflow_call:
     inputs:
       target-branches-pattern:
-        description: 'Regex pattern to match target branch names from PR labels'
+        description: 'Regex pattern to match target branches from PR labels'
         required: false
         default: 'r[0-9]+\.[0-9]+\.[0-9]+'
         type: string

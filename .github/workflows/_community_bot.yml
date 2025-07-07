@@ -16,7 +16,10 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Check if user is maintainer
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check pre-conditions
         id: pre-flight
         env:
           IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}

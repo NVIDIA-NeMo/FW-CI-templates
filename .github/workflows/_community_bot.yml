@@ -26,7 +26,7 @@ jobs:
 
           # Check if user is in the maintainers list
           # You can customize this list or use organization membership
-          MAINTAINERS="nvidia,neuralmagic,neuralmagic-ai"
+          MAINTAINERS="ko3n1g"
 
           if echo "$MAINTAINERS" | grep -q "$USERNAME"; then
             echo "is_maintainer=true" | tee -a $GITHUB_OUTPUT

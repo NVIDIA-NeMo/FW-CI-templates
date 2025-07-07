@@ -1,0 +1,62 @@
+name: Community Bot
+
+on:
+  workflow_call:
+    inputs:
+      maintainers:
+        type: string
+        description: The list of maintainers
+
+jobs:
+  manage-community-label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check if user is maintainer
+        id: pre-flight
+        env:
+          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}
+        run: |
+          # Get the username who triggered the action
+          USERNAME="${{ github.actor }}"
+
+          # Check if user is in the maintainers list
+          # You can customize this list or use organization membership
+          MAINTAINERS="ko3n1g"
+
+          if echo "$MAINTAINERS" | grep -q "$USERNAME"; then
+            echo "is_maintainer=true" | tee -a $GITHUB_OUTPUT
+          else
+            echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
+          fi
+
+          echo "is_valid_event=$IS_VALID_EVENT" | tee -a $GITHUB_OUTPUT
+
+          echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
+
+      - name: Add community-request label for community users
+        if: |
+          (
+            steps.pre-flight.outputs.is_maintainer == 'false' 
+            && steps.pre-flight.outputs.is_valid_event == 'true'
+          )
+        run: gh issue edit ${{ github.event.issue.number }} --add-label "community-request"
+
+      - name: Remove community-request label for maintainers
+        if: |
+          (
+            steps.pre-flight.outputs.is_maintainer == 'true' 
+            && steps.pre-flight.outputs.is_valid_event == 'true'
+          )
+        run: gh issue edit ${{ github.event.issue.number }} --remove-label "community-request"
+
+      - name: Log action taken
+        run: |
+          echo "User: ${{ steps.pre-flight.outputs.username }}"
+          echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Issue number: ${{ github.event.issue.number }}"

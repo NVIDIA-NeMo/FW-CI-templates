@@ -2,10 +2,9 @@ name: Community Bot
 
 on:
   workflow_call:
-    inputs:
-      maintainers:
-        type: string
-        description: The list of maintainers
+    secrets:
+      GH_TOKEN:
+        required: true
 
 jobs:
   manage-community-label:
@@ -23,18 +22,28 @@ jobs:
         id: pre-flight
         env:
           IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO: ${{ github.repository }}
         run: |
           # Get the username who triggered the action
           USERNAME="${{ github.actor }}"
 
-          # Check if user is in the maintainers list
-          # You can customize this list or use organization membership
-          MAINTAINERS="${{ inputs.maintainers }}"
+          echo "Checking if $ISSUE_AUTHOR is a collaborator..."
+          API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -L \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            $API_URL)
 
-          if echo "$MAINTAINERS" | grep -q "$USERNAME"; then
+          if [ "$STATUS" -eq 204 ]; then
             echo "is_maintainer=true" | tee -a $GITHUB_OUTPUT
-          else
+          elif [ "$STATUS" -eq 404 ]; then
             echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
+          else
+            echo "Unexpected response: $STATUS"
+            exit 1
           fi
 
           echo "is_valid_event=$IS_VALID_EVENT" | tee -a $GITHUB_OUTPUT

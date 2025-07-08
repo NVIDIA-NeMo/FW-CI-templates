@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.43.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.42.0...v0.43.0) (2025-07-08)
+
+
+### Features
+
+* community issue bot ([#199](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/199)) ([dc9b20b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/dc9b20b4b189ef6f4d71c9004d1e22e4a6c5fca6))
+
+
+### Bug Fixes
+
+* Checkout repo ([#204](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/204)) ([d405873](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d405873205433b9f5c6fc6bbd3046ca211feaab4))
+* Input maintainers ([#205](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/205)) ([891e90b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/891e90baf2eb3f8341eeb8e0137aacdf620222cc))
+
 ## [0.42.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.41.0...v0.42.0) (2025-06-30)
 
 

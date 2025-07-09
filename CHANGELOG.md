@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.44.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.43.0...v0.44.0) (2025-07-09)
+
+
+### Features
+
+* Add exempt label ([#207](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/207)) ([47ea0ca](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/47ea0cab6449f809dff1a860a80129d34b80004f))
+* Auto-discover collaborators ([#206](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/206)) ([484c4aa](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/484c4aa817b8aed7d8dfb52140aacfaf6d2f19df))
+
 ## [0.43.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.42.0...v0.43.0) (2025-07-08)
 
 

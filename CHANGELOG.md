@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.44.0...v0.45.0) (2025-07-16)
+
+
+### Features
+
+* CICD pre-flight ([#210](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/210)) ([c6e5896](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6e589695a12bcb4462ec63f1bbdafa7c73709a7))
+
 ## [0.44.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.43.0...v0.44.0) (2025-07-09)
 
 

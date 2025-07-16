@@ -23,6 +23,9 @@ on:
       docs_only:
         description: "Whether only docs are changed"
         value: ${{ jobs.pre-flight.outputs.docs_only }}
+      base_ref:
+        description: "Base reference"
+        value: ${{ jobs.pre-flight.outputs.base_ref }}
 
 jobs:
   pre-flight:
@@ -31,6 +34,7 @@ jobs:
       is_ci_workload: ${{ steps.is_ci_workload.outputs.main }}
       force_run_all: ${{ steps.force_run_all.outputs.main }}
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
+      base_ref: ${{ steps.base-ref.outputs.base }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -38,11 +42,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
         with:
+          base_sha: ${{ steps.base-ref.outputs.base }}
           files_yaml: |
             doc:
               - '**.md'

@@ -1,0 +1,105 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+on:
+  workflow_call:
+    outputs:
+      is_ci_workload:
+        description: "Whether it is triggered by schedule event"
+        value: ${{ jobs.pre-flight.outputs.is_ci_workload }}
+      force_run_all:
+        description: "Whether label `force-run-all` is set"
+        value: ${{ jobs.pre-flight.outputs.force_run_all }}
+      docs_only:
+        description: "Whether only docs are changed"
+        value: ${{ jobs.pre-flight.outputs.docs_only }}
+      base_ref:
+        description: "Base reference"
+        value: ${{ jobs.pre-flight.outputs.base_ref }}
+
+jobs:
+  pre-flight:
+    runs-on: ubuntu-latest
+    outputs:
+      is_ci_workload: ${{ steps.is_ci_workload.outputs.main }}
+      force_run_all: ${{ steps.force_run_all.outputs.main }}
+      docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
+      base_ref: ${{ steps.base-ref.outputs.base }}
+    env:
+      TESTS_TO_RUN: ${{ inputs.test_to_run }}
+      EVENT_NAME: ${{ github.event_name }}
+      HAS_LABEL: ${{ github.event.label.name == 'Run CICD' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
+
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v45.0.1
+        with:
+          base_sha: ${{ steps.base-ref.outputs.base }}
+          files_yaml: |
+            doc:
+              - '**.md'
+              - docs/**
+            src:
+              - '!**.md'
+              - '!docs/**'
+
+      - name: Check if docs only
+        shell: bash
+        id: docs_only
+        env:
+          DOCS_ONLY: ${{ steps.changed-files.outputs.doc_any_changed == 'true' && steps.changed-files.outputs.src_any_changed == 'false' }}
+        run: |
+          echo "main=$DOCS_ONLY" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check if this is a CI workload
+        shell: bash
+        id: is_ci_workload
+        run: |
+          branch_name=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+
+          if [[ "$branch_name" =~ ^bump-ci-container || "$EVENT_NAME" == "schedule" ]]; then
+            is_ci_workload=true
+          else
+            is_ci_workload=false
+          fi
+
+          echo "main=$is_ci_workload" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check if force-run-all is set
+        shell: bash
+        id: force_run_all
+        env:
+          HAS_FORCE_RUN_ALL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'force-run-all') }}
+        run: |
+          if [[ "$HAS_FORCE_RUN_ALL_LABEL" == "true" || "$EVENT_NAME" == "schedule" ]]; then
+            force_run_all=true
+          else
+            force_run_all=false
+          fi
+
+          echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"

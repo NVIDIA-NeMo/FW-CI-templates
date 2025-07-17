@@ -54,6 +54,16 @@ on:
         description: Create a GitHub release
         type: boolean
         default: true
+      has-src-dir:
+        required: false
+        description: Whether the package has a src directory
+        type: boolean
+        default: false
+      skip-test-wheel:
+        required: false
+        description: Skip the test wheel step
+        type: boolean
+        default: false
     secrets:
       TWINE_USERNAME:
         required: true
@@ -68,13 +78,15 @@ on:
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.32.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.46.0
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
       packaging: ${{ inputs.packaging }}
+      has-src-dir: ${{ inputs.has-src-dir }}
+      skip-test-wheel: ${{ inputs.skip-test-wheel }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

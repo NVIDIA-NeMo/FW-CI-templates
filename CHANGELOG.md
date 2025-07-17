@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.45.0...v0.46.0) (2025-07-17)
+
+
+### Features
+
+* Allow src dir ([#212](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/212)) ([3afec9f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3afec9fb617666eda9ee326d89774815ea4a8de5))
+
 ## [0.45.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.44.0...v0.45.0) (2025-07-16)
 
 

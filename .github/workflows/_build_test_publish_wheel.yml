@@ -137,7 +137,7 @@ jobs:
           # If this is a dry run, update the patch version to a random number to upload to test-pypi
           if [[ "$DRY_RUN" == "true" ]]; then
             if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
-              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" "$SRC_DIR$PYPROJECT_NAME/package_info.py"
+              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" "$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
             else
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
               pip install hatch

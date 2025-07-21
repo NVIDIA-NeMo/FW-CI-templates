@@ -54,6 +54,11 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      custom-container:
+        required: false
+        description: Custom container to use for the build
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -80,6 +85,7 @@ defaults:
 jobs:
   build-wheel:
     runs-on: ubuntu-latest
+    container: ${{ inputs.custom-container }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

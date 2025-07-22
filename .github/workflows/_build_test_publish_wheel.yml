@@ -259,7 +259,7 @@ jobs:
           REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
         run: |
           python3 -m pip install --upgrade twine==6.0.1
-          python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+          python3 -m twine upload --verbose -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
 
   notify:
     runs-on: ubuntu-latest

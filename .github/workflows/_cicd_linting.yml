@@ -27,6 +27,7 @@ jobs:
         ref: donghyukc/lint_template
         sparse-checkout: |
           configs/ruff.toml
+        sparse-checkout-cone-mode: false
         path: FW-CI-templates
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -40,18 +41,12 @@ jobs:
       continue-on-error: true
       run: |
 
-        echo "Repos under NVIDIA-NeMo must follow Framework linting rules defined in NVIDIA-NeMo/FW-CI-templates/github_repo_template/{{cookiecutter.project_slug}}/ruff.toml"
+        echo "Repos under NVIDIA-NeMo must follow Framework linting rules defined in NVIDIA-NeMo/FW-CI-templates/configs/ruff.toml"
 
-        ls -l
-
-        echo "Check for file"
-
-        ls -l FW-CI-templates
-
-        ruff check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated
-        ruff format --check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated
+        ruff check . --verbose --config FW-CI-templates/configs/ruff.toml
+        ruff format --check . --verbose --config FW-CI-templates/configs/ruff.toml
 
     - name: Run Repo level ruff
       run: |
-        ruff check . --verbose
-        ruff format --check . --verbose
+        ruff check . --verbose --config pyproject.toml
+        ruff format --check . --verbose --config pyproject.toml

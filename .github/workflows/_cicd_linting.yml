@@ -41,6 +41,12 @@ jobs:
 
         echo "Repos under NVIDIA-NeMo must follow Framework linting rules defined in NVIDIA-NeMo/FW-CI-templates/github_repo_template/{{cookiecutter.project_slug}}/ruff.toml"
 
+        ls -l
+
+        echo "Check for file"
+
+        ls -l /home/runner/work/Automodel/Automodel/FW-CI-templates/configs
+
         ruff check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated
         ruff format --check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated
 

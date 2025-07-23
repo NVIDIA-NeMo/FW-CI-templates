@@ -58,7 +58,6 @@ on:
         required: false
         description: Custom container to use for the build
         type: string
-        default: ""
       runner:
         required: false
         description: Runner to use for the build
@@ -94,8 +93,8 @@ defaults:
 
 jobs:
   build-wheel:
-    runs-on: ${{ inputs.runner}}
-    container: ${{ inputs.custom-container }}
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.custom-container || null }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

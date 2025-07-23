@@ -26,7 +26,6 @@ jobs:
         repository: NVIDIA-NeMo/FW-CI-templates
         sparse-checkout: |
           configs/ruff.toml
-        sparse-checkout-cone-mode: false
         path: FW-CI-templates
     - name: Setup Python
       uses: actions/setup-python@v5

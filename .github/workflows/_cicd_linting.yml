@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: NVIDIA-NeMo/FW-CI-templates
-        branch: donghyukc/lint_template
+        ref: donghyukc/lint_template
         sparse-checkout: |
           configs/ruff.toml
         path: FW-CI-templates

@@ -21,7 +21,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Checkout FW ruff toml
-      uses: actions/checkout-files@v4
+      uses: actions/checkout@v4
       with:
         repository: NVIDIA-NeMo/FW-CI-templates
         sparse-checkout: |

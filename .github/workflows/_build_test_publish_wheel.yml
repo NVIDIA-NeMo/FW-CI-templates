@@ -58,6 +58,7 @@ on:
         required: false
         description: Custom container to use for the build
         type: string
+        default: ""
       runner:
         required: false
         description: Runner to use for the build
@@ -95,7 +96,7 @@ jobs:
   build-wheel:
     runs-on: ${{ inputs.runner }}
     container:
-      image: ${{ '' }}
+      image: ${{ inputs.custom-container || '' }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

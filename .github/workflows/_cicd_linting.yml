@@ -45,7 +45,7 @@ jobs:
 
         echo "Check for file"
 
-        ls -l /home/runner/work/Automodel/Automodel/FW-CI-templates/configs
+        ls -l FW-CI-templates
 
         ruff check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated
         ruff format --check . --verbose --config FW-CI-templates/configs/ruff.toml --isolated

@@ -64,6 +64,21 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      custom-container:
+        required: false
+        description: Custom container to use for the build
+        type: string
+        default: ""
+      runner:
+        required: false
+        description: Runner to use for the build
+        type: string
+        default: ubuntu-latest
+      no-build-isolation:
+        required: false
+        description: Do not build the package in isolation
+        type: boolean
+        default: false
     secrets:
       TWINE_USERNAME:
         required: true
@@ -87,6 +102,9 @@ jobs:
       packaging: ${{ inputs.packaging }}
       has-src-dir: ${{ inputs.has-src-dir }}
       skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      custom-container: ${{ inputs.custom-container }}
+      runner: ${{ inputs.runner }}
+      no-build-isolation: ${{ inputs.no-build-isolation }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

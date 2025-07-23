@@ -54,6 +54,21 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      custom-container:
+        required: false
+        description: Custom container to use for the build
+        type: string
+        default: ""
+      runner:
+        required: false
+        description: Runner to use for the build
+        type: string
+        default: ubuntu-latest
+      no-build-isolation:
+        required: false
+        description: Do not build the package in isolation
+        type: boolean
+        default: false
     secrets:
       TWINE_USERNAME:
         required: true
@@ -79,7 +94,9 @@ defaults:
 
 jobs:
   build-wheel:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.custom-container || '' }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}
@@ -119,6 +136,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
+          NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
         run: |
           cd ${{ github.run_id }}
           ls -al
@@ -131,12 +149,19 @@ jobs:
           # Install the package to import and check the version in a later step
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            uv venv .venv
+            curl -LsSf https://astral.sh/uv/0.7.2/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
+            uv venv .venv --system-site-packages
             source .venv/bin/activate
-            uv pip install -e .
+            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
+              uv pip install setuptools pybind11 wheel_stub torch
+            fi
+            uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else
-            pip install -e .
+            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
+              pip install setuptools pybind11 wheel_stub torch
+            fi
+            pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
           fi
 
           # If this is a dry run, update the patch version to a random number to upload to test-pypi

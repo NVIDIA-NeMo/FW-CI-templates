@@ -148,7 +148,8 @@ jobs:
             uv pip install setuptools pybind11 wheel_stub torch
             uv pip install --no-build-isolation -e .
           else
-            pip install -e .
+            pip install setuptools pybind11 wheel_stub torch
+            pip install -e --no-build-isolation .
           fi
 
           # If this is a dry run, update the patch version to a random number to upload to test-pypi

@@ -20,6 +20,13 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+    - name: Checkout FW ruff toml
+      uses: actions/checkout-files@v4
+      with:
+        repository: NVIDIA-NeMo/FW-CI-templates
+        sparse-checkout: |
+          github_repo_template/{{cookiecutter.project_slug}}/ruff.toml
+        sparse-checkout-cone-mode: false
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
@@ -29,14 +36,13 @@ jobs:
         pip install ruff
 
     - name: Run FW level ruff
+      continue-on-error: true
       run: |
-        FW_LEVEL_SELECT="F541,F841,F401,E741,F821,E266,I,D101,D103"
-        FW_LEVEL_IGNORE="E501"
 
-        echo "Ruff check is executed with Framework level select: ($FW_LEVEL_SELECT) and ignore: ($FW_LEVEL_IGNORE)"
+        echo "Repos under NVIDIA-NeMo must follow Framework linting rules defined in NVIDIA-NeMo/FW-CI-templates/github_repo_template/{{cookiecutter.project_slug}}/ruff.toml"
 
-        ruff check . --verbose --select "$FW_LEVEL_SELECT" --ignore "$FW_LEVEL_IGNORE" --isolated
-        ruff format --check . --verbose --select "$FW_LEVEL_SELECT" --ignore "$FW_LEVEL_IGNORE" --isolated
+        ruff check . --verbose --config ruff.toml --isolated
+        ruff format --check . --verbose --config ruff.toml --isolated
 
     - name: Run Repo level ruff
       run: |

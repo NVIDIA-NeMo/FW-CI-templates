@@ -1,0 +1,69 @@
+[tool.ruff]
+
+# Match black's line length
+line-length = 119
+target-version = "py310"
+
+# Exclude common directories that shouldn't be linted
+exclude = [
+    ".git",
+    ".github",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.egg",
+    "build",
+    "dist",
+    "docs/source/conf.py",
+    "setup.py",
+]
+
+# Files to completely ignore
+extend-exclude = [
+    "*.ipynb",
+]
+
+[tool.ruff.lint]
+# Configure imports sorting to match isort
+select = [
+    "F541",  # f-string without any placeholders
+    "F841",  # local variable assigned but never used
+    "F401",  # imported but unused
+    "E741",  # ambiguous variable name
+    "F821",  # undefined name
+    "E266",  # too many leading '#' for block comment
+    "I",     # isort
+    "D101",  # docstring
+    "D103",
+]
+
+# Additional rules can be added here
+ignore = [
+    "E501",  # Line too long - handled by formatter
+]
+[tool.ruff.lint.isort]
+known-first-party = ["{{cookiecutter.package_name}}"]
+known-third-party = ["examples", "scripts"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+lines-after-imports = 2
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore import violations in __init__ files
+"__init__.py" = ["F401", "F403"]
+# Ignore docstring requirements in test files
+"test_*.py" = ["D101", "D103"]
+"*_test.py" = ["D101", "D103"]
+"tests/*.py" = ["D101", "D103"]
+
+[tool.ruff.format]
+# Match black configuration
+quote-style = "double"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.coverage.run]
+concurrency = ["thread", "multiprocessing"]
+omit = ["/tmp/*"]
+
+[tool.coverage.paths]
+source = ["{{cookiecutter.package_name}}/", "/workspace/{{cookiecutter.package_name}}"]

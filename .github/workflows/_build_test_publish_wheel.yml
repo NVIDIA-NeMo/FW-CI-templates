@@ -150,6 +150,7 @@ jobs:
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
             curl -LsSf https://astral.sh/uv/0.7.2/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
             uv venv .venv --system-site-packages
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then

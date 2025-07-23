@@ -21,6 +21,7 @@ extend-exclude = [
     "*.ipynb",
 ]
 
+[lint]
 # Configure imports sorting to match isort
 select = [
     "F541",  # f-string without any placeholders
@@ -39,11 +40,13 @@ ignore = [
     "E501",  # Line too long - handled by formatter
 ]
 
+[lint.isort]
 known-first-party = ["{{cookiecutter.package_name}}"]
 known-third-party = ["examples", "scripts"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
 
+[lint.per-file-ignores]
 # Ignore import violations in __init__ files
 "__init__.py" = ["F401", "F403"]
 # Ignore docstring requirements in test files
@@ -51,12 +54,8 @@ lines-after-imports = 2
 "*_test.py" = ["D101", "D103"]
 "tests/*.py" = ["D101", "D103"]
 
+[format]
 # Match black configuration
 quote-style = "double"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-concurrency = ["thread", "multiprocessing"]
-omit = ["/tmp/*"]
-
-source = ["{{cookiecutter.package_name}}/", "/workspace/{{cookiecutter.package_name}}"]

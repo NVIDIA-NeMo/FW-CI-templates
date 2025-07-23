@@ -30,10 +30,10 @@ jobs:
 
     - name: Run FW level ruff
       run: |
-        FW_LEVEL_SELECT="F541, F841, F401, E741, F821, E266, I, D101, D103"
+        FW_LEVEL_SELECT="F541,F841,F401,E741,F821,E266,I,D101,D103"
         FW_LEVEL_IGNORE="E501"
 
-        echo "Ruff check is executed with Framework level select: ($FW_LEVEL_SELECT) and ignore: (FW_LEVEL_IGNORE)"
+        echo "Ruff check is executed with Framework level select: ($FW_LEVEL_SELECT) and ignore: ($FW_LEVEL_IGNORE)"
 
         ruff check . --verbose --select "$FW_LEVEL_SELECT" --ignore "$FW_LEVEL_IGNORE" --isolated
         ruff format --check . --verbose --select "$FW_LEVEL_SELECT" --ignore "$FW_LEVEL_IGNORE" --isolated

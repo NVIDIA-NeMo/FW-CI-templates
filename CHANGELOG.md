@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.48.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.47.0...v0.48.0) (2025-07-23)
+
+
+### Features
+
+* Support custom image and runner as well as no-build-isolation ([#218](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/218)) ([8ecf429](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/8ecf42994bd4d5d46aff33951ccffbb3647ccbaf))
+* Upload built docs to Github artifact ([#217](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/217)) ([6d01de7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6d01de7454d8c9e80f501083275bfef470775445))
+
 ## [0.47.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.46.0...v0.47.0) (2025-07-17)
 
 

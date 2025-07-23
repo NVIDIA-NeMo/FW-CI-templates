@@ -94,7 +94,8 @@ defaults:
 jobs:
   build-wheel:
     runs-on: ${{ inputs.runner }}
-    container: ${{ inputs.custom-container || null }}
+    container:
+      image: ${{ inputs.custom-container || null }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

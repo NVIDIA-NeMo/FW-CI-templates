@@ -5,6 +5,6 @@
 # Secrets Auto-Detector Instructions : How To Generate the Secrets Baseline for a Repository
 
 Run:
-`detect-secrets scan --exclude-files 'pyproject\.toml' > ./.github/workflows/config/.secrets.baseline`
+`detect-secrets scan --exclude-files 'pyproject\.toml|\.github/workflows/config/\.secrets\.baseline' > .github/workflows/config/.secrets.baseline`
 
-Note in the above `pyproject.toml` is an example of a file wanted to be ignored.
+Note in the above `pyproject.toml` and `.github/workflows/config/.secrets.baseline` are examples of files wanted to be ignored.

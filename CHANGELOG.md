@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.51.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.50.0...v0.51.0) (2025-07-30)
+
+
+### Features
+
+* add_secrets_detector ([#216](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/216)) ([47a0955](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/47a095595b53b1ebcf54fde023b0419a65a4a571))
+
+
+### Bug Fixes
+
+* Bump build-test-publish for release ([#229](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/229)) ([459d019](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/459d0196806eb477a318a9be99ed112ec697f5d1))
+
 ## [0.50.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.49.1...v0.50.0) (2025-07-28)
 
 

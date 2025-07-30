@@ -140,7 +140,7 @@ jobs:
           cd ${{ github.run_id }}
 
           IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
-          IS_ALPHA=$([[ "$VERSION" ] == *a* ]] && echo "true" || echo "false")
+          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
           IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
           NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 

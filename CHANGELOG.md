@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.51.0...v0.52.0) (2025-07-31)
+
+
+### Features
+
+* Add build-contexts to _build_container ([#230](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/230)) ([23c5581](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/23c5581eac396bc1b8be18145f11a12928227ca0))
+
 ## [0.51.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.50.0...v0.51.0) (2025-07-30)
 
 

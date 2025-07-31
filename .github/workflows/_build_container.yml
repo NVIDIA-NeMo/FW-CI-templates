@@ -28,6 +28,10 @@ on:
         required: false
         description: Additional build args to use
         type: string
+      build-contexts:
+        required: false
+        description: Additional build contexts to use
+        type: string
       dockerfile:
         required: true
         description: Path to dockerfile
@@ -301,6 +305,7 @@ jobs:
           file: ${{ github.run_id }}/${{ inputs.dockerfile }}
           push: true
           build-args: ${{ inputs.build-args }}
+          build-contexts: ${{ inputs.build-contexts }}
           cache-from: |
             ${{ env.CACHE_FROM }}
           cache-to: |

@@ -83,41 +83,33 @@ jobs:
           # Get the issue's node ID
           ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }} --jq .node_id)
 
-          # Check if issue is already in the project
-          EXISTING_ITEMS=$(gh api graphql -f query='
-            query {
-              node(id: "'${{ inputs.community_project_id }}'") {
-                ... on ProjectV2 {
-                  items(first: 100) {
-                    nodes {
-                      content {
-                        ... on Issue {
-                          id
-                        }
-                      }
-                    }
-                  }
+          echo "Adding issue #${{ github.event.issue.number }} to project ${{ inputs.community_project_id }}"
+          RESPONSE=$(gh api graphql -f query='
+            mutation {
+              addProjectV2Item(input: {
+                projectId: "'${{ inputs.community_project_id }}'"
+                contentId: "'$ISSUE_NODE_ID'"
+              }) {
+                item {
+                  id
                 }
               }
             }
-          ' --jq '.data.node.items.nodes[].content.id')
+          ' 2>&1)
 
-          if echo "$EXISTING_ITEMS" | grep -q "$ISSUE_NODE_ID"; then
-            echo "Issue #${{ github.event.issue.number }} is already in project ${{ inputs.community_project_id }}, skipping"
+          EXIT_CODE=$?
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "Successfully added issue to project"
           else
-            echo "Adding issue #${{ github.event.issue.number }} to project ${{ inputs.community_project_id }}"
-            gh api graphql -f query='
-              mutation {
-                addProjectV2Item(input: {
-                  projectId: "'${{ inputs.community_project_id }}'"
-                  contentId: "'$ISSUE_NODE_ID'"
-                }) {
-                  item {
-                    id
-                  }
-                }
-              }
-            '
+            # Check for specific error types
+            if echo "$RESPONSE" | grep -q "already exists"; then
+              echo "Issue #${{ github.event.issue.number }} is already in project ${{ inputs.community_project_id }}, skipping"
+            else
+              echo "ERROR: Unexpected error adding issue to project:"
+              echo "$RESPONSE"
+              exit 1
+            fi
           fi
 
       - name: Remove community-request label for maintainers

@@ -15,6 +15,21 @@ on:
     secrets:
       GH_TOKEN:
         required: true
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        required: true
+        description: The issue number to test with
+        type: string
+      community_project_id:
+        required: true
+        description: The GitHub project ID to add community issues to
+        type: string
+      environment:
+        required: false
+        description: The environment to use for the workflow
+        type: string
+        default: "main"
 
 jobs:
   manage-community-label:
@@ -25,6 +40,8 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Handle both manual dispatch and workflow call
+      ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,13 +51,22 @@ jobs:
       - name: Check pre-conditions
         id: pre-flight
         env:
-          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}
+          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'workflow_dispatch') }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_AUTHOR: ${{ github.event_name == 'workflow_dispatch' && 'test-user' || github.event.issue.user.login }}
           REPO: ${{ github.repository }}
         run: |
           # Get the username who triggered the action
           USERNAME="${{ github.actor }}"
+
+          # For manual testing, always treat as community user
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual test mode - treating as community user"
+            echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
+            echo "is_valid_event=true" | tee -a $GITHUB_OUTPUT
+            echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
+            exit 0
+          fi
 
           echo "Checking if $ISSUE_AUTHOR is a collaborator..."
           API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
@@ -71,7 +97,7 @@ jobs:
           )
         run: |
           # Add the community-request label
-          gh issue edit ${{ github.event.issue.number }} --add-label "community-request"
+          gh issue edit $ISSUE_NUMBER --add-label "community-request"
 
       - name: Add community issue to community project
         if: |
@@ -81,9 +107,9 @@ jobs:
           )
         run: |
           # Get the issue's node ID
-          ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }} --jq .node_id)
+          ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUMBER --jq .node_id)
 
-          echo "Adding issue #${{ github.event.issue.number }} to project ${{ inputs.community_project_id }}"
+          echo "Adding issue #$ISSUE_NUMBER to project ${{ inputs.community_project_id }}"
           RESPONSE=$(gh api graphql -f query='
             mutation {
               addProjectV2Item(input: {
@@ -104,7 +130,7 @@ jobs:
           else
             # Check for specific error types
             if echo "$RESPONSE" | grep -q "already exists"; then
-              echo "Issue #${{ github.event.issue.number }} is already in project ${{ inputs.community_project_id }}, skipping"
+              echo "Issue #$ISSUE_NUMBER is already in project ${{ inputs.community_project_id }}, skipping"
             else
               echo "ERROR: Unexpected error adding issue to project:"
               echo "$RESPONSE"
@@ -120,7 +146,6 @@ jobs:
           )
         run: |
           # Check if the issue has the "community-request" label before attempting to remove it
-          ISSUE_NUMBER=${{ github.event.issue.number }}
           LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels -q '.labels[].name')
           if echo "$LABELS" | grep -q "^community-request$"; then
             gh issue edit "$ISSUE_NUMBER" --remove-label "community-request"
@@ -133,4 +158,4 @@ jobs:
           echo "User: ${{ steps.pre-flight.outputs.username }}"
           echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
           echo "Event: ${{ github.event_name }}"
-          echo "Issue number: ${{ github.event.issue.number }}"
+          echo "Issue number: $ISSUE_NUMBER"

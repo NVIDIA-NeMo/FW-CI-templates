@@ -8,6 +8,10 @@ on:
         description: The environment to use for the workflow
         type: string
         default: "main"
+      community_project_id:
+        required: true
+        description: The GitHub project ID to add community issues to
+        type: string
     secrets:
       GH_TOKEN:
         required: true
@@ -33,6 +37,7 @@ jobs:
           IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login || '' }}
           REPO: ${{ github.repository }}
         run: |
           # Get the username who triggered the action
@@ -62,15 +67,64 @@ jobs:
       - name: Add community-request label for community users
         if: |
           (
-            steps.pre-flight.outputs.is_maintainer == 'false' 
+            steps.pre-flight.outputs.is_maintainer == 'false'
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
-        run: gh issue edit ${{ github.event.issue.number }} --add-label "community-request"
+        run: |
+          # Add the community-request label
+          gh issue edit ${{ github.event.issue.number }} --add-label "community-request"
+
+      - name: Add community issue to community project
+        if: |
+          (
+            steps.pre-flight.outputs.is_maintainer == 'false'
+            && steps.pre-flight.outputs.is_valid_event == 'true'
+          )
+        run: |
+          # Get the issue's node ID
+          ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }} --jq .node_id)
+
+          # Check if issue is already in the project
+          EXISTING_ITEMS=$(gh api graphql -f query='
+            query {
+              node(id: "'${{ inputs.community_project_id }}'") {
+                ... on ProjectV2 {
+                  items(first: 100) {
+                    nodes {
+                      content {
+                        ... on Issue {
+                          id
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' --jq '.data.node.items.nodes[].content.id')
+
+          if echo "$EXISTING_ITEMS" | grep -q "$ISSUE_NODE_ID"; then
+            echo "Issue #${{ github.event.issue.number }} is already in project ${{ inputs.community_project_id }}, skipping"
+          else
+            echo "Adding issue #${{ github.event.issue.number }} to project ${{ inputs.community_project_id }}"
+            gh api graphql -f query='
+              mutation {
+                addProjectV2Item(input: {
+                  projectId: "'${{ inputs.community_project_id }}'"
+                  contentId: "'$ISSUE_NODE_ID'"
+                }) {
+                  item {
+                    id
+                  }
+                }
+              }
+            '
+          fi
 
       - name: Remove community-request label for maintainers
         if: |
           (
-            steps.pre-flight.outputs.is_maintainer == 'true' 
+            steps.pre-flight.outputs.is_maintainer == 'true'
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
         run: |

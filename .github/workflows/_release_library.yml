@@ -195,6 +195,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-test-publish-wheel, create-gh-release]
     if: ${{ needs.create-gh-release.outputs.is-release-candidate == 'true' }}
+    env:
+      IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -320,7 +322,14 @@ jobs:
           git fetch origin ${{ inputs.version-bump-branch }}
           git checkout ${{ inputs.version-bump-branch}}
           git merge ${{ env.TMP_BRANCH }}
-          git push origin ${{ inputs.version-bump-branch }}
+
+          CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
+
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            echo -E "$CMD"
+          else
+            eval "$CMD"
+          fi
 
   notify:
     needs: [build-test-publish-wheel, create-gh-release]

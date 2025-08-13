@@ -93,6 +93,8 @@ jobs:
           gh issue edit $ISSUE_NUMBER --add-label "community-request"
 
       - name: Add community issue to community project
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'

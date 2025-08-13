@@ -99,36 +99,32 @@ jobs:
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
         run: |
-          # Get the issue's node ID
           ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUMBER --jq .node_id)
-
-          echo "Adding issue #$ISSUE_NUMBER to project ${{ inputs.community_project_id }}"
-          RESPONSE=$(gh api graphql -f query='
-            mutation {
-              addProjectV2Item(input: {
-                projectId: "'${{ inputs.community_project_id }}'"
-                contentId: "'$ISSUE_NODE_ID'"
-              }) {
-                item {
+          PROJECT_NODE_ID=$(gh api graphql -f query='
+            query($projectNumber: Int!) {
+              organization(login: "NVIDIA-NeMo") {
+                projectV2(number: $projectNumber) {
                   id
                 }
               }
-            }
-          ' 2>&1)
+            }' -F projectNumber=$COMMUNITY_PROJECT_ID --jq '.data.organization.projectV2.id')
 
-          EXIT_CODE=$?
+          echo "Project ID: $PROJECT_NODE_ID"
+          echo "Adding issue $ISSUE_NUMBER to project $COMMUNITY_PROJECT_ID"
 
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "Successfully added issue to project"
-          else
-            # Check for specific error types
-            if echo "$RESPONSE" | grep -q "already exists"; then
-              echo "Issue #$ISSUE_NUMBER is already in project ${{ inputs.community_project_id }}, skipping"
-            else
-              echo "ERROR: Unexpected error adding issue to project:"
-              echo "$RESPONSE"
-              exit 1
-            fi
+          RESPONSE=$(gh api graphql -f query='
+              mutation($project:ID!, $issue:ID!) {
+                  addProjectV2ItemById(input: {projectId: $project, contentId: $issue}) {
+                  item {
+                      id
+                  }
+                  }
+              }' -f project="$PROJECT_NODE_ID" -f issue="$ISSUE_NODE_ID")
+
+          echo $RESPONSE
+
+          if echo "$RESPONSE" | grep -q "error"; then
+            exit 1
           fi
 
       - name: Remove community-request label for maintainers

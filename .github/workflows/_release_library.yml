@@ -231,6 +231,7 @@ jobs:
           passphrase: ${{ secrets.SSH_PWD }}
           git_user_signingkey: true
           git_commit_gpgsign: true
+          workdir: ${{ github.run_id }}
 
       - name: Bump version
         id: bump-version

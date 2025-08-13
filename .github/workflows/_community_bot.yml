@@ -33,8 +33,8 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Handle both manual dispatch and workflow call
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
+      COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

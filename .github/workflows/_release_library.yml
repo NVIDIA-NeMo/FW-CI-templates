@@ -201,6 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-test-publish-wheel, create-gh-release]
     if: ${{ needs.create-gh-release.outputs.is-release-candidate == 'true' }}
+    environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:

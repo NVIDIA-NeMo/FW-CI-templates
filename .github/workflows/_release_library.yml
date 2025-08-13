@@ -220,17 +220,9 @@ jobs:
           ref: ${{ inputs.release-ref }}
 
       - name: Install GPG
-        env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          SSH_PWD: ${{ secrets.SSH_PWD }}
-        if: env.SSH_KEY != '' && env.SSH_PWD != ''
         run: sudo apt-get install -y gnupg2
 
       - name: Import GPG key (for signing)
-        env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          SSH_PWD: ${{ secrets.SSH_PWD }}
-        if: env.SSH_KEY != '' && env.SSH_PWD != ''
         uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
         id: gpg-action
         with:

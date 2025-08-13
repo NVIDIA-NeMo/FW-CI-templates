@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.53.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.52.0...v0.53.0) (2025-08-13)
+
+
+### Features
+
+* Detect deployment workflow ([#233](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/233)) ([f969984](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f969984576df0b7d65089bd290c5872961b64496))
+
 ## [0.52.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.51.0...v0.52.0) (2025-07-31)
 
 

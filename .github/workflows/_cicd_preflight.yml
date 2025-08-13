@@ -26,7 +26,9 @@ on:
       base_ref:
         description: "Base reference"
         value: ${{ jobs.pre-flight.outputs.base_ref }}
-
+      is_deployment_workflow:
+        description: "Whether it is triggered by deployment workflow"
+        value: ${{ jobs.pre-flight.outputs.is_deployment_workflow }}
 jobs:
   pre-flight:
     runs-on: ubuntu-latest
@@ -35,6 +37,7 @@ jobs:
       force_run_all: ${{ steps.force_run_all.outputs.main }}
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
       base_ref: ${{ steps.base-ref.outputs.base }}
+      is_deployment_workflow: ${{ steps.is-deployment-workflow.outputs.main == 'true' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -49,6 +52,12 @@ jobs:
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')
         uses: nv-gha-runners/get-pr-info@main
+
+      - name: Is deployment workflow
+        id: is-deployment-workflow
+        if: startsWith(github.ref, 'refs/heads/deploy-release/')
+        run: |
+          echo "main=true" | tee -a "$GITHUB_OUTPUT"
 
       - name: Determine base reference
         id: base-ref

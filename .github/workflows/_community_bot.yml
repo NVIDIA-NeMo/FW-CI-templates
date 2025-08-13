@@ -107,7 +107,7 @@ jobs:
                   id
                 }
               }
-            }' -F projectNumber=$COMMUNITY_PROJECT_ID --jq '.data.organization.projectV2.id')
+            }' -F projectNumber="$COMMUNITY_PROJECT_ID" --jq .data.organization.projectV2.id)
 
           echo "Project ID: $PROJECT_NODE_ID"
           echo "Adding issue $ISSUE_NUMBER to project $COMMUNITY_PROJECT_ID"

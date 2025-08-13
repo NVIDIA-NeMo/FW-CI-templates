@@ -5,9 +5,12 @@ on:
     types: [opened, edited, reopened, closed, deleted]
   issue_comment:
     types: [created, edited, deleted]
+  push:
 
 jobs:
   community-bot:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@ko3n1g/feat/community-bot
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@a7dab79093d709b53c4176f45083751c841e7a4d
     with:
-      maintainers: ko3n1g
+      issue_number: 203
+      issue_author: chtruong814
+      community_project_id: 16

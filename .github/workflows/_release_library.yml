@@ -246,6 +246,8 @@ jobs:
 
       - name: Create tmp branch and push
         run: |
+          cd ${{ github.run_id }}
+
           TMP_BRANCH="deploy-to-main-$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
           git add ${{ inputs.python-package }}/package_info.py
@@ -323,6 +325,8 @@ jobs:
 
       - name: Merge into target branch
         run: |
+          cd ${{ github.run_id }}
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin ${{ inputs.version-bump-branch }}

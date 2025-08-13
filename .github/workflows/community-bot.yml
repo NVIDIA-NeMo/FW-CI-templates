@@ -9,7 +9,7 @@ on:
 
 jobs:
   community-bot:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@9076938717cd6764b36a574f6d55d30a242589c2
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@0c0cc0a6c8351a33369478d1edc77f0d7cc68fed
     with:
       issue_number: 203
       issue_author: chtruong814

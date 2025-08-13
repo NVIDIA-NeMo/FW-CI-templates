@@ -12,24 +12,17 @@ on:
         required: true
         description: The GitHub project ID to add community issues to
         type: string
+      issue_number:
+        required: false
+        description: The issue number to test with
+        type: string
+      issue_author:
+        required: false
+        description: The issue author to test with
+        type: string
     secrets:
       GH_TOKEN:
         required: true
-  workflow_dispatch:
-    inputs:
-      issue_number:
-        required: true
-        description: The issue number to test with
-        type: string
-      community_project_id:
-        required: true
-        description: The GitHub project ID to add community issues to
-        type: string
-      environment:
-        required: false
-        description: The environment to use for the workflow
-        type: string
-        default: "main"
 
 jobs:
   manage-community-label:
@@ -41,7 +34,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Handle both manual dispatch and workflow call
-      ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
+      ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,9 +44,9 @@ jobs:
       - name: Check pre-conditions
         id: pre-flight
         env:
-          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'workflow_dispatch') }}
+          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'push') }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          ISSUE_AUTHOR: ${{ github.event_name == 'workflow_dispatch' && 'test-user' || github.event.issue.user.login }}
+          ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
           REPO: ${{ github.repository }}
         run: |
           # Get the username who triggered the action

@@ -15,4 +15,4 @@ jobs:
       issue_author: chtruong814
       community_project_id: 16
     secrets:
-      GH_TOKEN: ${{ secrets.PAT }}
+      GH_TOKEN: ${{ secrets.ALT_PAT }}

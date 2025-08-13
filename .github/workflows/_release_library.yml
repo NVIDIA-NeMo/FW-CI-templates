@@ -79,6 +79,10 @@ on:
         description: Do not build the package in isolation
         type: boolean
         default: false
+      app-id:
+        required: true
+        description: GitHub App ID
+        type: string
     secrets:
       TWINE_USERNAME:
         required: true
@@ -94,6 +98,8 @@ on:
         required: false
       SSH_PWD:
         required: false
+      BOT_KEY:
+        required: true
 
 jobs:
   build-test-publish-wheel:
@@ -198,11 +204,17 @@ jobs:
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: ${{ github.run_id }}
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ inputs.release-ref }}
@@ -259,7 +271,7 @@ jobs:
         uses: actions/github-script@v7
         id: wait-status
         with:
-          github-token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const branch = process.env.TMP_BRANCH;
             const owner = context.repo.owner;

@@ -35,7 +35,7 @@ jobs:
       force_run_all: ${{ steps.force_run_all.outputs.main }}
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
       base_ref: ${{ steps.base-ref.outputs.base }}
-      is_deployment_workflow: ${{ steps.is-deployment-workflow.outputs.main == 'true'}}
+      is_deployment_workflow: ${{ steps.is-deployment-workflow.outputs.main == 'true' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}

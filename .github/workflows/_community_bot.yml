@@ -44,7 +44,7 @@ jobs:
       - name: Check pre-conditions
         id: pre-flight
         env:
-          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment' }}
+          IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
           REPO: ${{ github.repository }}

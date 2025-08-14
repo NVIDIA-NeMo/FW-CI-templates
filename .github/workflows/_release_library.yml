@@ -277,10 +277,6 @@ jobs:
             --title "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" \
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump-version.outputs.version }}." 
 
-          # TODO: Remove later
-          gh pr merge --auto --squash
-          # End
-
           CMD=$(echo -E 'gh pr merge --auto --squash')
 
           if [[ "$IS_DRY_RUN" == "true" ]]; then

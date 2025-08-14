@@ -279,7 +279,9 @@ jobs:
 
           # TODO: Remove later
           gh pr merge --auto --squash
-          # End todo
+          # End
+
+          CMD=$(echo -E 'gh pr merge --auto --squash')
 
           if [[ "$IS_DRY_RUN" == "true" ]]; then
             echo -E "$CMD"

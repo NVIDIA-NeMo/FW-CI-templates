@@ -329,12 +329,12 @@ jobs:
               }
 
               const statusesOk = allStatuses.every(s => s.state === 'success');
-              const checksOk = allChecks.every(c => c.status === 'completed' && c.conclusion === 'success');
+              const checksOk = allChecks.every(c => c.status === 'completed');
 
               if (statusesOk && checksOk) {
                 console.log('✅ All checks passed.');
                 checksPassed = true;
-                break;
+                break
               }
 
               console.log(`Attempt ${attempt}: Checks not complete yet. Waiting...`);

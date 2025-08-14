@@ -260,7 +260,7 @@ jobs:
 
       - name: Create tmp branch and push
         env:
-          GH_TOKEN: ${{ secrets.PAT }} # ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
 

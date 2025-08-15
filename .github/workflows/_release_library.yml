@@ -189,7 +189,7 @@ jobs:
 
           echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Create tmp branch and push
+      - name: Create and push deployment branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -201,12 +201,6 @@ jobs:
           git commit -sS -m "chore: Version bump ${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
-
-          gh pr create \
-            --base ${{ inputs.version-bump-branch }} \
-            --head $TMP_BRANCH \
-            --title "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" \
-            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump-version.outputs.version }}."
 
       - name: Wait for status checks on tmp branch
         uses: actions/github-script@v7
@@ -293,6 +287,11 @@ jobs:
           else
             eval "$CMD"
           fi
+
+      - name: Delete ${{ env.TMP_BRANCH }} branch
+        run: |
+          cd ${{ github.run_id }}
+          git push -d origin ${{ env.TMP_BRANCH }}
 
   build-test-publish-wheel:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0

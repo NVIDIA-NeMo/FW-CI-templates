@@ -106,10 +106,11 @@ permissions:
   pull-requests: write # To create PRs
 
 jobs:
-  build-test-publish-wheel:
+  build-test-publish-wheel-dry-run:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
+    if: ${{ inputs.dry-run == false }}
     with:
-      dry-run: ${{ inputs.dry-run }}
+      dry-run: true
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
@@ -125,86 +126,11 @@ jobs:
       SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
-  create-gh-release:
-    needs: [build-test-publish-wheel]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    if: ${{ inputs.create-gh-release == true }}
-    outputs:
-      is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
-    env:
-      REPOSITORY: ${{ github.repository }}
-      PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.release-ref }}
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Create release
-        id: version-number
-        env:
-          SHA: ${{ inputs.release-ref }}
-          GH_TOKEN: ${{ secrets.PAT }}
-          IS_DRY_RUN: ${{ inputs.dry-run }}
-        run: |
-          cd ${{ github.run_id }}
-
-          IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
-          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
-          IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
-          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
-
-          if [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
-            DATE=$(date +"%Y-%m-%d")
-            CHANGELOG="Prerelease: $NAME ($DATE)"
-          else
-            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
-            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
-          fi
-
-          echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
-
-          PAYLOAD=$(jq -nc \
-                      --arg TAG_NAME "v${VERSION}" \
-                      --arg CI_COMMIT_BRANCH "$SHA" \
-                      --arg NAME "$NAME" \
-                      --arg BODY "$CHANGELOG" \
-                      --argjson PRERELEASE "$IS_PRERELEASE" \
-                      '{
-                        "tag_name": $TAG_NAME,
-                        "target_commitish": $CI_COMMIT_BRANCH,
-                        "name": $NAME,
-                        "body": $BODY,
-                        "draft": false,
-                        "prerelease": $PRERELEASE,
-                        "generate_release_notes": false
-                      }'
-                  )
-          echo -E "$PAYLOAD" > payload.txt
-
-          CMD=$(echo -E 'curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer '"$GH_TOKEN"'" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/'"$REPOSITORY"'/releases \
-            -d @payload.txt
-          ')
-
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            echo -E "$CMD"
-          else
-            eval "$CMD"
-          fi
-
   bump-next-version:
     runs-on: ubuntu-latest
-    needs: [build-test-publish-wheel, create-gh-release]
     environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
+    needs: build-test-publish-wheel-dry-run
+    if: ${{ (inputs.dry-run == false && success() || inputs.dry-run == false && !success()) && !cancelled() }}
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:
@@ -345,7 +271,7 @@ jobs:
               core.setFailed('❌ Status checks did not pass in time');
             }
 
-      - name: Commit and push hello.md
+      - name: Merge into ${{ inputs.version-bump-branch }}
         run: |
           cd ${{ github.run_id }}
 
@@ -359,6 +285,102 @@ jobs:
 
           if [[ "$IS_DRY_RUN" == "true" ]]; then
             echo "$CMD"
+          else
+            eval "$CMD"
+          fi
+
+  build-test-publish-wheel:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
+    needs: bump-next-version
+    with:
+      dry-run: ${{ inputs.dry-run }}
+      python-package: ${{ inputs.python-package }}
+      python-version: ${{ inputs.python-version }}
+      ref: ${{ inputs.release-ref }}
+      packaging: ${{ inputs.packaging }}
+      has-src-dir: ${{ inputs.has-src-dir }}
+      skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      custom-container: ${{ inputs.custom-container }}
+      runner: ${{ inputs.runner }}
+      no-build-isolation: ${{ inputs.no-build-isolation }}
+    secrets:
+      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+  create-gh-release:
+    needs: [build-test-publish-wheel]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    if: ${{ inputs.create-gh-release == true }}
+    outputs:
+      is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
+    env:
+      REPOSITORY: ${{ github.repository }}
+      PROJECT_NAME: ${{ inputs.library-name }}
+      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.release-ref }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Create release
+        id: version-number
+        env:
+          SHA: ${{ inputs.release-ref }}
+          GH_TOKEN: ${{ secrets.PAT }}
+          IS_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          cd ${{ github.run_id }}
+
+          IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
+          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
+          IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
+          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
+
+          if [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
+            DATE=$(date +"%Y-%m-%d")
+            CHANGELOG="Prerelease: $NAME ($DATE)"
+          else
+            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+          fi
+
+          echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
+
+          PAYLOAD=$(jq -nc \
+                      --arg TAG_NAME "v${VERSION}" \
+                      --arg CI_COMMIT_BRANCH "$SHA" \
+                      --arg NAME "$NAME" \
+                      --arg BODY "$CHANGELOG" \
+                      --argjson PRERELEASE "$IS_PRERELEASE" \
+                      '{
+                        "tag_name": $TAG_NAME,
+                        "target_commitish": $CI_COMMIT_BRANCH,
+                        "name": $NAME,
+                        "body": $BODY,
+                        "draft": false,
+                        "prerelease": $PRERELEASE,
+                        "generate_release_notes": false
+                      }'
+                  )
+          echo -E "$PAYLOAD" > payload.txt
+
+          CMD=$(echo -E 'curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer '"$GH_TOKEN"'" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/'"$REPOSITORY"'/releases \
+            -d @payload.txt
+          ')
+
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            echo -E "$CMD"
           else
             eval "$CMD"
           fi

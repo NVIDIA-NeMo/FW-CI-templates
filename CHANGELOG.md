@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.0...v0.54.1) (2025-08-15)
+
+
+### Bug Fixes
+
+* Improvements to the auto-release-bot ([#237](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/237)) ([8deb967](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/8deb9671b1d2f78b78db31c2d39768d2ed37ab53))
+
 ## [0.54.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.53.0...v0.54.0) (2025-08-14)
 
 

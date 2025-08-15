@@ -170,12 +170,18 @@ jobs:
 
       - name: Bump version
         id: bump-version
+        env:
+          PYPROJECT_NAME: ${{ inputs.python-package }}
+          SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
         run: |
           cd ${{ github.run_id }}
-          MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          PATCH=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
-          PRERELEASE=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}""
+
+          MAJOR=$(cat $PACKAGE_INFO_FILE | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
+          MINOR=$(cat $PACKAGE_INFO_FILE | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+          PATCH=$(cat $PACKAGE_INFO_FILE | awk '/^PATCH = /' | awk -F"= " '{print $2}')
+          PRERELEASE=$(cat $PACKAGE_INFO_FILE | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
           if [[ "$PRERELEASE" != "" ]]; then            
             if [[ "$PRERELEASE" == *rc* ]]; then
@@ -193,8 +199,8 @@ jobs:
             NEXT_PRERELEASE=$PRERELEASE
           fi
 
-          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
 
           echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
 

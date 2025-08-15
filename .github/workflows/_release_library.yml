@@ -132,7 +132,7 @@ jobs:
     needs: build-test-publish-wheel-dry-run
     if: |
       (
-        (inputs.dry-run == false && success()) # When previous job ran, it must be successful
+        (inputs.dry-run == false && success())
         || inputs.dry-run == true
       ) 
       && !cancelled()

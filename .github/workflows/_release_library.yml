@@ -289,6 +289,7 @@ jobs:
           fi
 
       - name: Delete ${{ env.TMP_BRANCH }} branch
+        if: always()
         run: |
           cd ${{ github.run_id }}
           git push -d origin ${{ env.TMP_BRANCH }}

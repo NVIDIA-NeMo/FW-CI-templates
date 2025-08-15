@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.54.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.53.0...v0.54.0) (2025-08-14)
+
+
+### Features
+
+* Auto push version bump to target branch ([#236](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/236)) ([e6035a2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e6035a25ce9ef87cc939db1a7b916ce7b7e28adf))
+* Extend community bot to add community issues to a given project id ([#232](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/232)) ([65fdc80](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/65fdc80184c1b8693d7365a6e94311691b1dac26))
+
+## [0.53.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.52.0...v0.53.0) (2025-08-13)
+
+
+### Features
+
+* Detect deployment workflow ([#233](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/233)) ([f969984](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f969984576df0b7d65089bd290c5872961b64496))
+
 ## [0.52.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.51.0...v0.52.0) (2025-07-31)
 
 

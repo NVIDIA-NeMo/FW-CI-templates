@@ -8,6 +8,18 @@ on:
         description: The environment to use for the workflow
         type: string
         default: "main"
+      community_project_id:
+        required: true
+        description: The GitHub project ID to add community issues to
+        type: string
+      issue_number:
+        required: false
+        description: The issue number to test with
+        type: string
+      issue_author:
+        required: false
+        description: The issue author to test with
+        type: string
     secrets:
       GH_TOKEN:
         required: true
@@ -21,6 +33,8 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
+      COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,13 +44,22 @@ jobs:
       - name: Check pre-conditions
         id: pre-flight
         env:
-          IS_VALID_EVENT: ${{ (github.event_name == 'issues' || github.event_name == 'issue_comment') }}
+          IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
           REPO: ${{ github.repository }}
         run: |
           # Get the username who triggered the action
           USERNAME="${{ github.actor }}"
+
+          # For manual testing, always treat as community user
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Manual test mode - treating as community user"
+            echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
+            echo "is_valid_event=true" | tee -a $GITHUB_OUTPUT
+            echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
+            exit 0
+          fi
 
           echo "Checking if $ISSUE_AUTHOR is a collaborator..."
           API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
@@ -62,20 +85,58 @@ jobs:
       - name: Add community-request label for community users
         if: |
           (
-            steps.pre-flight.outputs.is_maintainer == 'false' 
+            steps.pre-flight.outputs.is_maintainer == 'false'
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
-        run: gh issue edit ${{ github.event.issue.number }} --add-label "community-request"
+        run: |
+          # Add the community-request label
+          gh issue edit $ISSUE_NUMBER --add-label "community-request"
+
+      - name: Add community issue to community project
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        if: |
+          (
+            steps.pre-flight.outputs.is_maintainer == 'false'
+            && steps.pre-flight.outputs.is_valid_event == 'true'
+          )
+        run: |
+          ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUMBER --jq .node_id)
+          PROJECT_NODE_ID=$(gh api graphql -f query='
+            query($projectNumber: Int!) {
+              organization(login: "NVIDIA-NeMo") {
+                projectV2(number: $projectNumber) {
+                  id
+                }
+              }
+            }' -F projectNumber="$COMMUNITY_PROJECT_ID" --jq .data.organization.projectV2.id)
+
+          echo "Project ID: $PROJECT_NODE_ID"
+          echo "Adding issue $ISSUE_NUMBER to project $COMMUNITY_PROJECT_ID"
+
+          RESPONSE=$(gh api graphql -f query='
+              mutation($project:ID!, $issue:ID!) {
+                  addProjectV2ItemById(input: {projectId: $project, contentId: $issue}) {
+                  item {
+                      id
+                  }
+                  }
+              }' -f project="$PROJECT_NODE_ID" -f issue="$ISSUE_NODE_ID")
+
+          echo $RESPONSE
+
+          if echo "$RESPONSE" | grep -q "error"; then
+            exit 1
+          fi
 
       - name: Remove community-request label for maintainers
         if: |
           (
-            steps.pre-flight.outputs.is_maintainer == 'true' 
+            steps.pre-flight.outputs.is_maintainer == 'true'
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
         run: |
           # Check if the issue has the "community-request" label before attempting to remove it
-          ISSUE_NUMBER=${{ github.event.issue.number }}
           LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels -q '.labels[].name')
           if echo "$LABELS" | grep -q "^community-request$"; then
             gh issue edit "$ISSUE_NUMBER" --remove-label "community-request"
@@ -88,4 +149,4 @@ jobs:
           echo "User: ${{ steps.pre-flight.outputs.username }}"
           echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
           echo "Event: ${{ github.event_name }}"
-          echo "Issue number: ${{ github.event.issue.number }}"
+          echo "Issue number: $ISSUE_NUMBER"

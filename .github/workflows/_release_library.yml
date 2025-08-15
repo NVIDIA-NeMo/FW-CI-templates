@@ -108,7 +108,7 @@ permissions:
 jobs:
   build-test-publish-wheel-dry-run:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
-    if: ${{ inputs.dry-run == false }}
+    if: inputs.dry-run == false
     with:
       dry-run: true
       python-package: ${{ inputs.python-package }}
@@ -130,7 +130,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
     needs: build-test-publish-wheel-dry-run
-    if: ${{ (inputs.dry-run == false && success() || inputs.dry-run == false && !success()) && !cancelled() }}
+    if: |
+      (
+        (inputs.dry-run == false && success()) # When previous job ran, it must be successful
+        || inputs.dry-run == true
+      ) 
+      && !cancelled()
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:

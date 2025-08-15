@@ -198,7 +198,7 @@ jobs:
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
           git add ${{ inputs.python-package }}/package_info.py
-          git commit -sS -m "chore: Version bump ${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
+          git commit -sS -m "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 

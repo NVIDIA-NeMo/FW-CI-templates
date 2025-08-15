@@ -203,6 +203,14 @@ jobs:
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
+          # Create PR to collect app based status checks that run on PRs only
+          # (like DCO check)
+          gh pr create \
+            --base ${{ inputs.version-bump-branch }} \
+            --head $TMP_BRANCH \
+            --title "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" \
+            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump-version.outputs.version }}."
+
       - name: Wait for status checks on tmp branch
         uses: actions/github-script@v7
         id: wait-status

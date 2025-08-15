@@ -176,7 +176,7 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
-          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}"
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
           MAJOR=$(cat $PACKAGE_INFO_FILE | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
           MINOR=$(cat $PACKAGE_INFO_FILE | awk '/^MINOR = /' | awk -F"= " '{print $2}')

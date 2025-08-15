@@ -177,9 +177,17 @@ jobs:
           PATCH=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
           PRERELEASE=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
-          if [[ "$PRERELEASE" != "" ]]; then
-            NEXT_PATCH=$PATCH
-            NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
+          if [[ "$PRERELEASE" != "" ]]; then            
+            if [[ "$PRERELEASE" == *rc* ]]; then
+              NEXT_PATCH=$PATCH
+              NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
+            elif [[ "$PRERELEASE" == *a* ]]; then
+              NEXT_PATCH=$PATCH
+              NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
+            else
+              echo "Unknown pre-release: $PRERELEASE"
+              exit 1
+            fi
           else
             NEXT_PATCH=$((${PATCH} + 1))
             NEXT_PRERELEASE=$PRERELEASE

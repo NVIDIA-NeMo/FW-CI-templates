@@ -297,6 +297,12 @@ jobs:
   build-test-publish-wheel:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
     needs: bump-next-version
+    if: |
+      (
+        (inputs.dry-run == false && success())
+        || inputs.dry-run == true
+      ) 
+      && !cancelled()
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
@@ -318,7 +324,13 @@ jobs:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    if: ${{ inputs.create-gh-release == true }}
+    if: |
+      (
+        (inputs.dry-run == false && success())
+        || inputs.dry-run == true
+      ) 
+      && inputs.create-gh-release == true
+      && !cancelled()
     outputs:
       is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
     env:

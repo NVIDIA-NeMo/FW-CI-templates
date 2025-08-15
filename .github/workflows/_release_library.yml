@@ -253,6 +253,7 @@ jobs:
             NEXT_PRERELEASE=$PRERELEASE
           fi
 
+          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" ${{ inputs.python-package }}/package_info.py
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" ${{ inputs.python-package }}/package_info.py
 
           echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"

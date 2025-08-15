@@ -139,6 +139,8 @@ jobs:
       && !cancelled()
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
     steps:
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -170,9 +172,6 @@ jobs:
 
       - name: Bump version
         id: bump-version
-        env:
-          PYPROJECT_NAME: ${{ inputs.python-package }}
-          SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
         run: |
           cd ${{ github.run_id }}
 
@@ -210,9 +209,11 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
+
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
-          git add ${{ inputs.python-package }}/package_info.py
+          git add $PACKAGE_INFO_FILE
           git commit -sS -m "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV

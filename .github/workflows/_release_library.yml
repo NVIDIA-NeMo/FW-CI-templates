@@ -139,6 +139,8 @@ jobs:
       && !cancelled()
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
+      PYPROJECT_NAME: ${{ inputs.python-package }}
+      SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
     steps:
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -172,10 +174,13 @@ jobs:
         id: bump-version
         run: |
           cd ${{ github.run_id }}
-          MAJOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          PATCH=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PATCH = /' | awk -F"= " '{print $2}')
-          PRERELEASE=$(cat ${{ inputs.python-package }}/package_info.py | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
+
+          MAJOR=$(cat $PACKAGE_INFO_FILE | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
+          MINOR=$(cat $PACKAGE_INFO_FILE | awk '/^MINOR = /' | awk -F"= " '{print $2}')
+          PATCH=$(cat $PACKAGE_INFO_FILE | awk '/^PATCH = /' | awk -F"= " '{print $2}')
+          PRERELEASE=$(cat $PACKAGE_INFO_FILE | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
           if [[ "$PRERELEASE" != "" ]]; then            
             if [[ "$PRERELEASE" == *rc* ]]; then
@@ -193,8 +198,8 @@ jobs:
             NEXT_PRERELEASE=$PRERELEASE
           fi
 
-          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" ${{ inputs.python-package }}/package_info.py
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" ${{ inputs.python-package }}/package_info.py
+          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
 
           echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
 
@@ -204,9 +209,11 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
+
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
-          git add ${{ inputs.python-package }}/package_info.py
+          git add $PACKAGE_INFO_FILE
           git commit -sS -m "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV

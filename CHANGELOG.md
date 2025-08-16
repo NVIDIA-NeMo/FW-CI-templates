@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.2...v0.54.3) (2025-08-16)
+
+
+### Bug Fixes
+
+* Jobs only on success or not failure ([#242](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/242)) ([406802c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/406802c2382bde637884911f2144575baec88a5c))
+
 ## [0.54.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.1...v0.54.2) (2025-08-16)
 
 

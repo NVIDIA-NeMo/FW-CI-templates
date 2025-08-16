@@ -133,8 +133,7 @@ jobs:
     needs: build-test-publish-wheel-dry-run
     if: |
       (
-        (inputs.dry-run == false && success())
-        || inputs.dry-run == true
+        success() || !failure()
       ) 
       && !cancelled()
     env:
@@ -323,8 +322,7 @@ jobs:
     needs: bump-next-version
     if: |
       (
-        (inputs.dry-run == false && success())
-        || inputs.dry-run == true
+        success() || !failure()
       ) 
       && !cancelled()
     with:
@@ -349,9 +347,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     if: |
+      if: |
       (
-        (inputs.dry-run == false && success())
-        || inputs.dry-run == true
+        success() || !failure()
       ) 
       && inputs.create-gh-release == true
       && !cancelled()

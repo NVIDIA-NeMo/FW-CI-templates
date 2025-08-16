@@ -347,7 +347,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     if: |
-      if: |
       (
         success() || !failure()
       ) 

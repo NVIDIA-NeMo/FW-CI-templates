@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.1...v0.54.2) (2025-08-16)
+
+
+### Bug Fixes
+
+* Consider repos with src directory ([#239](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/239)) ([11e345d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/11e345df6a8e1ebd0467a3f1ea9280d60c855ac4))
+
 ## [0.54.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.0...v0.54.1) (2025-08-15)
 
 

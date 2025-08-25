@@ -80,6 +80,10 @@ on:
         required: false
       GH_TOKEN:
         required: false
+      ACR_USERNAME:
+        required: false
+      ACR_PASSWORD:
+        required: false
     outputs:
       version:
         description: NeMo library version
@@ -97,6 +101,9 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.custom-container || '' }}
+      credentials:
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

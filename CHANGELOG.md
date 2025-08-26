@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.3...v0.54.4) (2025-08-26)
+
+
+### Bug Fixes
+
+* Check for org membership ([#245](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/245)) ([da13522](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/da13522858dc4b12f6040d577045cdbb3aa64838))
+
 ## [0.54.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.2...v0.54.3) (2025-08-16)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.4...v0.55.0) (2025-08-27)
+
+
+### Features
+
+* Enable build test publish wheel to checkout submodules ([#247](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/247)) ([27ffefb](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/27ffefbbbf1c5f6b3a0a5be2b4369942122c5a7c))
+
 ## [0.54.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.3...v0.54.4) (2025-08-26)
 
 

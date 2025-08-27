@@ -69,6 +69,11 @@ on:
         description: Do not build the package in isolation
         type: boolean
         default: false
+      submodules:
+        required: false
+        description: Whether to checkout submodules
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -110,6 +115,7 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
+          submodules: ${{ inputs.submodules }}
 
       - name: Get Python version
         id: python-version
@@ -341,7 +347,7 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-            
+
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 

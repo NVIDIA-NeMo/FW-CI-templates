@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.58.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.57.0...v0.58.0) (2025-09-03)
+
+
+### Features
+
+* Allow build-test-publish wheel to operate in a subdir ([#253](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/253)) ([43ab940](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/43ab940b52801b12ebcc53565d1efb619dd5c6eb))
+
 ## [0.57.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.56.0...v0.57.0) (2025-09-03)
 
 

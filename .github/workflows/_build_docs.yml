@@ -127,15 +127,33 @@ jobs:
               if [ -f "${NEEDS_REVIEW_JSON}" ]; then
                 needs_review_resp=$(jq --arg check "${link}" -s 'any(.uri == $check)' < "${NEEDS_REVIEW_JSON}")
               fi
-              echo $i
-              echo $false_positive_resp
-              echo $needs_review_resp
+              echo "Debug - Processing link $i: $link"
+              echo "Debug - false_positive_resp: '${false_positive_resp}'"
+              echo "Debug - needs_review_resp: '${needs_review_resp}'"
+
+              # Debug the comparison
+              if [[ "${false_positive_resp}" != "true" ]]; then
+                echo "Debug - false_positive_resp is NOT true"
+              else
+                echo "Debug - false_positive_resp IS true"
+              fi
+
+              if [[ "${needs_review_resp}" != "true" ]]; then
+                echo "Debug - needs_review_resp is NOT true"
+              else
+                echo "Debug - needs_review_resp IS true"
+              fi
+
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "${false_positive_resp}" != "true" && "${needs_review_resp}" != "true" ]]; then
+                echo "Debug - Link will be counted as broken"
                 ((err++))
-                echo $entry
+                echo "Debug - entry: $entry"
+              else
+                echo "Debug - Link excluded from broken count"
               fi
-              echo $err
+              echo "Debug - Current error count: $err"
+              echo "---"
             done
 
             echo "done with loop"

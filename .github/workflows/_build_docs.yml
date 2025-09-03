@@ -96,13 +96,11 @@ jobs:
           function check_environment {
             local err=0
             if ! [ -x "$(command -v jq)" ]; then
-              >&2 echo "jq is required but is not found."
+              echo "jq is required but is not found."
               err=$((err + 1))
             fi
             if [ ! -f "${LINKCHECK_JSON}" ]; then
-              >&2 echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
-              >&2 echo "Contents of linkcheck directory:"
-              ls -la "${{ inputs.docs-directory }}/_build/linkcheck/" || echo "Linkcheck directory not found"
+              echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
               err=$((err + 1))
             fi
             if [ "${err}" -gt 0 ]; then

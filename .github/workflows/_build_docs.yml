@@ -121,13 +121,12 @@ jobs:
             echo "Count of broken links: ${count}"
             for i in $(seq 0 $(($count - 1)))
             do
+              echo $i
               entry=$(echo "${broken}" | jq ".[${i}]")
               link=$(echo "${entry}" | jq -r '.uri')
-              [ -n "${DEBUG}" ] && {
-              echo >&2 "Checking for false positive: ${link}"
-              }
               local false_positive_resp="false"
               local needs_review_resp="false"
+              echo $entry
               if [ -f "${FALSE_POSITIVES_JSON}" ]; then
                 false_positive_resp=$(jq --arg check "${link}" -s 'any(.uri == $check)' < "${FALSE_POSITIVES_JSON}")
               fi
@@ -140,7 +139,10 @@ jobs:
                 echo "${entry}"
               fi
             done
-            exit "${err}"
+
+            if [ "${err}" -gt 0 ]; then
+              exit 1
+            fi
           }
 
           check_environment

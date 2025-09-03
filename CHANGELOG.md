@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.58.0...v0.59.0) (2025-09-03)
+
+
+### Features
+
+* Trigger release ([#257](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/257)) ([7b660e0](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/7b660e078f7af9ebe58d1618085de49959b81ffb))
+
 ## [0.58.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.57.0...v0.58.0) (2025-09-03)
 
 

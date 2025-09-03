@@ -97,13 +97,13 @@ jobs:
             local err=0
             if ! [ -x "$(command -v jq)" ]; then
               >&2 echo "jq is required but is not found."
-              ((err++))
+              err=$((err + 1))
             fi
             if [ ! -f "${LINKCHECK_JSON}" ]; then
               >&2 echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
               >&2 echo "Contents of linkcheck directory:"
               ls -la "${{ inputs.docs-directory }}/_build/linkcheck/" || echo "Linkcheck directory not found"
-              ((err++))
+              err=$((err + 1))
             fi
             if [ "${err}" -gt 0 ]; then
               exit 2
@@ -112,10 +112,8 @@ jobs:
 
           function check_links {
             local err=0
-            echo "Debug - Starting check_links with err=$err"
             broken=$(jq -s 'map(select(.status=="broken"))' "$LINKCHECK_JSON")
             count=$(echo "${broken}" | jq 'length')
-            echo "Count of broken links: ${count}"
             for i in $(seq 0 $(($count - 1)))
             do
               entry=$(echo "${broken}" | jq ".[${i}]")
@@ -128,36 +126,13 @@ jobs:
               if [ -f "${NEEDS_REVIEW_JSON}" ]; then
                 needs_review_resp=$(jq --arg check "${link}" -s 'any(.uri == $check)' < "${NEEDS_REVIEW_JSON}")
               fi
-              echo "Debug - Processing link $i: $link"
-              echo "Debug - false_positive_resp: '${false_positive_resp}'"
-              echo "Debug - needs_review_resp: '${needs_review_resp}'"
-
-              # Debug the comparison
-              if [[ "${false_positive_resp}" != "true" ]]; then
-                echo "Debug - false_positive_resp is NOT true"
-              else
-                echo "Debug - false_positive_resp IS true"
-              fi
-
-              if [[ "${needs_review_resp}" != "true" ]]; then
-                echo "Debug - needs_review_resp is NOT true"
-              else
-                echo "Debug - needs_review_resp IS true"
-              fi
 
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
-              if [[ "${false_positive_resp}" != "true" && "${needs_review_resp}" != "true" ]]; then
-                echo "Debug - Link will be counted as broken"
+              if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
                 err=$((err + 1))
-                echo "Debug - entry: $entry"
-              else
-                echo "Debug - Link excluded from broken count"
+                echo $entry
               fi
-              echo "Debug - Current error count: $err"
-              echo "---"
             done
-
-            echo "done with loop"
 
             if [ "${err}" -gt 0 ]; then
               exit 1

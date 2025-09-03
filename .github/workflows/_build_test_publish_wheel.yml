@@ -252,9 +252,12 @@ jobs:
       - name: Get Python version
         id: python-version
         run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          
           if [[ "$PACKAGING" == "uv" ]]; then
-            if [ -f "${{ github.run_id }}/.python-version" ]; then
-              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            if [ -f ".python-version" ]; then
+              PYTHON_VERSION=$(cat .python-version)
             else
               echo "Error: .python-version file not found for uv packaging"
               exit 1

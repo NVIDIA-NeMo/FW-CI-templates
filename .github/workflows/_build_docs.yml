@@ -112,6 +112,7 @@ jobs:
 
           function check_links {
             local err=0
+            echo "Debug - Starting check_links with err=$err"
             broken=$(jq -s 'map(select(.status=="broken"))' "$LINKCHECK_JSON")
             count=$(echo "${broken}" | jq 'length')
             echo "Count of broken links: ${count}"
@@ -147,7 +148,7 @@ jobs:
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "${false_positive_resp}" != "true" && "${needs_review_resp}" != "true" ]]; then
                 echo "Debug - Link will be counted as broken"
-                ((err++))
+                err=$((err + 1))
                 echo "Debug - entry: $entry"
               else
                 echo "Debug - Link excluded from broken count"

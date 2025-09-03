@@ -127,6 +127,9 @@ jobs:
               if [ -f "${NEEDS_REVIEW_JSON}" ]; then
                 needs_review_resp=$(jq --arg check "${link}" -s 'any(.uri == $check)' < "${NEEDS_REVIEW_JSON}")
               fi
+              echo $i
+              echo $false_positive_resp
+              echo $needs_review_resp
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
                 ((err++))

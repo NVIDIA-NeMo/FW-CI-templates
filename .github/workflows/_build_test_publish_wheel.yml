@@ -74,6 +74,11 @@ on:
         description: Whether to checkout submodules
         type: string
         default: ""
+      root-dir:
+        required: false
+        description: Navigate into a sub-directory
+        type: string
+        default: "./"
     secrets:
       TWINE_USERNAME:
         required: true
@@ -109,6 +114,7 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -120,9 +126,12 @@ jobs:
       - name: Get Python version
         id: python-version
         run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          
           if [[ "$PACKAGING" == "uv" ]]; then
-            if [ -f "${{ github.run_id }}/.python-version" ]; then
-              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            if [ -f ".python-version" ]; then
+              PYTHON_VERSION=$(cat .python-version)
             else
               echo "Error: .python-version file not found for uv packaging"
               exit 1
@@ -145,6 +154,7 @@ jobs:
           NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
         run: |
           cd ${{ github.run_id }}
+          cd $ROOTDIR
           ls -al
 
           if [[ "$GH_TOKEN" != "" ]]; then
@@ -184,10 +194,10 @@ jobs:
 
           # Build the wheel
           if [[ "$PACKAGING" == "uv" ]]; then
-            uv build .
+            uv build --out-dir ./dist/ .
           else
             python3 -m pip install --upgrade build
-            python3 -m build
+            python3 -m build --outdir ./dist/
           fi
 
           # Get the expected version and name of the package
@@ -215,7 +225,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
-          path: ${{ github.run_id }}/dist/
+          path: ${{ github.run_id }}/${{ inputs.root-dir }}/dist/
           overwrite: true
 
   test-wheel:
@@ -226,6 +236,7 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
       PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -242,9 +253,12 @@ jobs:
       - name: Get Python version
         id: python-version
         run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          
           if [[ "$PACKAGING" == "uv" ]]; then
-            if [ -f "${{ github.run_id }}/.python-version" ]; then
-              PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
+            if [ -f ".python-version" ]; then
+              PYTHON_VERSION=$(cat .python-version)
             else
               echo "Error: .python-version file not found for uv packaging"
               exit 1

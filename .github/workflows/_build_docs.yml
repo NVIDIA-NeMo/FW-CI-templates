@@ -133,9 +133,12 @@ jobs:
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
                 ((err++))
-                echo "${entry}"
+                echo $entry
               fi
+              echo $err
             done
+
+            echo "done with loop"
 
             if [ "${err}" -gt 0 ]; then
               exit 1

@@ -126,7 +126,7 @@ jobs:
       - name: Get Python version
         id: python-version
         run: |
-          ${{ github.run_id }}
+          cd ${{ github.run_id }}
           cd $ROOTDIR
           
           if [[ "$PACKAGING" == "uv" ]]; then

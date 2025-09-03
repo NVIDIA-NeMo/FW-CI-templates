@@ -42,7 +42,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd ${{ inputs.docs-directory }}
           if [ -f "${{ inputs.requirements-file }}" ]; then
             uv pip install -r ${{ inputs.requirements-file }}
           else
@@ -51,10 +50,12 @@ jobs:
 
       - name: Sphinx build
         run: |
+          cd ${{ inputs.docs-directory }}
           sphinx-build --fail-on-warning --builder html . _build/html
 
       - name: Sphinx linkcheck
         run: |
+          cd ${{ inputs.docs-directory }}
           sphinx-build --builder linkcheck . _build/linkcheck || true
 
       - name: Eliminate false positives

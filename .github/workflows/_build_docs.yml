@@ -42,6 +42,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          uv venv
           if [ -f "${{ inputs.requirements-file }}" ]; then
             uv pip install -r ${{ inputs.requirements-file }}
           else

@@ -20,6 +20,11 @@ on:
         required: false
         type: string
         default: "docs"
+      requirements-file:
+        description: "Requirements file for building the docs"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   main:
@@ -35,15 +40,22 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Sphinx build
+      - name: Install dependencies
         run: |
           cd ${{ inputs.docs-directory }}
-          uv run --only-group docs sphinx-build --fail-on-warning --builder html . _build/html
+          if [ -f "${{ inputs.requirements-file }}" ]; then
+            uv pip install -r ${{ inputs.requirements-file }}
+          else
+            uv sync --only-group docs
+          fi
+
+      - name: Sphinx build
+        run: |
+          sphinx-build --fail-on-warning --builder html . _build/html
 
       - name: Sphinx linkcheck
         run: |
-          cd ${{ inputs.docs-directory }}
-          uv run --only-group docs sphinx-build --builder linkcheck . _build/linkcheck || true
+          sphinx-build --builder linkcheck . _build/linkcheck || true
 
       - name: Eliminate false positives
         run: |

@@ -87,7 +87,7 @@ jobs:
           path: ${{ inputs.docs-directory }}/_build/linkcheck
           retention-days: 7
 
-      - name: Eliminate false positives
+      - name: Check for unknown broken links
         run: |
           FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
           NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json

@@ -45,6 +45,9 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Install dependencies
         run: |
           uv venv
@@ -88,6 +91,7 @@ jobs:
           retention-days: 7
 
       - name: Eliminate false positives
+        continue-on-error: true
         run: |
           FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/false_positives.json
           NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/links_needing_review.json
@@ -101,6 +105,8 @@ jobs:
             fi
             if [ ! -f "${LINKCHECK_JSON}" ]; then
               >&2 echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
+              >&2 echo "Contents of linkcheck directory:"
+              ls -la "${{ inputs.docs-directory }}/_build/linkcheck/" || echo "Linkcheck directory not found"
               ((err++))
             fi
             if [ "${err}" -gt 0 ]; then

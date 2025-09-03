@@ -74,6 +74,11 @@ on:
         description: Whether to checkout submodules
         type: string
         default: ""
+      root-dir:
+        required: false
+        description: Navigate into a sub-directory
+        type: string
+        default: "./"
     secrets:
       TWINE_USERNAME:
         required: true
@@ -109,6 +114,7 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -120,6 +126,8 @@ jobs:
       - name: Get Python version
         id: python-version
         run: |
+          cd $ROOTDIR
+          
           if [[ "$PACKAGING" == "uv" ]]; then
             if [ -f "${{ github.run_id }}/.python-version" ]; then
               PYTHON_VERSION=$(cat ${{ github.run_id }}/.python-version)
@@ -145,6 +153,7 @@ jobs:
           NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
         run: |
           cd ${{ github.run_id }}
+          cd $ROOTDIR
           ls -al
 
           if [[ "$GH_TOKEN" != "" ]]; then

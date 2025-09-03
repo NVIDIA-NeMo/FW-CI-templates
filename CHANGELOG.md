@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.55.0...v0.56.0) (2025-09-03)
+
+
+### Features
+
+* Add linkcheck to build docs workflow ([#249](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/249)) ([a015f31](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a015f316f2cb17dce2bb1907fc85efdfaec972f8))
+
 ## [0.55.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.54.4...v0.55.0) (2025-08-27)
 
 

@@ -135,6 +135,7 @@ jobs:
             done
 
             if [ "${err}" -gt 0 ]; then
+              echo "Found ${err} broken links that are not in exclusion lists"
               exit 1
             fi
           }

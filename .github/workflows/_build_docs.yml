@@ -14,6 +14,22 @@
 name: Build docs
 on:
   workflow_call:
+    inputs:
+      docs-directory:
+        description: "Directory where the docs will be built"
+        required: false
+        type: string
+        default: "docs"
+      requirements-file:
+        description: "Requirements file for building the docs"
+        required: false
+        type: string
+        default: ""
+      fail-on-warning:
+        description: "Whether to fail the build on Sphinx warnings"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   main:
@@ -29,32 +45,63 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Install dependencies
+        run: |
+          uv venv
+          if [ -f "${{ inputs.requirements-file }}" ]; then
+            uv pip install -r ${{ inputs.requirements-file }}
+          else
+            uv sync --only-group docs
+          fi
+
       - name: Sphinx build
         run: |
-          cd docs
-          uv run --only-group docs sphinx-build --fail-on-warning --builder html . _build/html
+          source .venv/bin/activate
+          cd ${{ inputs.docs-directory }}
+
+          if [ "${{ inputs.fail-on-warning }}" = "true" ]; then
+            echo "Building docs with --fail-on-warning"
+            sphinx-build --fail-on-warning --builder html . _build/html
+          else
+            echo "Building docs without --fail-on-warning"
+            sphinx-build --builder html . _build/html
+          fi
+
+      - name: Upload docs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: ${{ inputs.docs-directory }}/_build/html
+          retention-days: 7
 
       - name: Sphinx linkcheck
         run: |
-          cd docs
-          uv run --only-group docs sphinx-build --builder linkcheck . _build/linkcheck || true
+          source .venv/bin/activate
+          cd ${{ inputs.docs-directory }}
+          sphinx-build --builder linkcheck . _build/linkcheck || true
 
-      - name: Eliminate false positives
+      - name: Upload linkcheck output
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkcheck-artifact
+          path: ${{ inputs.docs-directory }}/_build/linkcheck
+          retention-days: 7
+
+      - name: Check for unknown broken links
         run: |
-          FALSE_POSITIVES_JSON=docs/false_positives.json
-          NEEDS_REVIEW_JSON=docs/links_needing_review.json
-          LINKCHECK_JSON=docs/_build/linkcheck/output.json
+          FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
+          NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json
+          LINKCHECK_JSON=${{ inputs.docs-directory }}/_build/linkcheck/output.json
 
           function check_environment {
             local err=0
             if ! [ -x "$(command -v jq)" ]; then
-              >&2 echo "jq is required but is not found."
-              ((err++))
+              echo "jq is required but is not found."
+              err=$((err + 1))
             fi
             if [ ! -f "${LINKCHECK_JSON}" ]; then
-              >&2 echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
-              >&2 echo "Run Sphinx with the linkcheck arg: make -C docs clean linkcheck"
-              ((err++))
+              echo "Did not find linkcheck output JSON file: ${LINKCHECK_JSON}."
+              err=$((err + 1))
             fi
             if [ "${err}" -gt 0 ]; then
               exit 2
@@ -69,9 +116,6 @@ jobs:
             do
               entry=$(echo "${broken}" | jq ".[${i}]")
               link=$(echo "${entry}" | jq -r '.uri')
-              [ -n "${DEBUG}" ] && {
-              echo >&2 "Checking for false positive: ${link}"
-              }
               local false_positive_resp="false"
               local needs_review_resp="false"
               if [ -f "${FALSE_POSITIVES_JSON}" ]; then
@@ -80,28 +124,19 @@ jobs:
               if [ -f "${NEEDS_REVIEW_JSON}" ]; then
                 needs_review_resp=$(jq --arg check "${link}" -s 'any(.uri == $check)' < "${NEEDS_REVIEW_JSON}")
               fi
+
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
-                ((err++))
-                echo "${entry}"
+                err=$((err + 1))
+                echo $entry
               fi
             done
-            exit "${err}"
+
+            if [ "${err}" -gt 0 ]; then
+              echo "Found ${err} broken links that are not in exclusion lists"
+              exit 1
+            fi
           }
 
           check_environment
           check_links
-
-      - name: Upload linkcheck output
-        uses: actions/upload-artifact@v4
-        with:
-          name: linkcheck-artifact
-          path: docs/_build/linkcheck
-          retention-days: 7
-
-      - name: Upload docs as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-html
-          path: docs/_build/html
-          retention-days: 7

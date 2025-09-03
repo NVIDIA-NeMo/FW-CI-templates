@@ -194,10 +194,10 @@ jobs:
 
           # Build the wheel
           if [[ "$PACKAGING" == "uv" ]]; then
-            uv build .
+            uv build --out-dir ./dist/ .
           else
             python3 -m pip install --upgrade build
-            python3 -m build
+            python3 -m build --outdir ./dist/
           fi
 
           # Get the expected version and name of the package

@@ -118,6 +118,7 @@ jobs:
             local err=0
             broken=$(jq -s 'map(select(.status=="broken"))' "$LINKCHECK_JSON")
             count=$(echo "${broken}" | jq 'length')
+            echo "Count of broken links: ${count}"
             for i in $(seq 0 $(($count - 1)))
             do
               entry=$(echo "${broken}" | jq ".[${i}]")

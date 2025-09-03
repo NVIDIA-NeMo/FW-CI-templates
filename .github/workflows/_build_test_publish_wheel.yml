@@ -236,6 +236,7 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
       PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

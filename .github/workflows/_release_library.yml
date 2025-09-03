@@ -83,6 +83,11 @@ on:
         required: true
         description: GitHub App ID
         type: string
+      root-dir:
+        required: false
+        description: Navigate into a sub-directory
+        type: string
+        default: "./"
     secrets:
       TWINE_USERNAME:
         required: true
@@ -108,7 +113,7 @@ permissions:
 jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.58.0
     if: inputs.dry-run == false
     with:
       dry-run: true
@@ -121,6 +126,7 @@ jobs:
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}
+      root-dir: ${{ inputs.root-dir }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

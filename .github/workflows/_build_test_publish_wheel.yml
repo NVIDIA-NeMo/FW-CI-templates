@@ -225,7 +225,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}
-          path: ${{ github.run_id }}/dist/
+          path: ${{ github.run_id }}/${{ inputs.root-dir }}/dist/
           overwrite: true
 
   test-wheel:

@@ -51,11 +51,13 @@ jobs:
 
       - name: Sphinx build
         run: |
+          source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
           sphinx-build --fail-on-warning --builder html . _build/html
 
       - name: Sphinx linkcheck
         run: |
+          source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
           sphinx-build --builder linkcheck . _build/linkcheck || true
 

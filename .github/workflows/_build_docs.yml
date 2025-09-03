@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ""
+      fail-on-warning:
+        description: "Whether to fail the build on Sphinx warnings"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   main:
@@ -53,7 +58,14 @@ jobs:
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
-          sphinx-build --fail-on-warning --builder html . _build/html
+
+          if [ "${{ inputs.fail-on-warning }}" = "true" ]; then
+            echo "Building docs with --fail-on-warning"
+            sphinx-build --fail-on-warning --builder html . _build/html
+          else
+            echo "Building docs without --fail-on-warning"
+            sphinx-build --builder html . _build/html
+          fi
 
       - name: Sphinx linkcheck
         run: |

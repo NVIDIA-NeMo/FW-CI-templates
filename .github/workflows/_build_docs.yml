@@ -92,7 +92,7 @@ jobs:
           FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
           NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json
           LINKCHECK_JSON=${{ inputs.docs-directory }}/_build/linkcheck/output.json
-
+          echo "hello world"
           function check_environment {
             local err=0
             if ! [ -x "$(command -v jq)" ]; then

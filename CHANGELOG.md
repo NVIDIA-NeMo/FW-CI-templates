@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.59.0...v0.60.0) (2025-09-15)
+
+
+### Features
+
+* wheel -&gt; unique ([#261](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/261)) ([abb5a2e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/abb5a2e5a09e74e8cc96496acedf506d0232744e))
+
 ## [0.59.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.58.0...v0.59.0) (2025-09-03)
 
 

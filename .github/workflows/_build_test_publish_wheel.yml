@@ -128,7 +128,7 @@ jobs:
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR
-          
+
           if [[ "$PACKAGING" == "uv" ]]; then
             if [ -f ".python-version" ]; then
               PYTHON_VERSION=$(cat .python-version)
@@ -224,7 +224,7 @@ jobs:
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: pip-wheel-${{ github.run_id }}
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ github.run_id }}/${{ inputs.root-dir }}/dist/
           overwrite: true
 
@@ -247,7 +247,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: pip-wheel-${{ github.run_id }}
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/${{ github.run_id }}/
 
       - name: Get Python version
@@ -255,7 +255,7 @@ jobs:
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR
-          
+
           if [[ "$PACKAGING" == "uv" ]]; then
             if [ -f ".python-version" ]; then
               PYTHON_VERSION=$(cat .python-version)
@@ -325,7 +325,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: pip-wheel-${{ github.run_id }}
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
       - name: Release wheel
@@ -363,6 +363,5 @@ jobs:
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
 
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
-
 
           webhook: ${{ env.SLACK_WEBHOOK }}

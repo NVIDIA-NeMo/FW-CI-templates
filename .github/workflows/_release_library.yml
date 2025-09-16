@@ -54,6 +54,11 @@ on:
         description: Create a GitHub release
         type: boolean
         default: true
+      gh-release-tag-prefix:
+        required: false
+        description: This string will be preprended "as-is" to the version tag
+        type: string
+        default: ""
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -140,7 +145,7 @@ jobs:
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && !cancelled()
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
@@ -187,7 +192,7 @@ jobs:
           PATCH=$(cat $PACKAGE_INFO_FILE | awk '/^PATCH = /' | awk -F"= " '{print $2}')
           PRERELEASE=$(cat $PACKAGE_INFO_FILE | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
-          if [[ "$PRERELEASE" != "" ]]; then            
+          if [[ "$PRERELEASE" != "" ]]; then
             if [[ "$PRERELEASE" == *rc* ]]; then
               NEXT_PATCH=$PATCH
               NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
@@ -329,7 +334,7 @@ jobs:
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && !cancelled()
     with:
       dry-run: ${{ inputs.dry-run }}
@@ -355,7 +360,7 @@ jobs:
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && inputs.create-gh-release == true
       && !cancelled()
     outputs:
@@ -364,6 +369,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
       PROJECT_NAME: ${{ inputs.library-name }}
       VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+      TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -397,7 +403,7 @@ jobs:
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
 
           PAYLOAD=$(jq -nc \
-                      --arg TAG_NAME "v${VERSION}" \
+                      --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
                       --arg CI_COMMIT_BRANCH "$SHA" \
                       --arg NAME "$NAME" \
                       --arg BODY "$CHANGELOG" \

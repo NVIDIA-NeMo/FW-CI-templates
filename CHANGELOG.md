@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.60.0...v0.61.0) (2025-09-16)
+
+
+### Features
+
+* **release:** tag with the pyproject-name ([#263](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/263)) ([ff1abd8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ff1abd8181c98f8ea77c9a42bac85933cc0ea126))
+
 ## [0.60.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.59.0...v0.60.0) (2025-09-15)
 
 

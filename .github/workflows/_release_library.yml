@@ -54,6 +54,11 @@ on:
         description: Create a GitHub release
         type: boolean
         default: true
+      gh-release-tag-prefix:
+        required: false
+        description: This string will be preprended "as-is" to the version tag
+        type: string
+        default: ""
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -140,7 +145,7 @@ jobs:
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && !cancelled()
     env:
       IS_DRY_RUN: ${{ inputs.dry-run }}
@@ -179,6 +184,7 @@ jobs:
         id: bump-version
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
@@ -187,7 +193,7 @@ jobs:
           PATCH=$(cat $PACKAGE_INFO_FILE | awk '/^PATCH = /' | awk -F"= " '{print $2}')
           PRERELEASE=$(cat $PACKAGE_INFO_FILE | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
-          if [[ "$PRERELEASE" != "" ]]; then            
+          if [[ "$PRERELEASE" != "" ]]; then
             if [[ "$PRERELEASE" == *rc* ]]; then
               NEXT_PATCH=$PATCH
               NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
@@ -213,6 +219,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
@@ -324,12 +331,12 @@ jobs:
           git push -d origin ${{ env.TMP_BRANCH }}
 
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.48.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.60.0
     needs: bump-next-version
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && !cancelled()
     with:
       dry-run: ${{ inputs.dry-run }}
@@ -342,6 +349,7 @@ jobs:
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}
+      root-dir: ${{ inputs.root-dir }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
@@ -355,7 +363,7 @@ jobs:
     if: |
       (
         success() || !failure()
-      ) 
+      )
       && inputs.create-gh-release == true
       && !cancelled()
     outputs:
@@ -364,6 +372,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
       PROJECT_NAME: ${{ inputs.library-name }}
       VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+      TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -380,6 +389,7 @@ jobs:
           IS_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
           IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
@@ -397,7 +407,7 @@ jobs:
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
 
           PAYLOAD=$(jq -nc \
-                      --arg TAG_NAME "v${VERSION}" \
+                      --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
                       --arg CI_COMMIT_BRANCH "$SHA" \
                       --arg NAME "$NAME" \
                       --arg BODY "$CHANGELOG" \

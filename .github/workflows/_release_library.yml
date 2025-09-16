@@ -184,6 +184,7 @@ jobs:
         id: bump-version
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
@@ -218,6 +219,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
@@ -347,6 +349,7 @@ jobs:
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}
+      root-dir: ${{ inputs.root-dir }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
@@ -386,6 +389,7 @@ jobs:
           IS_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
 
           IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
           IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")

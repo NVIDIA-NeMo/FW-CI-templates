@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.61.0...v0.61.1) (2025-09-18)
+
+
+### Bug Fixes
+
+* **ci/notify:** fixes the github url in notifications ([#265](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/265)) ([55746af](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/55746afc9498b4d96753f2140f7010c3bca8bcc7))
+
 ## [0.61.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.60.0...v0.61.0) (2025-09-16)
 
 

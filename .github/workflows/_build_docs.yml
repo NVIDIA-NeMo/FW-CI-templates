@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
         default: true
+      sync-all:
+        description: "Whether to sync all dependencies or just the docs"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   main:
@@ -48,7 +53,9 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv
-          if [ -f "${{ inputs.requirements-file }}" ]; then
+          if [ "${{ inputs.sync-all }}" = "true" ]; then
+            uv sync --all-extras --all-groups
+          elif [ -f "${{ inputs.requirements-file }}" ]; then
             uv pip install -r ${{ inputs.requirements-file }}
           else
             uv sync --only-group docs

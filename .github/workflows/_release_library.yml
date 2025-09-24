@@ -216,6 +216,7 @@ jobs:
 
       - name: Create and push deployment branch
         env:
+          PYPROJECT_NAME: ${{ inputs.python-package }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
@@ -226,7 +227,7 @@ jobs:
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
           git add $PACKAGE_INFO_FILE
-          git commit -sS -m "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
+          git commit -sS -m "beep boop 🤖: Bumping ${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
@@ -235,7 +236,7 @@ jobs:
           gh pr create \
             --base ${{ inputs.version-bump-branch }} \
             --head $TMP_BRANCH \
-            --title "beep boop 🤖: Bumping to v${{ steps.bump-version.outputs.version }}" \
+            --title "beep boop 🤖: Bumping ${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}" \
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump-version.outputs.version }}."
 
       - name: Wait for status checks on tmp branch

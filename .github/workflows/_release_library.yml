@@ -335,7 +335,7 @@ jobs:
               else
                 echo "Git push failed on attempt $attempt"
                 if [[ $attempt -lt 3 ]]; then
-                  sleep 2
+                  sleep $((RANDOM % 3 + 1))
                   # We refetch, reset and re-merge. Note resetting because the local
                   # branch is "contaminated" with previous merge attempt.
                   git fetch origin ${{ inputs.version-bump-branch }}

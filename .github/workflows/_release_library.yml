@@ -237,7 +237,7 @@ jobs:
             --base ${{ inputs.version-bump-branch }} \
             --head $TMP_BRANCH \
             --title "beep boop 🤖: Bumping ${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}" \
-            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump-version.outputs.version }}."
+            --body "This is an automated PR to bump ${{ inputs.library-name }}:${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}."
 
       - name: Wait for status checks on tmp branch
         uses: actions/github-script@v7
@@ -313,16 +313,40 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin ${{ inputs.version-bump-branch }}
-          git checkout ${{ inputs.version-bump-branch }}
-          git merge ${{ env.TMP_BRANCH }}
 
           CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
 
           if [[ "$IS_DRY_RUN" == "true" ]]; then
-            echo "$CMD"
+            echo "dry-run enabled, would have run: $CMD"
           else
-            eval "$CMD"
+            # Here we account for potential race conditions from multiple concurrent releases.
+            # Those can be legit (operating on different packages within the monorepo, for example)
+            # but the pushes would be still rejected purely because of git's inability to
+            # push non-fast-forward updates to the branch. In this case we would need to let
+            # a retry.
+            git fetch origin ${{ inputs.version-bump-branch }}
+            git checkout ${{ inputs.version-bump-branch }}
+            git merge ${{ env.TMP_BRANCH }}
+
+            for attempt in {1..3}; do
+              if eval "$CMD"; then
+                echo "Git push succeeded on attempt $attempt"
+                break
+              else
+                echo "Git push failed on attempt $attempt"
+                if [[ $attempt -lt 3 ]]; then
+                  sleep 2
+                  # We refetch, reset and re-merge. Note resetting because the local
+                  # branch is "contaminated" with previous merge attempt.
+                  git fetch origin ${{ inputs.version-bump-branch }}
+                  git reset --hard origin/${{ inputs.version-bump-branch }}
+                  git merge ${{ env.TMP_BRANCH }}
+                else
+                  echo "Git push failed after 3 attempts"
+                  exit 1
+                fi
+              fi
+            done
           fi
 
       - name: Delete ${{ env.TMP_BRANCH }} branch

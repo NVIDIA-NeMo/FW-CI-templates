@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.62.0...v0.62.1) (2025-09-24)
+
+
+### Bug Fixes
+
+* **ci:** avoid potential racing conditions  ([#270](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/270)) ([53a8026](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/53a8026fe3f52335933430925fc56650ea7ea42d))
+
 ## [0.62.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.61.1...v0.62.0) (2025-09-21)
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.63.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.62.1...v0.63.0) (2025-09-25)
+
+
+### Features
+
+* Run CI for cherry-pick if repo uses NVKS runner ([#251](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/251)) ([6b64b76](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6b64b76359ccea8e228a7f3b232ebed9a2d95d1e))
+
+
+### Bug Fixes
+
+* Fix secret detector to work with forks ([#272](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/272)) ([8b096f3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/8b096f35c8aa5b7781951dcbe1e6936850370fa3))
+
 ## [0.62.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.62.0...v0.62.1) (2025-09-24)
 
 

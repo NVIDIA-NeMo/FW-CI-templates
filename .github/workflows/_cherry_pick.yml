@@ -149,8 +149,8 @@ jobs:
 
               # Check if copy-pr-bot.yaml exists and add "/ok to test" comment if it does
               if [ -f ".github/copy-pr-bot.yaml" ]; then
-                # Get the latest commit SHA of the current branch
-                LATEST_SHA=$(git rev-parse HEAD)
+                # Get the latest commit SHA of the cherry-pick branch
+                LATEST_SHA=$(git rev-parse origin/cherry-pick-$PR_ID-$RELEASE_BRANCH)
                 
                 # Add comment via GitHub API
                 curl -L \

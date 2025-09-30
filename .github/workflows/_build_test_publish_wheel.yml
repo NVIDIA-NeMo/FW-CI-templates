@@ -76,7 +76,7 @@ on:
         default: ""
       root-dir:
         required: false
-        description: Navigate into a sub-directory
+        description: Navigate into a sub-directory (mind the / at the end)
         type: string
         default: "./"
     secrets:
@@ -143,6 +143,7 @@ jobs:
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
+        if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
@@ -167,7 +168,7 @@ jobs:
             # Install uv
             curl -LsSf https://astral.sh/uv/0.7.2/install.sh | sh
             export PATH="$HOME/.local/bin:$PATH"
-            uv venv .venv --system-site-packages
+            uv venv --system-site-packages .venv
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               uv pip install setuptools pybind11 wheel_stub torch
@@ -221,11 +222,13 @@ jobs:
 
           ls -al dist/
 
+          echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
+
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: ${{ github.run_id }}/${{ inputs.root-dir }}/dist/
+          path: ${{ steps.build.outputs.DIST_DIR }}
           overwrite: true
 
   test-wheel:
@@ -361,7 +364,8 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-
+            
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
+
 
           webhook: ${{ env.SLACK_WEBHOOK }}

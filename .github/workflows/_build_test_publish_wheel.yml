@@ -224,9 +224,11 @@ jobs:
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
+        env:
+          ROOTDIR: ${{ inputs.root-dir == './' && '' || inputs.root-dir }}
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: ${{ github.run_id }}/${{ inputs.root-dir }}dist/
+          path: ${{ github.run_id }}/$ROOTDIRdist/
           overwrite: true
 
   test-wheel:

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.63.0...v0.63.1) (2025-09-30)
+
+
+### Bug Fixes
+
+* Small fixes at the build-test-push wheel ([#276](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/276)) ([85b9f88](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/85b9f88d2756113423994b0ec606c2fdfb0725ae))
+
 ## [0.63.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.62.1...v0.63.0) (2025-09-25)
 
 

@@ -222,12 +222,10 @@ jobs:
 
           ls -al dist/
 
-          echo "DIST_DIR=$(realpath --relative-to=$HOME $(pwd)/dist)" | tee -a "$GITHUB_OUTPUT"
+          echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
-        env:
-          ROOTDIR: ${{ inputs.root-dir == './' && '' || inputs.root-dir }}
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ steps.build.outputs.DIST_DIR }}

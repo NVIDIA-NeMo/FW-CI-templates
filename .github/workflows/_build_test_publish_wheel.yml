@@ -143,7 +143,7 @@ jobs:
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
-        if: inputs.custom-container == ""
+        if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 

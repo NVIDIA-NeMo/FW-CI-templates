@@ -76,7 +76,7 @@ on:
         default: ""
       root-dir:
         required: false
-        description: Navigate into a sub-directory
+        description: Navigate into a sub-directory (mind the / at the end)
         type: string
         default: "./"
     secrets:
@@ -226,7 +226,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: ${{ github.run_id }}/${{ inputs.root-dir }}/dist/
+          path: ${{ github.run_id }}/${{ inputs.root-dir }}dist/
           overwrite: true
 
   test-wheel:

@@ -31,4 +31,6 @@ runs:
 
     - name: Check imports
       shell: bash -x -e -u -o pipefail {0}
-      run: ${{ inputs.python-binary }} ${GITHUB_ACTION_PATH}/check_imports.py --package-name ${{ inputs.package-name }}
+      run: |
+        cd /tmp # Move into another dir to avoid local import
+        ${{ inputs.python-binary }} ${GITHUB_ACTION_PATH}/check_imports.py --package-name ${{ inputs.package-name }}

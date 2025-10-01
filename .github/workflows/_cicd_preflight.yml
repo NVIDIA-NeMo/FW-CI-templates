@@ -81,7 +81,7 @@ jobs:
         shell: bash
         id: docs_only_label
         run: |
-          gif gh pr view ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }} --json labels | grep -q '"name": "docs-only"'; then
+          if gh pr view ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }} --json labels | grep -q '"name": "docs-only"'; then
             echo "main=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "main=false" | tee -a "$GITHUB_OUTPUT"

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.63.2...v0.64.0) (2025-10-01)
+
+
+### Features
+
+* Skip on label `docs-only` ([#279](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/279)) ([c2328da](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c2328da717aa00c066b37cd21a7f281443fe7d2d))
+
 ## [0.63.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.63.1...v0.63.2) (2025-10-01)
 
 

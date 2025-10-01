@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.0...v0.64.1) (2025-10-01)
+
+
+### Bug Fixes
+
+* Don't check for label on branches ([#282](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/282)) ([1c6d028](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/1c6d02820b6e05df13d3938ae7023c111bc86437))
+
 ## [0.64.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.63.2...v0.64.0) (2025-10-01)
 
 

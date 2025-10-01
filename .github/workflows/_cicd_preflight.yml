@@ -82,7 +82,7 @@ jobs:
         id: docs_only_label
         env:
           GH_TOKEN: ${{ github.token }}
-          IS_PR: ${{ steps.get-pr-info.outputs.pr-info).number != null }}
+          IS_PR: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
         run: |
           if [[ "$IS_PR" == "true" ]]; then
             PR_NUMBER=${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}

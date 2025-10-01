@@ -82,8 +82,11 @@ jobs:
         id: docs_only_label
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
         run: |
-          if gh pr view ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }} --json labels | grep -q '"name": "docs-only"'; then
+          HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
+
+          if [[ "$HAS_DOCS_ONLY_LABEL" == "true" ]] ; then
             echo "main=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "main=false" | tee -a "$GITHUB_OUTPUT"

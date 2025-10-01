@@ -77,13 +77,33 @@ jobs:
               - '!**.md'
               - '!docs/**'
 
+      - name: Check if PR has docs-only label
+        shell: bash
+        id: docs_only_label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
+        run: |
+          HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
+
+          if [[ "$HAS_DOCS_ONLY_LABEL" == "true" ]] ; then
+            echo "main=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "main=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+
       - name: Check if docs only
         shell: bash
         id: docs_only
         env:
           DOCS_ONLY: ${{ steps.changed-files.outputs.doc_any_changed == 'true' && steps.changed-files.outputs.src_any_changed == 'false' }}
+          DOCS_ONLY_LABEL: ${{ steps.docs_only_label.outputs.main == 'true' }}
         run: |
-          echo "main=$DOCS_ONLY" | tee -a "$GITHUB_OUTPUT"
+          if [[ "$DOCS_ONLY" == "true" || "$DOCS_ONLY_LABEL" == "true" ]]; then
+            echo "main=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "main=false" | tee -a "$GITHUB_OUTPUT"
+          fi
 
       - name: Check if this is a CI workload
         shell: bash

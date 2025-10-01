@@ -82,9 +82,14 @@ jobs:
         id: docs_only_label
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
+          IS_PR: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
         run: |
-          HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
+          if [[ "$IS_PR" == "true" ]]; then
+            PR_NUMBER=${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
+            HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
+          else
+            HAS_DOCS_ONLY_LABEL=false
+          fi
 
           if [[ "$HAS_DOCS_ONLY_LABEL" == "true" ]] ; then
             echo "main=true" | tee -a "$GITHUB_OUTPUT"

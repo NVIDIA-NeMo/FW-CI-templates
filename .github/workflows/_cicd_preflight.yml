@@ -80,6 +80,8 @@ jobs:
       - name: Check if PR has docs-only label
         shell: bash
         id: docs_only_label
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if gh pr view ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }} --json labels | grep -q '"name": "docs-only"'; then
             echo "main=true" | tee -a "$GITHUB_OUTPUT"

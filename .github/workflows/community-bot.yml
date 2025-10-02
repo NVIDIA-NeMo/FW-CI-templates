@@ -8,6 +8,6 @@ on:
 
 jobs:
   community-bot:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_community_bot.yml@ko3n1g/feat/community-bot
+    uses: .github/workflows/_community_bot.yml
     with:
       maintainers: ko3n1g

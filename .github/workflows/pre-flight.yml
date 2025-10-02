@@ -1,0 +1,7 @@
+name: Test Pre-flight
+on:
+  pull_request:
+
+jobs:
+  pre-flight:
+    uses: ./.github/workflows/_cicd_preflight.yml

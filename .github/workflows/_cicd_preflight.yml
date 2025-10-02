@@ -85,7 +85,7 @@ jobs:
           IS_PR: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
         run: |
           if [[ "$IS_PR" == "true" ]]; then
-            PR_NUMBER=${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
+            PR_NUMBER=${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number }}
             HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
           else
             HAS_DOCS_ONLY_LABEL=false

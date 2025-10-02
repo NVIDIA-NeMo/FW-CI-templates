@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.1...v0.64.2) (2025-10-02)
+
+
+### Bug Fixes
+
+* Pre-flight for on main ([#284](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/284)) ([eb46ad5](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eb46ad5b00cdb512644abaa6b84415a80a5ce93b))
+
 ## [0.64.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.0...v0.64.1) (2025-10-01)
 
 

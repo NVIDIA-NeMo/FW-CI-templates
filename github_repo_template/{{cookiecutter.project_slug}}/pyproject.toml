@@ -193,7 +193,17 @@ line-ending = "auto"
 
 [tool.coverage.run]
 concurrency = ["thread", "multiprocessing"]
-omit = ["/tmp/*"]
+omit = [
+    "/tmp/*",
+    "/workspace/tests/*",
+    "/usr/local/lib/python3.12/*",
+    "*_ray.py",
+    "ray_*.py",
+    "/workspace/*.py",
+    "*package_info.py",
+]
+parallel = true
+sigterm = true
 
 [tool.coverage.paths]
-source = ["{{cookiecutter.package_name}}/", "/workspace/{{cookiecutter.package_name}}"]
+source = [".", "/workspace", "{{cookiecutter.package_name}}/", "/workspace/{{cookiecutter.package_name}}"]

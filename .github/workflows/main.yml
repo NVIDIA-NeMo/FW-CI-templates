@@ -1,0 +1,12 @@
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Halt 15s
+        run: |
+          echo "Gonna merge in 15s"
+          sleep 15

@@ -6,7 +6,6 @@ jobs:
   main:
     runs-on: ubuntu-latest
     steps:
-      - name: Halt 90s
+      - name: Halt
         run: |
-          echo "Gonna merge in 90s"
-          sleep 90
+          sleep 360

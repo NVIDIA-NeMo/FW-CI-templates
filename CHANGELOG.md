@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.2...v0.65.0) (2025-10-10)
+
+
+### Features
+
+* Emit `is_merge_group` ([#295](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/295)) ([0e8c006](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0e8c0065789c299692fbbea62471554927dcd9e9))
+
 ## [0.64.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.1...v0.64.2) (2025-10-02)
 
 

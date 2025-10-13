@@ -171,11 +171,13 @@ jobs:
             uv venv --system-site-packages .venv
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
+              uv pip install torch
               uv pip install --upgrade setuptools pybind11 wheel_stub torch packaging
             fi
             uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
+              pip install torch
               pip install --upgrade setuptools pybind11 wheel_stub torch packaging
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.0...v0.65.1) (2025-10-13)
+
+
+### Bug Fixes
+
+* Upgrade setuptools  ([#298](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/298)) ([e76fe4b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e76fe4b0757a87091b9a88baf646bbbfc68c46c7))
+
 ## [0.65.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.64.2...v0.65.0) (2025-10-10)
 
 

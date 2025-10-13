@@ -79,6 +79,11 @@ on:
         description: Navigate into a sub-directory (mind the / at the end)
         type: string
         default: "./"
+      container-options:
+        required: false
+        description: Options to pass to the container
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -107,6 +112,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.custom-container || '' }}
+      options: ${{ inputs.container-options }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}
@@ -171,12 +177,14 @@ jobs:
             uv venv --system-site-packages .venv
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              uv pip install setuptools pybind11 wheel_stub torch
+              uv pip install torch
+              uv pip install --upgrade setuptools pybind11 wheel_stub packaging
             fi
             uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              pip install setuptools pybind11 wheel_stub torch
+              pip install torch
+              pip install --upgrade setuptools pybind11 wheel_stub packaging
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
           fi

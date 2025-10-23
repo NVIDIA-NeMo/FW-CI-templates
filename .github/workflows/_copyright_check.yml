@@ -31,10 +31,21 @@ jobs:
   main:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
+
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v45.0.1
         with:
-          fetch-depth: 0
+          base_sha: ${{ steps.base-ref.outputs.base }}
 
       - name: Get changed files
         id: changed-files

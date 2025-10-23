@@ -63,7 +63,7 @@ jobs:
         if: steps.changed-files.outputs.any_changed == 'true'
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.65.2
+          ref: v0.65.3
           path: copyright-checker
 
       - name: Check copyright headers

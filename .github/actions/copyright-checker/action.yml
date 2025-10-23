@@ -1,0 +1,34 @@
+name: "Check Copyright Headers"
+description: "Check that changed Python files have correct NVIDIA copyright headers"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v41
+      with:
+        files: "**/*.py"
+        separator: " "
+
+    - name: Check copyright headers
+      if: steps.changed-files.outputs.any_changed == 'true'
+      shell: bash
+      run: |
+        echo "Checking copyright headers for changed files..."
+        echo "Changed files: ${{ steps.changed-files.outputs.all_changed_files }}"
+
+        # Build the command
+        CMD="python3 ${{ github.action_path }}/check_copyright.py"
+
+        # Add the files
+        CMD="$CMD ${{ steps.changed-files.outputs.all_changed_files }}"
+
+        # Run the check
+        eval $CMD
+
+    - name: No files changed
+      if: steps.changed-files.outputs.any_changed != 'true'
+      shell: bash
+      run: |
+        echo "No Python files changed, skipping copyright check."

@@ -13,7 +13,7 @@
 # limitations under the License.
 name: Copyright check
 
-on: 
+on:
   workflow_call:
     inputs:
       additional-find-args:
@@ -26,7 +26,7 @@ on:
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
-    
+
 jobs:
   main:
     runs-on: ubuntu-latest
@@ -37,34 +37,20 @@ jobs:
           path: ${{ github.run_id }}
           fetch-depth: 0
 
-      - name: Check files have copyright notice
-        run: |
-          cd ${{ github.run_id }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ko3n1g/fix/copyright-checker
+          path: copyright-checker
 
-          # Files ending with .py should have Copyright notice in the first 10 lines
-          find_files_with_missing_copyright() {
-            find ./ -type f -name '*.py' ${{ inputs.additional-find-args }} -not -path "./.git/*" -not -path "./*__init__.py" | while read path; do
-                echo -en $path"\t"
-                head -n 10 $path | tr '\n' '\t' | sed 's/\t$/\n/'
-            done \
-              | egrep -iv 'Copyright.*NVIDIA CORPORATION.*' \
-              | egrep -iv '*MIT.*Licen.e.*' \
-              | egrep -iv '*Copyright.*Apache.*' \
-              | egrep -iv '*Apache.*License.*' \
-              | while read line; do
-                echo $line | cut -d' ' -f1
-              done
-          }
+      - name: Send Slack alert
+        uses: ./copyright-checker/.github/actions/copyright-checker
+        with:
+          message: >
+            <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
+            
+            cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 
-          declare RESULT=($(find_files_with_missing_copyright))  # (..) = array
-
-          if [ "${#RESULT[@]}" -gt 0 ]; then
-             echo "Error: Found files with missing copyright:"
-             for (( i=0; i<"${#RESULT[@]}"; i++ )); do
-                echo "path= ${RESULT[$i]}"
-             done
-             exit 1;
-          else
-             echo "Ok: All files (for file type/format searched) start with copyright notice"
-          fi
+          webhook: ${{ env.SLACK_WEBHOOK }}

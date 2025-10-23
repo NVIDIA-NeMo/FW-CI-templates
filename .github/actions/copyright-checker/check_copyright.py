@@ -79,9 +79,10 @@ def main():
             missing_headers.append(path)
 
     # Exit with error code if headers are missing and not added
-    if missing_headers and not args.add:
+    if missing_headers:
         print(f"\n{len(missing_headers)} file(s) missing copyright header.")
-        print("Use --add to add headers automatically.")
+        print("Header:")
+        print(EXPECTED_HEADER)
         sys.exit(1)
 
     sys.exit(0)

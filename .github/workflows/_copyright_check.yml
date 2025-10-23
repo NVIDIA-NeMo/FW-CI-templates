@@ -46,11 +46,6 @@ jobs:
         uses: step-security/changed-files@v45.0.1
         with:
           base_sha: ${{ steps.base-ref.outputs.base }}
-
-      - name: Get changed files
-        id: changed-files
-        uses: step-security/changed-files@v45.0.1
-        with:
           files: "**/*.py"
           separator: " "
 

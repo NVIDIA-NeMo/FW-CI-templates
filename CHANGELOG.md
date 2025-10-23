@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.4...v0.65.5) (2025-10-23)
+
+
+### Bug Fixes
+
+* Emit merge_queue event ([#306](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/306)) ([c672c6b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c672c6b43e1c39bcb57734765b2536a99ccfded9))
+
 ## [0.65.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.3...v0.65.4) (2025-10-23)
 
 

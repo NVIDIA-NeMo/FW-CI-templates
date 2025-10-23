@@ -81,8 +81,14 @@ def main():
     # Exit with error code if headers are missing and not added
     if missing_headers:
         print(f"\n{len(missing_headers)} file(s) missing copyright header.")
-        print("Header:")
+        print("\n")
+        print("Add or replace the header in those files with the following content:")
         print(EXPECTED_HEADER)
+        print("\n")
+        print(
+            "Disclaimer: This must done irrespective of the magnitude of the change "
+            "or whether your are the file/module author."
+        )
         sys.exit(1)
 
     sys.exit(0)

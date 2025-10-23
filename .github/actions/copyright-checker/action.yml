@@ -19,7 +19,7 @@ runs:
         echo "Changed files: ${{ inputs.changed-files }}"
 
         # Build the command
-        CMD="python3${{ github.action_path }}/check_copyright.py"
+        CMD="python3 ${{ github.action_path }}/check_copyright.py"
 
         # Add the files
         CMD="$CMD --from-year ${{ inputs.from-year }} ${{ inputs.changed-files }}"

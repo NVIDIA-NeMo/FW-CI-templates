@@ -34,7 +34,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: ${{ github.run_id }}
           fetch-depth: 0
 
       - name: Get changed files

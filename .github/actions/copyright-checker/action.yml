@@ -6,7 +6,7 @@ runs:
   steps:
     - name: Get changed files
       id: changed-files
-      uses: step-security/changed-files@v41
+      uses: step-security/changed-files@45.0.1
       with:
         files: "**/*.py"
         separator: " "

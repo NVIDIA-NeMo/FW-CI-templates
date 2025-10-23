@@ -31,7 +31,7 @@ on:
         value: ${{ jobs.pre-flight.outputs.is_deployment_workflow }}
       is_merge_group:
         description: "Whether event is a merge_queue"
-        value: ${{ github.event == 'merge_group' }}
+        value: ${{ github.event_name == 'merge_group' }}
 jobs:
   pre-flight:
     runs-on: ubuntu-latest

@@ -22,6 +22,10 @@ on:
         type: string
         #sample input string value: "-or -name *.yaml"
         #value: "-or -name *.yaml"
+      from-year:
+        required: true
+        description: "Project creation year"
+        type: string
 
 defaults:
   run:
@@ -67,3 +71,4 @@ jobs:
         uses: ./copyright-checker/.github/actions/copyright-checker
         with:
           changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
+          from-year: ${{ inputs.from-year }}

@@ -8,7 +8,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
-EXPECTED_HEADER = """# Copyright (c) {}, NVIDIA CORPORATION.
+EXPECTED_HEADER = """# Copyright (c) {}-{}, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,17 +21,17 @@ EXPECTED_HEADER = """# Copyright (c) {}, NVIDIA CORPORATION.
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""".format(str(datetime.now().year))
+"""
 
 
-def has_correct_header(file_path):
+def has_correct_header(file_path, from_year: int):
     """Check if file has the correct copyright header."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
         # Check if the expected header is at the start of the file
-        return content.startswith(EXPECTED_HEADER)
+        return content.startswith(EXPECTED_HEADER.format(from_year, str(datetime.now().year)))
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
         return False
@@ -47,14 +47,10 @@ def main():
         help='Files to check/modify'
     )
     parser.add_argument(
-        '--add',
-        action='store_true',
-        help='Add header if missing'
-    )
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be done without making changes'
+        '--from-year',
+        type=int,
+        required=True,
+        help='Project creation year'
     )
 
     args = parser.parse_args()
@@ -72,7 +68,7 @@ def main():
             print(f"Not a file: {file_path}")
             continue
 
-        if has_correct_header(path):
+        if has_correct_header(path, args.from_year):
             print(f"✓ Header present: {file_path}")
         else:
             print(f"✗ Header missing: {file_path}")

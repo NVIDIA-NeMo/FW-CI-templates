@@ -1,0 +1,28 @@
+name: "Check Copyright Headers"
+description: "Check that changed Python files have correct NVIDIA copyright headers"
+
+inputs:
+  changed-files:
+    description: "Changed files"
+    required: true
+  from-year:
+    description: "Project creation year"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check copyright headers
+      shell: bash
+      run: |
+        echo "Checking copyright headers for changed files..."
+        echo "Changed files: ${{ inputs.changed-files }}"
+
+        # Build the command
+        CMD="python3 --from-year ${{ inputs.from-year }} ${{ github.action_path }}/check_copyright.py"
+
+        # Add the files
+        CMD="$CMD ${{ inputs.changed-files }}"
+
+        # Run the check
+        eval $CMD

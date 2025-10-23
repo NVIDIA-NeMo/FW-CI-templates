@@ -13,7 +13,7 @@
 # limitations under the License.
 name: Copyright check
 
-on: 
+on:
   workflow_call:
     inputs:
       additional-find-args:
@@ -22,11 +22,15 @@ on:
         type: string
         #sample input string value: "-or -name *.yaml"
         #value: "-or -name *.yaml"
+      from-year:
+        required: true
+        description: "Project creation year"
+        type: string
 
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
-    
+
 jobs:
   main:
     runs-on: ubuntu-latest
@@ -34,37 +38,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: ${{ github.run_id }}
           fetch-depth: 0
 
-      - name: Check files have copyright notice
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
         run: |
-          cd ${{ github.run_id }}
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
 
-          # Files ending with .py should have Copyright notice in the first 10 lines
-          find_files_with_missing_copyright() {
-            find ./ -type f -name '*.py' ${{ inputs.additional-find-args }} -not -path "./.git/*" -not -path "./*__init__.py" | while read path; do
-                echo -en $path"\t"
-                head -n 10 $path | tr '\n' '\t' | sed 's/\t$/\n/'
-            done \
-              | egrep -iv 'Copyright.*NVIDIA CORPORATION.*' \
-              | egrep -iv '*MIT.*Licen.e.*' \
-              | egrep -iv '*Copyright.*Apache.*' \
-              | egrep -iv '*Apache.*License.*' \
-              | while read line; do
-                echo $line | cut -d' ' -f1
-              done
-          }
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v45.0.1
+        with:
+          base_sha: ${{ steps.base-ref.outputs.base }}
+          files: "**/*.py"
+          separator: " "
 
+      - name: Checkout
+        uses: actions/checkout@v4
+        if: steps.changed-files.outputs.any_changed == 'true'
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: v0.65.2
+          path: copyright-checker
 
-          declare RESULT=($(find_files_with_missing_copyright))  # (..) = array
-
-          if [ "${#RESULT[@]}" -gt 0 ]; then
-             echo "Error: Found files with missing copyright:"
-             for (( i=0; i<"${#RESULT[@]}"; i++ )); do
-                echo "path= ${RESULT[$i]}"
-             done
-             exit 1;
-          else
-             echo "Ok: All files (for file type/format searched) start with copyright notice"
-          fi
+      - name: Check copyright headers
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: ./copyright-checker/.github/actions/copyright-checker
+        with:
+          changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
+          from-year: ${{ inputs.from-year }}

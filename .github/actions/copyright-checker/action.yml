@@ -5,9 +5,6 @@ inputs:
   changed-files:
     description: "Changed files"
     required: true
-  from-year:
-    description: "Project creation year"
-    required: true
 
 runs:
   using: "composite"
@@ -22,7 +19,7 @@ runs:
         CMD="python3 ${{ github.action_path }}/check_copyright.py"
 
         # Add the files
-        CMD="$CMD --from-year ${{ inputs.from-year }} ${{ inputs.changed-files }}"
+        CMD="$CMD ${{ inputs.changed-files }}"
 
         # Run the check
         eval $CMD

@@ -79,7 +79,7 @@ def main():
         print(f"\n{len(missing_headers)} file(s) missing copyright header.")
         print("\n")
         print("Add or replace the header in those files with the following content:")
-        print(EXPECTED_HEADER)
+        print(EXPECTED_HEADER.format(args.from_year, str(datetime.now().year)))
         print("\n")
         print(
             "Disclaimer: This must done irrespective of the magnitude of the change "

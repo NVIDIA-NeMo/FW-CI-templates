@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.6](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.5...v0.65.6) (2025-10-24)
+
+
+### Bug Fixes
+
+* Print date in helper message ([#308](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/308)) ([df09ae2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/df09ae2dc63c40718c4a1d709ece15c734873e8a))
+
 ## [0.65.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.4...v0.65.5) (2025-10-23)
 
 

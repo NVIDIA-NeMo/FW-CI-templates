@@ -11,7 +11,7 @@ from datetime import datetime
 EXPECTED_HEADER = """# Copyright (c) {} NVIDIA CORPORATION & AFFILIATES. All rights reserved."""
 
 
-def has_correct_header(file_path, from_year: int):
+def has_correct_header(file_path):
     """Check if file has the correct copyright header."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -49,7 +49,7 @@ def main():
             print(f"Not a file: {file_path}")
             continue
 
-        if has_correct_header(path, args.from_year):
+        if has_correct_header(path):
             print(f"✓ Header present: {file_path}")
         else:
             print(f"✗ Header missing: {file_path}")

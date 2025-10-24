@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.65.9](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.8...v0.65.9) (2025-10-24)
+
+
+### Bug Fixes
+
+* Bump version ([#316](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/316)) ([96c8dce](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/96c8dce0df54ed7f9f9ae4fe259f13ad01459f19))
+* Remove arg ([#314](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/314)) ([064fc06](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/064fc0636f390e5bac6993fe52b2b271ed738785))
+
 ## [0.65.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.7...v0.65.8) (2025-10-24)
 
 

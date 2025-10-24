@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.7...v0.65.8) (2025-10-24)
+
+
+### Bug Fixes
+
+* Remove input ([#312](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/312)) ([f793f5f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f793f5ff99d491dc079df48af85d94825a34f050))
+
 ## [0.65.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.6...v0.65.7) (2025-10-24)
 
 

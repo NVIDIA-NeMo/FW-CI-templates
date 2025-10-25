@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.10](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.9...v0.65.10) (2025-10-25)
+
+
+### Bug Fixes
+
+* CI workflows are those on main/dev ([#317](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/317)) ([c6af072](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6af072120012c93ab43c8e0c3167f995d428580))
+
 ## [0.65.9](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.8...v0.65.9) (2025-10-24)
 
 

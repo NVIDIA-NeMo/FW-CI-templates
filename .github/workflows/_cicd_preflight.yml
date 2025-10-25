@@ -119,7 +119,8 @@ jobs:
         run: |
           branch_name=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
 
-          if [[ "$branch_name" =~ ^bump-ci-container || "$EVENT_NAME" == "schedule" ]]; then
+          if [[ "$branch_name" =~ ^bump-ci-container || "$EVENT_NAME" == "schedule" || "$banch_name" == "main" 
+          || "$branch_name" == "dev" ]]; then
             is_ci_workload=true
           else
             is_ci_workload=false

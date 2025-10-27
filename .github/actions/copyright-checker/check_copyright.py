@@ -56,9 +56,7 @@ def main():
             print(f"Not a file: {file_path}")
             continue
 
-        if has_correct_header(path):
-            print(f"✓ Header present: {file_path}")
-        else:
+        if not has_correct_header(path):
             print(f"✗ Header missing: {file_path}")
             missing_headers.append(path)
 
@@ -67,7 +65,7 @@ def main():
         print(f"\n{len(missing_headers)} file(s) missing copyright header.")
         print("\n")
         # The error message still suggests a specific header to add
-        print("Add or replace the header in those files with the following content:")
+        print("Add the header in those files with the following content:")
         print(EXPECTED_HEADER.format(str(datetime.now().year)))
         print("\n")
         print(

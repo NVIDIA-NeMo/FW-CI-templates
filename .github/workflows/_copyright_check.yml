@@ -44,7 +44,9 @@ jobs:
       - name: Determine base reference
         id: base-ref
         run: |
-          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
+          BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
+
+          echo "base=$(git rev-parse origin/$BASE_REF)" | tee -a $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files

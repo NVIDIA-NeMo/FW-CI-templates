@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.12](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.11...v0.65.12) (2025-10-28)
+
+
+### Bug Fixes
+
+* Use BASE_SHA instead of BASE_REF ([#321](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/321)) ([5aff951](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5aff951f7b12e0d10fe539de094ef8af5e5df5f8))
+
 ## [0.65.11](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.10...v0.65.11) (2025-10-27)
 
 

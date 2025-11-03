@@ -46,6 +46,9 @@ jobs:
         run: |
           BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
 
+          git config --global user.email "you@example.com"
+          git config --global user.name "GitHub Action"
+
           git fetch origin $BASE_REF
           git merge origin/$BASE_REF
 

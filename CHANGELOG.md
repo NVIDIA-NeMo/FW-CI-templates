@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.13](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.12...v0.65.13) (2025-11-03)
+
+
+### Bug Fixes
+
+* Run copyright-checker on merge-commit ([#323](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/323)) ([f90b5af](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f90b5affbd3ea985354d404682568788b3ff9d05))
+
 ## [0.65.12](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.11...v0.65.12) (2025-10-28)
 
 

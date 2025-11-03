@@ -46,13 +46,16 @@ jobs:
         run: |
           BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
 
-          echo "sha=$(git rev-parse origin/$BASE_REF)" | tee -a $GITHUB_OUTPUT
+          git fetch origin $BASE_REF
+          git merge origin/$BASE_REF
+
+          echo "sha=$(git rev-parse HEAD)" | tee -a $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
         with:
-          base_sha: ${{ steps.base-sha.outputs.sha }}
+          base_sha: ${{ steps.head-sha.outputs.sha }}
           files: "**/*.py"
           separator: " "
 

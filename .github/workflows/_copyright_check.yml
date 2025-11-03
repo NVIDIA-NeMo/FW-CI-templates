@@ -42,7 +42,7 @@ jobs:
         uses: nv-gha-runners/get-pr-info@main
 
       - name: Determine base reference
-        id: base-sha
+        id: get-sha
         run: |
           BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
 
@@ -53,12 +53,14 @@ jobs:
           git merge origin/$BASE_REF
 
           echo "sha=$(git rev-parse HEAD)" | tee -a $GITHUB_OUTPUT
+          echo "base_sha=${BASE_REF}" | tee -a $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
         with:
-          base_sha: ${{ steps.head-sha.outputs.sha }}
+          sha: ${{ steps.get-sha.outputs.sha }}
+          base_sha: ${{ steps.get-sha.outputs.base_sha }}
           files: "**/*.py"
           separator: " "
 

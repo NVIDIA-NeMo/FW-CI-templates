@@ -341,7 +341,7 @@ jobs:
 
       - name: Validate wheel
         run: |
-          python3 -m pip install --upgrade twine
+          python3 -m pip install --upgrade twine==6.0.1
           python3 -m twine check dist/*
 
       - name: Release wheel

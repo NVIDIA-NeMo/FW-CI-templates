@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.13...v0.66.0) (2025-11-20)
+
+
+### Features
+
+* enhance logs for debugging ([#325](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/325)) ([558306d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/558306d63fa9c452702b6a617c5083fa27acd14b))
+
 ## [0.65.13](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.65.12...v0.65.13) (2025-11-03)
 
 

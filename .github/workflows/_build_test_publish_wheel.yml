@@ -339,14 +339,18 @@ jobs:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
+      - name: Validate wheel
+        run: |
+          python3 -m pip install --upgrade twine==6.0.1
+          python3 -m twine check dist/*
+
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
           REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
         run: |
-          python3 -m pip install --upgrade twine==6.0.1
-          python3 -m twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
 
   notify:
     runs-on: ubuntu-latest

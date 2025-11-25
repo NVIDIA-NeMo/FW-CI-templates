@@ -27,7 +27,7 @@ on:
       python-version:
         type: string
         description: Python version
-        default: "3.10"
+        default: '3.10'
         required: false
       ref:
         required: false
@@ -36,7 +36,7 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: 'Packaging tool (supported: setuptools, hatch, uv)'
         type: string
         default: setuptools
       no-publish:
@@ -58,7 +58,7 @@ on:
         required: false
         description: Custom container to use for the build
         type: string
-        default: ""
+        default: ''
       runner:
         required: false
         description: Runner to use for the build
@@ -73,17 +73,16 @@ on:
         required: false
         description: Whether to checkout submodules
         type: string
-        default: ""
+        default: ''
       root-dir:
         required: false
         description: Navigate into a sub-directory (mind the / at the end)
         type: string
-        default: "./"
+        default: './'
       container-options:
         required: false
         description: Options to pass to the container
         type: string
-        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -151,7 +150,7 @@ jobs:
         uses: actions/setup-python@v5
         if: inputs.custom-container == ''
         with:
-          python-version: "${{ steps.python-version.outputs.version }}"
+          python-version: '${{ steps.python-version.outputs.version }}'
 
       - name: Build wheel
         id: build
@@ -282,7 +281,7 @@ jobs:
       - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ steps.python-version.outputs.version }}"
+          python-version: '${{ steps.python-version.outputs.version }}'
 
       - name: Install wheel
         run: |
@@ -359,7 +358,7 @@ jobs:
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
+      SLACK_WEBHOOK_ADMIN: '<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>'
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
       COMMIT_SHA: ${{ github.sha }}

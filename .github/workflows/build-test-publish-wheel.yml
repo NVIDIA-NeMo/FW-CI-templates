@@ -1,6 +1,7 @@
 name: Test Build, Test, Publish Wheel
 on:
   workflow_dispatch:
+  # pull_request: # Enable this for PR testing. Since we don't have a full Python project this is just a smoke test for making sure the workflow syntax is correct.
 
 jobs:
   build-test-publish-wheel:

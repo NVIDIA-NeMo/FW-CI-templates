@@ -83,6 +83,7 @@ on:
         required: false
         description: Options to pass to the container
         type: string
+        default: ' '
     secrets:
       TWINE_USERNAME:
         required: true

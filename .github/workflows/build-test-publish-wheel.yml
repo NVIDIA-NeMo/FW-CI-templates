@@ -14,5 +14,5 @@ jobs:
       has-src-dir: true
       skip-test-wheel: true
     secrets:
-      TWINE_USERNAME: test
-      TWINE_PASSWORD: test
+      TWINE_USERNAME: test # pragma: allowlist secret
+      TWINE_PASSWORD: test # pragma: allowlist secret

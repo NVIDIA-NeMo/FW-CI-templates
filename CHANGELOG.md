@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.3...v0.66.4) (2025-11-25)
+
+
+### Bug Fixes
+
+* Default of build-test-publish wheel workflow ([#333](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/333)) ([5cb6722](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5cb67225084fd527149e8bc897bf49722e379282))
+
 ## [0.66.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.2...v0.66.3) (2025-11-25)
 
 

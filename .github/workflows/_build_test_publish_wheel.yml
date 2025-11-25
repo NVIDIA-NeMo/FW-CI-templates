@@ -83,6 +83,7 @@ on:
         required: false
         description: Options to pass to the container
         type: string
+        default: ' '
     secrets:
       TWINE_USERNAME:
         required: true
@@ -111,7 +112,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.custom-container || '' }}
-      options: ${{ inputs.container-options || ' ' }}
+      options: ${{ inputs.container-options }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

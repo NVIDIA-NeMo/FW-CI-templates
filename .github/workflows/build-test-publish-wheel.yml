@@ -1,6 +1,6 @@
 name: Test Build, Test, Publish Wheel
 on:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build-test-publish-wheel:

@@ -1,0 +1,15 @@
+name: Test Build, Test, Publish Wheel
+on:
+  pull_request:
+
+jobs:
+  build-test-publish-wheel:
+    uses: ./.github/workflows/_build_test_publish_wheel.yml
+    with:
+      dry-run: true
+      python-package: fw_ci_templates
+      python-version: '3.10'
+      packaging: uv
+      no-publish: true
+      has-src-dir: true
+      skip-test-wheel: true

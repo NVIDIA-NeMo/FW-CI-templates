@@ -13,3 +13,6 @@ jobs:
       no-publish: true
       has-src-dir: true
       skip-test-wheel: true
+    secrets:
+      TWINE_USERNAME: test
+      TWINE_PASSWORD: test

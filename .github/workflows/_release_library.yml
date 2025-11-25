@@ -118,7 +118,7 @@ permissions:
 jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.2
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.4
     if: inputs.dry-run == false
     with:
       dry-run: true

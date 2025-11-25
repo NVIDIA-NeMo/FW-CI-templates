@@ -111,7 +111,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.custom-container || '' }}
-      options: ${{ inputs.container-options || '' }}
+      options: ${{ inputs.container-options || ' ' }}
     outputs:
       expected-version: ${{ steps.build.outputs.version }}
       name: ${{ steps.build.outputs.name }}

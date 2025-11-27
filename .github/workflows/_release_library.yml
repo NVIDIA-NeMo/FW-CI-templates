@@ -113,7 +113,7 @@ on:
 
 permissions:
   contents: write # To read repository content
-  pull-requests: write # To create PRs
+  pull-requests: write # To create PR(s)
 
 jobs:
   build-test-publish-wheel-dry-run:

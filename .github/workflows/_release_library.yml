@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: 'Release'
+name: "Release"
 
 defaults:
   run:
@@ -32,7 +32,7 @@ on:
         type: string
         description: Python version to use for build
         required: false
-        default: '3.10'
+        default: "3.10"
       library-name:
         type: string
         description: Name of Nemo library
@@ -46,7 +46,7 @@ on:
         description: Branch to target for version bump
       packaging:
         required: false
-        description: 'Packaging tool (supported: setuptools, hatch, uv)'
+        description: "Packaging tool (supported: setuptools, hatch, uv)"
         type: string
         default: setuptools
       create-gh-release:
@@ -58,7 +58,7 @@ on:
         required: false
         description: This string will be preprended "as-is" to the version tag
         type: string
-        default: ''
+        default: ""
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -73,7 +73,7 @@ on:
         required: false
         description: Custom container to use for the build
         type: string
-        default: ''
+        default: ""
       runner:
         required: false
         description: Runner to use for the build
@@ -92,7 +92,7 @@ on:
         required: false
         description: Navigate into a sub-directory
         type: string
-        default: './'
+        default: "./"
     secrets:
       TWINE_USERNAME:
         required: true
@@ -118,7 +118,7 @@ permissions:
 jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.4
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.5
     if: inputs.dry-run == false
     with:
       dry-run: true
@@ -356,7 +356,7 @@ jobs:
           git push -d origin ${{ env.TMP_BRANCH }}
 
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.5
     needs: bump-next-version
     if: |
       (

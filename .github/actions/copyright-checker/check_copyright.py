@@ -11,7 +11,7 @@ from datetime import datetime
 
 # Regex to check for in the first line
 # Matches "Copyright.*NVIDIA CORPORATION.*All rights reserved."
-HEADER_REGEX = re.compile(r"Copyright.*NVIDIA CORPORATION.*All rights reserved\.")
+HEADER_REGEX = re.compile(r"^#\s*Copyright")
 
 # Original format string, still used for the error message suggestion
 EXPECTED_HEADER = """# Copyright (c) {} NVIDIA CORPORATION & AFFILIATES. All rights reserved."""
@@ -19,16 +19,16 @@ EXPECTED_HEADER = """# Copyright (c) {} NVIDIA CORPORATION & AFFILIATES. All rig
 
 def has_correct_header(file_path):
     """Check if file's first line has the correct copyright header."""
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            # Read only the first line
-            first_line = f.readline()
+    with open(file_path, 'r', encoding='utf-8') as f:
+        # Read only the first line
+        lines = f.readlines()
 
-        # Check if the regex pattern is found anywhere in the first line
-        return HEADER_REGEX.search(first_line) is not None
-    except Exception as e:
-        print(f"Error reading {file_path}: {e}")
-        return False
+    for line in lines:
+        if not line.startswith("#"):
+            return False
+
+        if HEADER_REGEX.search(line) is not None:
+            return True
 
 
 def main():

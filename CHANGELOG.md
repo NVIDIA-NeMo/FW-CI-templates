@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.6...v0.66.7) (2025-12-02)
+
+
+### Bug Fixes
+
+* Allow checking multiple copyright lines ([#340](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/340)) ([0f18697](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0f1869773432c1892278c499c3b268a4a6dbcd8f))
+
 ## [0.66.6](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.5...v0.66.6) (2025-11-27)
 
 

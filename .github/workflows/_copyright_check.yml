@@ -18,7 +18,7 @@ on:
     inputs:
       additional-find-args:
         required: false
-        description: "Command for other File types to search copyright"
+        description: 'Command for other File types to search copyright'
         type: string
         #sample input string value: "-or -name *.yaml"
         #value: "-or -name *.yaml"
@@ -61,15 +61,15 @@ jobs:
         with:
           sha: ${{ steps.get-sha.outputs.sha }}
           base_sha: ${{ steps.get-sha.outputs.base_sha }}
-          files: "**/*.py"
-          separator: " "
+          files: '**/*.py'
+          separator: ' '
 
       - name: Checkout
         uses: actions/checkout@v4
         if: steps.changed-files.outputs.any_changed == 'true'
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.65.11
+          ref: v0.66.7
           path: copyright-checker
 
       - name: Check copyright headers

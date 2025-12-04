@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.7...v0.66.8) (2025-12-04)
+
+
+### Bug Fixes
+
+* Allow release workflow to clone submodules ([#342](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/342)) ([d2d4fd4](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d2d4fd440f04b3bcd9e79986966f0a9353c71a11))
+
 ## [0.66.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.6...v0.66.7) (2025-12-02)
 
 

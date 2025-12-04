@@ -93,6 +93,11 @@ on:
         description: Navigate into a sub-directory
         type: string
         default: "./"
+      submodules:
+        required: false
+        description: Whether to checkout submodules
+        type: string
+        default: ''
     secrets:
       TWINE_USERNAME:
         required: true
@@ -132,6 +137,7 @@ jobs:
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}
       root-dir: ${{ inputs.root-dir }}
+      submodules: ${{ inputs.submodules }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

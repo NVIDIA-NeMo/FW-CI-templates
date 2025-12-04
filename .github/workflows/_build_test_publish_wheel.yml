@@ -178,7 +178,7 @@ jobs:
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               uv pip install torch
-              uv pip install --upgrade setuptools pybind11 wheel_stub packaging
+              uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry
             fi
             uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else

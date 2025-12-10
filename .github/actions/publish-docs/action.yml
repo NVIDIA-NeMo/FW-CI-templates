@@ -1,0 +1,326 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: publish-docs
+description: "Publish docs to S3"
+inputs:
+  akamai-access-token:
+    description: Akamai EdgeGrid access token
+    required: true
+  akamai-host:
+    description: Akamai API hostname
+    required: true
+  akamai-client-token:
+    description: Akamai EdgeGrid client token
+    required: true
+  akamai-client-secret:
+    description: Akamai EdgeGrid client secret
+    required: true
+  artifacts-name:
+    description: |
+       Name of the artifacts to publish.
+       Use the name that you used with the actions/upload-artifact action.
+    required: true
+  artifacts-path:
+    description: Path to the HTML artifacts to publish
+    required: false
+    default: docs/_build/html
+  aws-access-key-id:
+    description: AWS access key ID
+    required: true
+  aws-secret-access-key:
+    description: AWS secret access key
+    required: true
+  aws-region:
+    description: AWS region
+    required: true
+  aws-role-to-assume:
+    description: AWS role to assume
+    required: true
+  dry-run:
+    description: Whether to execute the AWS and Akamai actions
+    required: false
+    default: "false"
+  emails-csv:
+    description: Email addresses to send the notification to. Format as "me@me.com,you@you.com".
+    required: false
+    default: "mmckiernan@nvidia.com"
+  project-type:
+    description: single-docset or multi-docset project
+    required: false
+    default: single-docset
+  request-name:
+    description: Name of the Akamai flush request
+    required: true
+  run-on-version-tag-only:
+    description: |
+      By default, only run tags that match the pattern /.+-v[0-9]+.[0-9]+.[0-9]+/.
+      Set to false to also run on merges to the default branch and also specify the rules for when to run.
+    default: "true"
+  s3-target-root:
+    description: Root URL/path for S3 bucket
+    required: true
+  s3-target-path:
+    description: Target path within S3 bucket
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install dependencies
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        sudo apt-get install -y --no-install-recommends jq xsltproc
+        python -m pip install --upgrade pip
+        python -m pip install -q httpie-edgegrid
+
+    - name: Check environment
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        function check_environment {
+          local err=0
+          local commands=("jq" "xsltproc" "http" "aws")
+          local cmd_path
+          for cmd in "${commands[@]}"; do
+            cmd_path=$(command -v "${cmd}")
+            if [ ! -x "${cmd_path}" ]; then
+              echo "The ${cmd} CLI is not available on the PATH."
+              ((err++))
+            fi
+          done
+          if [ "${err}" -gt 0 ]; then
+            return 2
+          fi
+        }
+        check_environment
+
+    - name: Set variables
+      id: vars
+      shell: bash -x -e -u -o pipefail {0}
+      env:
+        COMMIT_MSG: ${{ github.event.head_commit.message || '' }}
+      run: |
+        echo "::notice:: GitHub ref: ${GITHUB_REF}"
+        echo "::notice:: Commit message: ${COMMIT_MSG}"
+
+        if [[ "$GITHUB_REF" =~ /(.+)-v([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
+          case ${{ inputs.project-type }} in
+            single-docset)
+              VERSION="${BASH_REMATCH[2]}"
+              echo "version=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+              ;;
+            multi-docset)
+              DOCSET="${BASH_REMATCH[1]}"
+              VERSION="${BASH_REMATCH[2]}"
+              echo "docset=$DOCSET" >> $GITHUB_OUTPUT
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "::error::Invalid project type: ${{ inputs.project-type }}"
+              exit 1
+          esac
+        fi
+
+        if [[ ${{ inputs.run-on-version-tag-only }} == "true" && -z "${VERSION}" ]]; then
+          echo "::notice::Could not extract version from tag, skipping publish."
+          exit 0
+        fi
+
+        if [[ "${COMMIT_MSG}" =~ /not-latest ]]; then
+          echo "publish_latest=false" >> $GITHUB_OUTPUT
+          PUBLISH_LATEST=false
+        else
+          echo "publish_latest=true" >> $GITHUB_OUTPUT
+          PUBLISH_LATEST=true
+        fi
+
+        echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}"
+        echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
+
+    - name: Normalize S3 paths
+      id: paths
+      env:
+        S3_TARGET_ROOT: ${{ inputs.s3-target-root }}
+        S3_TARGET_PATH: ${{ inputs.s3-target-path }}
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        S3_ROOT="${S3_TARGET_ROOT%/}"
+        S3_PATH="${S3_TARGET_PATH#/}"
+        S3_PATH="${S3_PATH%/}"
+
+        # Multi-docset projects need HTML artifacts in a directory that is named after the docset.
+        if [[ ! -z "${{ steps.vars.outputs.docset }}" ]]; then
+          S3_PATH="${S3_PATH}/${{ steps.vars.outputs.docset}}"
+        fi
+
+        echo "s3_root=${S3_ROOT}" >> $GITHUB_OUTPUT
+        echo "s3_path=${S3_PATH}" >> $GITHUB_OUTPUT
+
+    - name: Download HTML artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifacts-name }}
+        path: ${{ inputs.artifacts-path }}
+
+    - name: Verify artifacts
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        if [ ! -d "${{ inputs.artifacts-path }}" ]; then
+          echo "::error::Artifacts path ${{ inputs.artifacts-path }} does not exist."
+          exit 1
+        fi
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+        role-to-assume: ${{ inputs.aws-role-to-assume }}
+
+    - name: Verify AWS identity
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        aws sts get-caller-identity >/dev/null || {
+          echo "::error::Failed to authenticate with AWS. Check credentials configuration."
+          exit 1
+        }
+
+    - name: Publish versioned docs
+      if: ${{ steps.vars.outputs.version != '' && inputs.dry-run == 'false' }}
+      id: publish_version
+      shell: bash -x -e -u -o pipefail {0}
+      working-directory: ${{ inputs.artifacts-path }}
+      env:
+        S3_ROOT: ${{ steps.paths.outputs.s3_root }}
+        S3_PATH: ${{ steps.paths.outputs.s3_path }}
+        VERSION: ${{ steps.vars.outputs.version }}
+      run: |
+        echo "Syncing artifacts to versioned directory: ${VERSION}"
+        aws s3 sync . "${S3_ROOT}/${S3_PATH}/${VERSION}" --exclude .buildinfo --exclude .doctrees --delete
+
+        for file in versions.json versions1.json; do
+          if [ -f "${file}" ]; then
+            aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}" || {
+              echo "::error::Failed to copy ${file} to S3 parent of versioned directory"
+            }
+          fi
+        done
+
+        echo "published=true" >> $GITHUB_OUTPUT
+
+    - name: Publish latest docs
+      if: ${{ steps.vars.outputs.publish_latest == 'true' && inputs.dry-run == 'false' }}
+      id: publish_latest
+      shell: bash -x -e -u -o pipefail {0}
+      working-directory: ${{ inputs.artifacts-path }}
+      env:
+        S3_ROOT: ${{ steps.paths.outputs.s3_root }}
+        S3_PATH: ${{ steps.paths.outputs.s3_path }}
+      run: |
+        echo "Syncing artifacts to latest directory"
+        aws s3 sync . "${S3_ROOT}/${S3_PATH}/latest" --exclude .buildinfo --exclude .doctrees --delete
+
+        echo "published=true" >> $GITHUB_OUTPUT
+
+    - name: Flush Akamai cache
+      id: akamai-flush
+      shell: bash -x -e -u -o pipefail {0}
+      env:
+        AKAMAI_HOST: ${{ inputs.akamai-host }}
+        AKAMAI_CLIENT_TOKEN: ${{ inputs.akamai-client-token }}
+        AKAMAI_CLIENT_SECRET: ${{ inputs.akamai-client-secret }}
+        AKAMAI_ACCESS_TOKEN: ${{ inputs.akamai-access-token }}
+        S3_PATH: ${{ steps.paths.outputs.s3_path }}
+        XSLT_TEMPLATE: ${{ github.action_path }}/akamai-eccu-flush.xslt
+      run: |
+        echo "Flushing Akamai cache"
+
+        if [[ ! -f "${XSLT_TEMPLATE}" ]]; then
+          echo "::error::akamai-eccu-flush.xslt not found"
+          exit 1
+        fi
+
+        # Process XSLT to generate ECCU request XML
+        xsltproc --stringparam target-path "${S3_PATH}" "${XSLT_TEMPLATE}" | \
+          sed 's/xmlns:match="x" //' > /tmp/flush.xml
+        cat /tmp/flush.xml
+
+        # Validate and prepare email list JSON
+        echo -n "${{ inputs.emails-csv }}" | jq -Rc 'split(",")' > /tmp/email-addresses.json || {
+          echo "::error::Invalid JSON format for Akamai notification emails"
+          exit 1
+        }
+
+        echo "[default]"                                > ~/.edgerc
+        echo "client_secret = ${AKAMAI_CLIENT_SECRET}" >> ~/.edgerc
+        echo "host = ${AKAMAI_HOST}"                   >> ~/.edgerc
+        echo "access_token = ${AKAMAI_ACCESS_TOKEN}"   >> ~/.edgerc
+        echo "client_token = ${AKAMAI_CLIENT_TOKEN}"   >> ~/.edgerc
+
+        if [[ ${{ inputs.dry-run }} == 'true' ]]; then
+          rm ~/.edgerc
+          exit 0
+        fi
+
+        # Submit ECCU request to Akamai
+        http --ignore-stdin --auth-type edgegrid -a default: :/eccu-api/v1/requests \
+          metadata=@/tmp/flush.xml \
+          propertyName=docs.nvidia.com \
+          propertyNameExactMatch=true \
+          propertyType=HOST_HEADER \
+          requestName="${{ inputs.request-name }}" \
+          statusUpdateEmails:=@/tmp/email-addresses.json || {
+            echo "::warning::Failed to flush Akamai cache, but continuing workflow"
+            rm ~/.edgerc
+            exit 0
+          }
+
+        rm ~/.edgerc
+        echo "flush_success=true" >> $GITHUB_OUTPUT
+
+    - name: Summary
+      if: always()
+      env:
+        VERSION: ${{ steps.vars.outputs.version }}
+        S3_PATH: ${{ steps.paths.outputs.s3_path }}
+        PUBLISHED_VERSION: ${{ steps.publish_version.outputs.published || 'false' }}
+        PUBLISHED_LATEST: ${{ steps.publish_latest.outputs.published || 'false' }}
+        CACHE_FLUSHED: ${{ steps.akamai-flush.outputs.flush_success || 'false' }}
+      shell: bash -x -e -u -o pipefail {0}
+      run: |
+        echo "## 📚 Documentation Publishing Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Source" >> $GITHUB_STEP_SUMMARY
+        echo "- **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Published To" >> $GITHUB_STEP_SUMMARY
+        if [[ "${PUBLISHED_VERSION}" == "true" ]]; then
+          echo "- ✅ **Version:** \`${VERSION}\` → \`s3://.../${S3_PATH}/${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        fi
+        if [[ "${PUBLISHED_LATEST}" == "true" ]]; then
+          echo "- ✅ **Latest:** \`${VERSION}\` → \`s3://.../${S3_PATH}/latest\` (updated to match release)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ **Latest:** not updated (manual dispatch or /not-latest flag)" >> $GITHUB_STEP_SUMMARY
+        fi
+        if [[ "${PUBLISHED_VERSION}" == "false" ]] && [[ "${PUBLISHED_LATEST}" == "false" ]]; then
+          echo "- ⚠️ No documentation was published" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Cache" >> $GITHUB_STEP_SUMMARY
+        if [[ "${CACHE_FLUSHED}" == "true" ]]; then
+          echo "- ✅ Akamai cache flush requested" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ Cache flush skipped (nothing published)" >> $GITHUB_STEP_SUMMARY
+        fi

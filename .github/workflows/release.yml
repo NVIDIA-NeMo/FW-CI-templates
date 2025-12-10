@@ -11,6 +11,7 @@ name: release-please
 
 jobs:
   release-please:
+    if: github.repository_owner == 'NVIDIA-NeMo'
     runs-on: ubuntu-latest
     environment: main
     steps:

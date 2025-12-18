@@ -13,7 +13,7 @@
 # limitations under the License.
 
 name: publish-docs
-description: "Publish docs to S3"
+description: 'Publish docs to S3'
 inputs:
   akamai-access-token:
     description: Akamai EdgeGrid access token
@@ -29,8 +29,8 @@ inputs:
     required: true
   artifacts-name:
     description: |
-       Name of the artifacts to publish.
-       Use the name that you used with the actions/upload-artifact action.
+      Name of the artifacts to publish.
+      Use the name that you used with the actions/upload-artifact action.
     required: true
   artifacts-path:
     description: Path to the HTML artifacts to publish
@@ -51,11 +51,15 @@ inputs:
   dry-run:
     description: Whether to execute the AWS and Akamai actions
     required: false
-    default: "false"
+    default: 'false'
   emails-csv:
     description: Email addresses to send the notification to. Format as "me@me.com,you@you.com".
     required: false
     default: "mmckiernan@nvidia.com"
+  overwrite-latest-on-tag:
+    description: When true, the latest directory is overwritten when a versioned tag is published.
+    required: false
+    default: 'false'
   project-type:
     description: single-docset or multi-docset project
     required: false
@@ -76,7 +80,7 @@ inputs:
     required: true
 
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Install dependencies
       shell: bash -x -e -u -o pipefail {0}
@@ -90,7 +94,7 @@ runs:
       run: |
         function check_environment {
           local err=0
-          local commands=("jq" "xsltproc" "http" "aws")
+          local commands=(jq xsltproc http aws)
           local cmd_path
           for cmd in "${commands[@]}"; do
             cmd_path=$(command -v "${cmd}")
@@ -119,12 +123,18 @@ runs:
             single-docset)
               VERSION="${BASH_REMATCH[2]}"
               echo "version=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+              echo "::notice:: Publishing docs for version ${VERSION}" >> $GITHUB_STEP_SUMMARY
               ;;
             multi-docset)
               DOCSET="${BASH_REMATCH[1]}"
               VERSION="${BASH_REMATCH[2]}"
               echo "docset=$DOCSET" >> $GITHUB_OUTPUT
               echo "version=$VERSION" >> $GITHUB_OUTPUT
+              if [ -z "${DOCSET}" ] || [ -z "${VERSION}" ]; then
+                echo "::error::Could not extract docset or version from tag"
+                exit 1
+              fi
+              echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}" >> $GITHUB_STEP_SUMMARY
               ;;
             *)
               echo "::error::Invalid project type: ${{ inputs.project-type }}"
@@ -137,15 +147,17 @@ runs:
           exit 0
         fi
 
-        if [[ "${COMMIT_MSG}" =~ /not-latest ]]; then
+        if [[ "${COMMIT_MSG}" =~ /not-latest ]] || [[ "$GITHUB_REF" =~ "not-latest" ]]; then
           echo "publish_latest=false" >> $GITHUB_OUTPUT
           PUBLISH_LATEST=false
+        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then
+          echo "publish_latest=false" >> $GITHUB_OUTPUT
+          PUBLISH_LATEST=true
         else
           echo "publish_latest=true" >> $GITHUB_OUTPUT
           PUBLISH_LATEST=true
         fi
 
-        echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}"
         echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
 
     - name: Normalize S3 paths
@@ -244,6 +256,7 @@ runs:
         AKAMAI_ACCESS_TOKEN: ${{ inputs.akamai-access-token }}
         S3_PATH: ${{ steps.paths.outputs.s3_path }}
         XSLT_TEMPLATE: ${{ github.action_path }}/akamai-eccu-flush.xslt
+        EDGERC_TEMPLATE: ${{ github.action_path }}/edgerc.template
       run: |
         echo "Flushing Akamai cache"
 
@@ -263,11 +276,8 @@ runs:
           exit 1
         }
 
-        echo "[default]"                                > ~/.edgerc
-        echo "client_secret = ${AKAMAI_CLIENT_SECRET}" >> ~/.edgerc
-        echo "host = ${AKAMAI_HOST}"                   >> ~/.edgerc
-        echo "access_token = ${AKAMAI_ACCESS_TOKEN}"   >> ~/.edgerc
-        echo "client_token = ${AKAMAI_CLIENT_TOKEN}"   >> ~/.edgerc
+        # Create edgerc file
+        envsubst < "${EDGERC_TEMPLATE}" > ~/.edgerc
 
         if [[ ${{ inputs.dry-run }} == 'true' ]]; then
           rm ~/.edgerc

@@ -1,0 +1,5 @@
+[default]
+client_secret = ${AKAMAI_CLIENT_SECRET}
+host = ${AKAMAI_HOST}
+access_token = ${AKAMAI_ACCESS_TOKEN}
+client_token = ${AKAMAI_CLIENT_TOKEN}

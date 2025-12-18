@@ -28,6 +28,7 @@ limitations under the License.
 | `artifacts-path` | Path to the HTML artifacts to publish | No | `docs/_build/html` |
 | `dry-run` | Whether to execute the AWS and Akamai actions | No | `false` |
 | `emails-csv` | Email addresses to send the notification to. Format as "me@me.com,you@you.com". | No | `"mmckiernan@nvidia.com"` |
+| `overwrite-latest-on-tag` | When `true`, the latest directory content is overwritten with the versioned content. |
 | `project-type` | single-docset or multi-docset project | No | `single-docset` |
 | `request-name` | Name of the Akamai flush request | Yes | _(none)_ |
 | `run-on-version-tag-only` | By default, only run tags that match the pattern /.+-v[0-9]+.[0-9]+.[0-9]+/. Set to false to also run on merges to the default branch and also specify the rules for when to run. | No | `"true"` |

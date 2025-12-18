@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.67.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.8...v0.67.0) (2025-12-18)
+
+
+### Features
+
+* Build docs for given commit ([#347](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/347)) ([5a8f61d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5a8f61d8f7b8c09f17bda22840d74dec2d5ae112))
+* Publish to S3 and purge cache ([#345](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/345)) ([8c4947f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/8c4947fe70d7b607b295e5d98fbbb8683f096c25))
+
 ## [0.66.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.7...v0.66.8) (2025-12-04)
 
 

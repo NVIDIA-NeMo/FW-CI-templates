@@ -1,0 +1,69 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: 'Test Publish Docs Action'
+on:
+  pull_request:
+    paths:
+      - '.github/actions/publish-docs/action.yml'
+      - '.github/workflows/_test_publish-docs.yml'
+
+jobs:
+  mock-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends discount
+
+      - name: build docs
+        run: |
+          mkd2html .github/actions/publish-docs/README.md
+          mkdir -p _build/html
+          mv .github/actions/publish-docs/README.html _build/html/index.html
+
+      - name: upload docs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html-${{ github.run_id }}
+          path: _build/html
+          retention-days: 7
+
+  publish-docs:
+    runs-on: ubuntu-latest
+    needs: ["mock-docs"]
+    env:
+      DOCSET: "test-publish-docs"  # For testing only
+      VERSION: "1.0.0"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/publish-docs
+        with:
+          dry-run: true
+          artifacts-name: docs-html-${{ github.run_id }}
+          artifacts-path: _build/html
+          emails-csv: "mmckiernan@nvidia.com,aschilling@nvidia.com"
+          request-name: test-publish-docs-${{ github.run_id }}
+          run-on-version-tag-only: false
+          aws-region: us-east-1
+          aws-role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          akamai-host: ${{ secrets.AKAMAI_HOST }}
+          akamai-client-token: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+          akamai-client-secret: ${{ secrets.AKAMAI_CLIENT_SECRET }}
+          akamai-access-token: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+          s3-target-root: ${{ secrets.S3_BUCKET_NAME }}
+          s3-target-path: ${{ secrets.S3_BUCKET_PATH }}

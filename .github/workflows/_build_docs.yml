@@ -16,25 +16,30 @@ on:
   workflow_call:
     inputs:
       docs-directory:
-        description: "Directory where the docs will be built"
+        description: 'Directory where the docs will be built'
         required: false
         type: string
-        default: "docs"
+        default: 'docs'
       requirements-file:
-        description: "Requirements file for building the docs"
+        description: 'Requirements file for building the docs'
         required: false
         type: string
-        default: ""
+        default: ''
       fail-on-warning:
-        description: "Whether to fail the build on Sphinx warnings"
+        description: 'Whether to fail the build on Sphinx warnings'
         required: false
         type: boolean
         default: true
       sync-all:
-        description: "Whether to sync all dependencies or just the docs group"
+        description: 'Whether to sync all dependencies or just the docs group'
         required: false
         type: boolean
         default: false
+      ref:
+        description: Ref (SHA or branch name) to build the docs for
+        required: false
+        type: string
+        default: ${{ github.sha }}
 
 jobs:
   main:
@@ -45,7 +50,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: 'recursive'
+          ref: ${{ inputs.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

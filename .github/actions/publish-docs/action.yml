@@ -13,7 +13,7 @@
 # limitations under the License.
 
 name: publish-docs
-description: "Publish docs to S3"
+description: 'Publish docs to S3'
 inputs:
   akamai-access-token:
     description: Akamai EdgeGrid access token
@@ -29,8 +29,8 @@ inputs:
     required: true
   artifacts-name:
     description: |
-       Name of the artifacts to publish.
-       Use the name that you used with the actions/upload-artifact action.
+      Name of the artifacts to publish.
+      Use the name that you used with the actions/upload-artifact action.
     required: true
   artifacts-path:
     description: Path to the HTML artifacts to publish
@@ -51,23 +51,17 @@ inputs:
   dry-run:
     description: Whether to execute the AWS and Akamai actions
     required: false
-    default: "false"
+    default: 'false'
   emails-csv:
     description: Email addresses to send the notification to. Format as "me@me.com,you@you.com".
     required: false
-    default: "mmckiernan@nvidia.com"
-  project-type:
-    description: single-docset or multi-docset project
-    required: false
-    default: single-docset
+    default: 'mmckiernan@nvidia.com'
   request-name:
     description: Name of the Akamai flush request
     required: true
-  run-on-version-tag-only:
-    description: |
-      By default, only run tags that match the pattern /.+-v[0-9]+.[0-9]+.[0-9]+/.
-      Set to false to also run on merges to the default branch and also specify the rules for when to run.
-    default: "true"
+  publish-version:
+    description: Whether to publish the versioned docs
+    required: true
   s3-target-root:
     description: Root URL/path for S3 bucket
     required: true
@@ -76,7 +70,7 @@ inputs:
     required: true
 
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Install dependencies
       shell: bash -x -e -u -o pipefail {0}
@@ -109,41 +103,12 @@ runs:
       id: vars
       shell: bash -x -e -u -o pipefail {0}
       env:
-        COMMIT_MSG: ${{ github.event.head_commit.message || '' }}
+        VERSION: ${{ inputs.publish-version }}
       run: |
-        echo "::notice:: GitHub ref: ${GITHUB_REF}"
-        echo "::notice:: Commit message: ${COMMIT_MSG}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-        if [[ "$GITHUB_REF" =~ /(.+)-v([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
-          case ${{ inputs.project-type }} in
-            single-docset)
-              VERSION="${BASH_REMATCH[2]}"
-              echo "version=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
-              ;;
-            multi-docset)
-              DOCSET="${BASH_REMATCH[1]}"
-              VERSION="${BASH_REMATCH[2]}"
-              echo "docset=$DOCSET" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "::error::Invalid project type: ${{ inputs.project-type }}"
-              exit 1
-          esac
-        fi
-
-        if [[ ${{ inputs.run-on-version-tag-only }} == "true" && -z "${VERSION}" ]]; then
-          echo "::notice::Could not extract version from tag, skipping publish."
-          exit 0
-        fi
-
-        if [[ "${COMMIT_MSG}" =~ /not-latest ]]; then
-          echo "publish_latest=false" >> $GITHUB_OUTPUT
-          PUBLISH_LATEST=false
-        else
-          echo "publish_latest=true" >> $GITHUB_OUTPUT
-          PUBLISH_LATEST=true
-        fi
+        echo "publish_latest=false" >> $GITHUB_OUTPUT
+        PUBLISH_LATEST=false
 
         echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}"
         echo "::notice:: Publish latest: ${PUBLISH_LATEST}"

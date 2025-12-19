@@ -110,7 +110,6 @@ runs:
         echo "publish_latest=false" >> $GITHUB_OUTPUT
         PUBLISH_LATEST=false
 
-        echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}"
         echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
 
     - name: Normalize S3 paths
@@ -123,11 +122,6 @@ runs:
         S3_ROOT="${S3_TARGET_ROOT%/}"
         S3_PATH="${S3_TARGET_PATH#/}"
         S3_PATH="${S3_PATH%/}"
-
-        # Multi-docset projects need HTML artifacts in a directory that is named after the docset.
-        if [[ ! -z "${{ steps.vars.outputs.docset }}" ]]; then
-          S3_PATH="${S3_PATH}/${{ steps.vars.outputs.docset}}"
-        fi
 
         echo "s3_root=${S3_ROOT}" >> $GITHUB_OUTPUT
         echo "s3_path=${S3_PATH}" >> $GITHUB_OUTPUT

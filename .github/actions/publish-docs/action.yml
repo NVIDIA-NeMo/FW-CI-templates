@@ -99,19 +99,6 @@ runs:
         }
         check_environment
 
-    - name: Set variables
-      id: vars
-      shell: bash -x -e -u -o pipefail {0}
-      env:
-        VERSION: ${{ inputs.publish-version }}
-      run: |
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-        echo "publish_latest=false" >> $GITHUB_OUTPUT
-        PUBLISH_LATEST=false
-
-        echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
-
     - name: Normalize S3 paths
       id: paths
       env:
@@ -157,14 +144,14 @@ runs:
         }
 
     - name: Publish versioned docs
-      if: ${{ steps.vars.outputs.version != '' && inputs.dry-run == 'false' }}
+      if: ${{ inputs.publish-version != '' && inputs.dry-run == 'false' }}
       id: publish_version
       shell: bash -x -e -u -o pipefail {0}
       working-directory: ${{ inputs.artifacts-path }}
       env:
         S3_ROOT: ${{ steps.paths.outputs.s3_root }}
         S3_PATH: ${{ steps.paths.outputs.s3_path }}
-        VERSION: ${{ steps.vars.outputs.version }}
+        VERSION: ${{ inputs.publish-version }}
       run: |
         echo "Syncing artifacts to versioned directory: ${VERSION}"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/${VERSION}" --exclude .buildinfo --exclude .doctrees --delete
@@ -176,20 +163,6 @@ runs:
             }
           fi
         done
-
-        echo "published=true" >> $GITHUB_OUTPUT
-
-    - name: Publish latest docs
-      if: ${{ steps.vars.outputs.publish_latest == 'true' && inputs.dry-run == 'false' }}
-      id: publish_latest
-      shell: bash -x -e -u -o pipefail {0}
-      working-directory: ${{ inputs.artifacts-path }}
-      env:
-        S3_ROOT: ${{ steps.paths.outputs.s3_root }}
-        S3_PATH: ${{ steps.paths.outputs.s3_path }}
-      run: |
-        echo "Syncing artifacts to latest directory"
-        aws s3 sync . "${S3_ROOT}/${S3_PATH}/latest" --exclude .buildinfo --exclude .doctrees --delete
 
         echo "published=true" >> $GITHUB_OUTPUT
 
@@ -252,10 +225,9 @@ runs:
     - name: Summary
       if: always()
       env:
-        VERSION: ${{ steps.vars.outputs.version }}
+        VERSION: ${{ inputs.publish-version }}
         S3_PATH: ${{ steps.paths.outputs.s3_path }}
         PUBLISHED_VERSION: ${{ steps.publish_version.outputs.published || 'false' }}
-        PUBLISHED_LATEST: ${{ steps.publish_latest.outputs.published || 'false' }}
         CACHE_FLUSHED: ${{ steps.akamai-flush.outputs.flush_success || 'false' }}
       shell: bash -x -e -u -o pipefail {0}
       run: |
@@ -267,11 +239,6 @@ runs:
         echo "### Published To" >> $GITHUB_STEP_SUMMARY
         if [[ "${PUBLISHED_VERSION}" == "true" ]]; then
           echo "- ✅ **Version:** \`${VERSION}\` → \`s3://.../${S3_PATH}/${VERSION}\`" >> $GITHUB_STEP_SUMMARY
-        fi
-        if [[ "${PUBLISHED_LATEST}" == "true" ]]; then
-          echo "- ✅ **Latest:** \`${VERSION}\` → \`s3://.../${S3_PATH}/latest\` (updated to match release)" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "- ⏭️ **Latest:** not updated (manual dispatch or /not-latest flag)" >> $GITHUB_STEP_SUMMARY
         fi
         if [[ "${PUBLISHED_VERSION}" == "false" ]] && [[ "${PUBLISHED_LATEST}" == "false" ]]; then
           echo "- ⚠️ No documentation was published" >> $GITHUB_STEP_SUMMARY

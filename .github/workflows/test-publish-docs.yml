@@ -16,7 +16,7 @@ on:
   pull_request:
     paths:
       - '.github/actions/publish-docs/action.yml'
-      - '.github/workflows/_test_publish-docs.yml'
+      - '.github/workflows/test-publish-docs.yml'
 
 jobs:
   mock-docs:
@@ -44,9 +44,6 @@ jobs:
   publish-docs:
     runs-on: ubuntu-latest
     needs: ["mock-docs"]
-    env:
-      DOCSET: "test-publish-docs"  # For testing only
-      VERSION: "1.0.0"
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/publish-docs

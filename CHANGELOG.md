@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.67.0...v0.67.1) (2025-12-19)
+
+
+### Bug Fixes
+
+* Specify test file name ([#350](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/350)) ([d9444c2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d9444c24ed141153599e3ededf9bdc1375e30bc2))
+
 ## [0.67.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.66.8...v0.67.0) (2025-12-18)
 
 

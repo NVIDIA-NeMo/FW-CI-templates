@@ -180,7 +180,7 @@ jobs:
       - name: Check NVIDIA SSO membership
         id: check-sso
         uses: ./.github/actions/check-nvidia-sso
-        if: ${{ inputs.default_runner_prefix != "" }}
+        if: ${{ inputs.default_runner_prefix != '' }}
         with:
           username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login }}
           github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
@@ -190,7 +190,7 @@ jobs:
         shell: bash
         env:
           IS_MEMBER: ${{ steps.check-sso.outputs.is_member }}
-        if: ${{ inputs.default_runner_prefix != "" }}
+        if: ${{ inputs.default_runner_prefix != '' }}
         run: |
           if [[ "$IS_MEMBER" == "true" ]]; then
             echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"

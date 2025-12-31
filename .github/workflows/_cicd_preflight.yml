@@ -34,6 +34,11 @@ on:
         required: false
         default: ""
         type: string
+      workflow_ref:
+        description: "The ref to use for the workflow"
+        required: false
+        default: main
+        type: string
     outputs:
       is_ci_workload:
         description: "Whether it is triggered by schedule event"
@@ -177,9 +182,16 @@ jobs:
 
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
 
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
       - name: Check NVIDIA SSO membership
         id: check-sso
-        uses: ./.github/actions/check-nvidia-sso
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
         if: ${{ inputs.default_runner_prefix != '' }}
         with:
           username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login }}

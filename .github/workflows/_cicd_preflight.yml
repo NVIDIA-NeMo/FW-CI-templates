@@ -13,6 +13,32 @@
 # limitations under the License.
 on:
   workflow_call:
+    inputs:
+      default_runner_prefix:
+        description: "The default runner prefix to use"
+        required: false
+        default: ""
+        type: string
+      non_nvidia_runner_prefix:
+        description: "The runner prefix to use for non-NVIDIA users"
+        required: false
+        default: ""
+        type: string
+      default_test_data_path:
+        description: "The default test data path to use"
+        required: false
+        default: ""
+        type: string
+      non_nvidia_test_data_path:
+        description: "The test data path to use for non-NVIDIA users"
+        required: false
+        default: ""
+        type: string
+      workflow_ref:
+        description: "The ref to use for the workflow"
+        required: false
+        default: main
+        type: string
     outputs:
       is_ci_workload:
         description: "Whether it is triggered by schedule event"
@@ -32,6 +58,18 @@ on:
       is_merge_group:
         description: "Whether event is a merge_queue"
         value: ${{ github.event_name == 'merge_group' }}
+      is_member:
+        description: "Whether the user is a member of NVIDIA SSO"
+        value: ${{ jobs.pre-flight.outputs.is_member }}
+      runner_prefix:
+        description: "The runner prefix to use"
+        value: ${{ jobs.pre-flight.outputs.runner_prefix }}
+      test_data_path:
+        description: "The test data path to use"
+        value: ${{ jobs.pre-flight.outputs.test_data_path }}
+    secrets:
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        required: false
 jobs:
   pre-flight:
     runs-on: ubuntu-latest
@@ -41,6 +79,9 @@ jobs:
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
       base_ref: ${{ steps.base-ref.outputs.base }}
       is_deployment_workflow: ${{ steps.is-deployment-workflow.outputs.main == 'true' }}
+      is_member: ${{ steps.check-sso.outputs.is_member || 'false' }}
+      runner_prefix: ${{ steps.select_runner.outputs.runner_prefix || '' }}
+      test_data_path: ${{ steps.select_runner.outputs.test_data_path || '' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -140,3 +181,33 @@ jobs:
           fi
 
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Check NVIDIA SSO membership
+        id: check-sso
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
+        if: ${{ inputs.default_runner_prefix != '' }}
+        with:
+          username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login }}
+          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+
+      - name: Select runner and test data path
+        id: select_runner
+        shell: bash
+        env:
+          IS_MEMBER: ${{ steps.check-sso.outputs.is_member }}
+        if: ${{ inputs.default_runner_prefix != '' }}
+        run: |
+          if [[ "$IS_MEMBER" == "true" ]]; then
+            echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
+            echo "test_data_path=${{ inputs.default_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "runner_prefix=${{ inputs.non_nvidia_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
+            echo "test_data_path=${{ inputs.non_nvidia_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+          fi

@@ -147,17 +147,21 @@ runs:
           exit 0
         fi
 
+        # Do not publish latest if the commit message contains /not-latest or the tag includes "not-latest".
+        # If the overwrite-latest-on-tag input is true and the ref is a tag, publish latest.
+        # If the overwrite-latest-on-tag input is false and the ref is a tag, do not publish latest.
+        # Otherwise, publish latest for merges to the default branch. Projects that run on version tags only do not reach this code path.
         if [[ "${COMMIT_MSG}" =~ /not-latest ]] || [[ "$GITHUB_REF" =~ "not-latest" ]]; then
-          echo "publish_latest=false" >> $GITHUB_OUTPUT
           PUBLISH_LATEST=false
         elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then
-          echo "publish_latest=false" >> $GITHUB_OUTPUT
           PUBLISH_LATEST=true
+        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'false' && "$GITHUB_REF" == refs/tags/* ]]; then
+          PUBLISH_LATEST=false
         else
-          echo "publish_latest=true" >> $GITHUB_OUTPUT
           PUBLISH_LATEST=true
         fi
 
+        echo "publish_latest=${PUBLISH_LATEST}" >> $GITHUB_OUTPUT
         echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
 
     - name: Normalize S3 paths

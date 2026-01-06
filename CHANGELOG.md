@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.67.2...v0.68.0) (2026-01-06)
+
+
+### Features
+
+* Add sso check and runner select to cicd-preflight ([#352](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/352)) ([6f83306](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6f83306729ca796cc84eb02f898c0c3a1d4c2e0d))
+
 ## [0.67.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.67.1...v0.67.2) (2026-01-06)
 
 

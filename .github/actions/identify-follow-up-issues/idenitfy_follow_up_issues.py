@@ -15,7 +15,7 @@
 """Updates the 'needs-follow-up' label on issues that need attention for on-call support.
 
 Issues that need follow-up are community issues that have not been responded to in 48 hours.
-The issue requires a response if the last commentor is the issue author.
+The issue requires a response if the last commenter is the issue author.
 """
 import argparse
 import csv

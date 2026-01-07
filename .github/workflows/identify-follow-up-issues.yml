@@ -22,6 +22,7 @@ on:
 jobs:
   identify-follow-up-issues:
     runs-on: ubuntu-latest
+    environment: main
     steps:
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
         uses: actions/checkout@v4

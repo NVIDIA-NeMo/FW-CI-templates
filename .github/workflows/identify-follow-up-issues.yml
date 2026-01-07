@@ -23,6 +23,9 @@ jobs:
   identify-follow-up-issues:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@v4
+
       - name: Identify Follow Up Issues
         uses: ./.github/actions/identify-follow-up-issues
         with:

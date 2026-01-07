@@ -27,5 +27,5 @@ jobs:
         uses: ./.github/actions/identify-follow-up-issues
         with:
           github_token: ${{ secrets.PAT }}
-          project_id: ${{ var.COMMUNITY_PROJECT_ID }}
-          org: ${{ var.COMMUNITY_PROJECT_ORG }}
+          project_id: ${{ vars.COMMUNITY_PROJECT_ID }}
+          org: ${{ vars.COMMUNITY_PROJECT_ORG }}

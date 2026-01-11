@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Updates the 'needs-follow-up' label on issues that need attention for on-call support.
+"""Updates the 'needs-follow-up' label on issues and PRs that need attention for on-call support.
 
-Issues that need follow-up are community issues that have not been responded to in 48 hours.
-The issue requires a response if the last commenter is the issue author.
+Issues and PRs that need follow-up are community items that have not been responded to in 48 hours.
+The item requires a response if the last commenter is the original author.
 """
 import argparse
 import csv
@@ -196,7 +196,7 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
     # Filter for issues that need attention AND don't already have the label
     issues_to_label = [
         i for i in issues
-        if i["needs_attention"] == "Y" and i["has_followup_label"] == "N"
+        if i["needs_attention"] and not i["has_followup_label"]
     ]
 
     if not issues_to_label:
@@ -244,7 +244,7 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
     # (last commenter is not the issue author)
     issues_to_unlabel = [
         i for i in issues
-        if i["has_followup_label"] == "Y" and i["needs_attention"] == "N"
+        if i["has_followup_label"] and not i["needs_attention"]
     ]
 
     if not issues_to_unlabel:
@@ -269,8 +269,8 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
     print(f"Successfully removed label from {removed_count} of {len(issues_to_unlabel)} issues.")
 
 
-def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict]:
-    """Fetch all open issues from a GitHub Project.
+def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]:
+    """Fetch all open issues and pull requests from a GitHub Project.
 
     Args:
         org: GitHub organization name
@@ -278,7 +278,7 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
         token: GitHub personal access token
 
     Returns:
-        List of issue dictionaries with id, title, repo, created_at, last commenter, and last comment date
+        List of item dictionaries with id, title, repo, created_at, last commenter, and last comment date
     """
     query = """
     query($org: String!, $projectNumber: Int!, $cursor: String) {
@@ -299,14 +299,16 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
                   state
                   createdAt
                   author {
+                    __typename
                     login
                   }
                   repository {
                     name
                   }
-                  comments(last: 1) {
+                  comments(last: 100) {
                     nodes {
                       author {
+                        __typename
                         login
                       }
                       createdAt
@@ -320,6 +322,31 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
                 }
                 ... on PullRequest {
                   __typename
+                  number
+                  title
+                  state
+                  createdAt
+                  author {
+                    __typename
+                    login
+                  }
+                  repository {
+                    name
+                  }
+                  comments(last: 100) {
+                    nodes {
+                      author {
+                        __typename
+                        login
+                      }
+                      createdAt
+                    }
+                  }
+                  labels(first: 100) {
+                    nodes {
+                      name
+                    }
+                  }
                 }
               }
             }
@@ -329,11 +356,11 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
     }
     """
 
-    issues = []
+    items_list = []
     cursor = None
     page = 1
 
-    print(f"Fetching issues from project #{project_number} in org '{org}'...")
+    print(f"Fetching issues and PRs from project #{project_number} in org '{org}'...")
 
     while True:
         variables = {
@@ -361,58 +388,73 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
             if not content:
                 continue
 
-            # Skip pull requests - only process issues
-            if content.get("__typename") != "Issue":
+            item_type = content.get("__typename", "")
+            if item_type not in ("Issue", "PullRequest"):
                 continue
 
-            # Only include open issues
+            # Only include open issues/PRs
             if content.get("state") != "OPEN":
                 continue
 
-            # Get issue author as fallback
-            issue_author = content.get("author", {}).get("login", "") if content.get("author") else ""
-            issue_created_at = content.get("createdAt", "")
+            # Get author info
+            author_obj = content.get("author", {}) or {}
+            author = author_obj.get("login", "")
+            author_type = author_obj.get("__typename", "")
+            author_is_bot = author_type == "Bot"
+            created_at = content.get("createdAt", "")
 
-            # Check for comments - use last comment if available, otherwise use issue author/date
+            # Skip items authored by bots (e.g., Dependabot PRs)
+            if author_is_bot:
+                continue
+
+            # Find the last non-bot commenter by iterating through comments in reverse
             comments = content.get("comments", {}).get("nodes", [])
-            if comments and len(comments) > 0:
-                last_comment = comments[0]
-                last_commenter = last_comment.get("author", {}).get("login", "") if last_comment.get("author") else ""
-                last_comment_date = last_comment.get("createdAt", "")
-            else:
-                # No comments - use issue author and created date
-                last_commenter = issue_author
-                last_comment_date = issue_created_at
+            last_commenter = author
+            last_commenter_is_bot = author_is_bot
+            last_comment_date = created_at
 
-            # Determine if issue needs attention:
-            # Y if last commenter is the issue author AND last comment is more than 48 hours old
-            needs_attention = "N"
-            if last_commenter == issue_author and last_comment_date:
+            # Comments are returned in chronological order, so iterate in reverse to find last non-bot
+            for comment in reversed(comments):
+                commenter_obj = comment.get("author", {}) or {}
+                commenter_type = commenter_obj.get("__typename", "")
+                if commenter_type != "Bot":
+                    last_commenter = commenter_obj.get("login", "")
+                    last_commenter_is_bot = False
+                    last_comment_date = comment.get("createdAt", "")
+                    break
+
+            # Determine if item needs attention:
+            # True if last (non-bot) commenter is the author AND last comment is more than 48 hours old
+            needs_attention = False
+            if last_commenter == author and last_comment_date:
                 try:
                     comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
                     now = datetime.now(timezone.utc)
                     if now - comment_dt > timedelta(hours=48):
-                        needs_attention = "Y"
+                        needs_attention = True
                 except ValueError:
                     pass
 
-            # Check if issue already has the needs-follow-up label
+            # Check if item already has the needs-follow-up label
             labels = content.get("labels", {}).get("nodes", [])
             label_names = [label.get("name", "") for label in labels]
-            has_followup_label = "Y" if NEEDS_FOLLOWUP_LABEL in label_names else "N"
+            has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
 
-            issue = {
+            item_dict = {
+                "item_type": item_type,
                 "issue_id": content.get("number"),
                 "issue_title": content.get("title"),
                 "repo_name": content.get("repository", {}).get("name", ""),
-                "issue_author": issue_author,
-                "issue_created_date": issue_created_at,
+                "issue_author": author,
+                "author_is_bot": author_is_bot,
+                "issue_created_date": created_at,
                 "last_commenter": last_commenter,
+                "last_commenter_is_bot": last_commenter_is_bot,
                 "last_comment_date": last_comment_date,
                 "needs_attention": needs_attention,
                 "has_followup_label": has_followup_label,
             }
-            issues.append(issue)
+            items_list.append(item_dict)
 
         page_info = project.get("items", {}).get("pageInfo", {})
 
@@ -423,18 +465,20 @@ def fetch_project_issues(org: str, project_number: int, token: str) -> list[dict
         else:
             break
 
-    print(f"Found {len(issues)} open issues (excluding pull requests)")
-    needs_attention_count = sum(1 for issue in issues if issue["needs_attention"] == "Y")
-    print(f"Issues needing attention: {needs_attention_count}")
-    has_label_count = sum(1 for issue in issues if issue["has_followup_label"] == "Y")
-    print(f"Issues with '{NEEDS_FOLLOWUP_LABEL}' label: {has_label_count}")
-    return issues
+    issue_count = sum(1 for i in items_list if i["item_type"] == "Issue")
+    pr_count = sum(1 for i in items_list if i["item_type"] == "PullRequest")
+    print(f"Found {len(items_list)} open items ({issue_count} issues, {pr_count} PRs)")
+    needs_attention_count = sum(1 for i in items_list if i["needs_attention"])
+    print(f"Items needing attention: {needs_attention_count}")
+    has_label_count = sum(1 for i in items_list if i["has_followup_label"])
+    print(f"Items with '{NEEDS_FOLLOWUP_LABEL}' label: {has_label_count}")
+    return items_list
 
 
 def main():
-    """Add or remove the 'needs-follow-up' label to issues that need attention"""
+    """Add or remove the 'needs-follow-up' label to issues and PRs that need attention"""
     parser = argparse.ArgumentParser(
-        description="Add or remove the 'needs-follow-up' label to issues that need attention"
+        description="Add or remove the 'needs-follow-up' label to issues and PRs that need attention"
     )
     parser.add_argument(
         "--project-id",
@@ -451,15 +495,15 @@ def main():
     parser.add_argument(
         "--update-labels",
         action="store_true",
-        help="Add or remove the 'needs-follow-up' label to issues that need attention",
+        help="Add or remove the 'needs-follow-up' label to issues and PRs that need attention",
     )
 
     args = parser.parse_args()
     token = os.environ["GITHUB_TOKEN"]
-    issues = fetch_project_issues(args.org, args.project_id, token)
+    items = fetch_project_items(args.org, args.project_id, token)
     if args.update_labels:
-        apply_labels_to_issues_needing_attention(issues, args.org, token)
-        remove_labels_from_resolved_issues(issues, args.org, token)
+        apply_labels_to_issues_needing_attention(items, args.org, token)
+        remove_labels_from_resolved_issues(items, args.org, token)
 
 
 if __name__ == "__main__":

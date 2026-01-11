@@ -400,8 +400,13 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
             if item_type not in ("Issue", "PullRequest"):
                 continue
 
+            # Check if item already has the needs-follow-up label
+            labels = content.get("labels", {}).get("nodes", [])
+            label_names = [label.get("name", "") for label in labels]
+            has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
+
             # Only include open issues/PRs
-            if content.get("state") != "OPEN":
+            if content.get("state") != "OPEN" and not has_followup_label:
                 continue
 
             # Get author info
@@ -460,10 +465,9 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
             ):
                 needs_attention = True
 
-            # Check if item already has the needs-follow-up label
-            labels = content.get("labels", {}).get("nodes", [])
-            label_names = [label.get("name", "") for label in labels]
-            has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
+            if content.get("state") != "OPEN":
+                needs_attention = False
+
             item_dict = {
                 "item_type": item_type,
                 "issue_id": content.get("number"),

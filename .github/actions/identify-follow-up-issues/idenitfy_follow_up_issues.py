@@ -347,6 +347,14 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                       name
                     }
                   }
+                  reviews(last: 1, states: APPROVED) {
+                    nodes {
+                      author {
+                        login
+                      }
+                      submittedAt
+                    }
+                  }
                 }
               }
             }
@@ -423,23 +431,39 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                     last_comment_date = comment.get("createdAt", "")
                     break
 
+            # Get PR approval info (only for PRs)
+            is_approved = False
+            last_approval_date = ""
+            last_approver = ""
+            if item_type == "PullRequest":
+                reviews = content.get("reviews", {}).get("nodes", [])
+                if len(reviews) > 0:
+                    is_approved = True
+                    last_review = reviews[0]
+                    last_approval_date = datetime.fromisoformat(last_review.get("submittedAt", "").replace("Z", "+00:00"))
+                    last_approver = last_review.get("author", {}).get("login", "")
+
             # Determine if item needs attention:
-            # True if last (non-bot) commenter is the author AND last comment is more than 48 hours old
+            # - If the last commenter is the author and the last comment is more than 48 hours old
+            # - OR if the PR is approved and the last approval is more than 48 hours old
             needs_attention = False
-            if last_commenter == author and last_comment_date:
-                try:
-                    comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
-                    now = datetime.now(timezone.utc)
-                    if now - comment_dt > timedelta(hours=48):
-                        needs_attention = True
-                except ValueError:
-                    pass
+            comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
+            if (
+                (
+                    last_commenter == author and
+                    comment_dt < datetime.now(timezone.utc) - timedelta(hours=48)
+                ) or
+                (
+                    is_approved and
+                    last_approval_date < datetime.now(timezone.utc) - timedelta(hours=48)
+                )
+            ):
+                needs_attention = True
 
             # Check if item already has the needs-follow-up label
             labels = content.get("labels", {}).get("nodes", [])
             label_names = [label.get("name", "") for label in labels]
             has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
-
             item_dict = {
                 "item_type": item_type,
                 "issue_id": content.get("number"),
@@ -453,6 +477,9 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                 "last_comment_date": last_comment_date,
                 "needs_attention": needs_attention,
                 "has_followup_label": has_followup_label,
+                "is_approved": is_approved,
+                "last_approval_date": last_approval_date,
+                "last_approver": last_approver,
             }
             items_list.append(item_dict)
 

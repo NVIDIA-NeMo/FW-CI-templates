@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.69.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.68.0...v0.69.0) (2026-01-12)
+
+
+### Features
+
+* Add job to identify follow-up community issues ([#356](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/356)) ([da1dd2a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/da1dd2a3585de6e58590f42446a54cf1b9e2e8f8))
+* Include PR requests as follow-up issues ([#358](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/358)) ([f8d9245](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f8d924576125319623169e7f75cdd4ded0c60a95))
+
+
+### Bug Fixes
+
+* Allow nested projects for code-freeze ([#359](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/359)) ([137ea42](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/137ea42c802ccdfcb7f5238108a2f1faaacebdb2))
+
 ## [0.68.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.67.2...v0.68.0) (2026-01-06)
 
 

@@ -93,7 +93,7 @@ jobs:
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" $PACKAGE_INFO_FILE
           sed -i "/^DEV/c\DEV = ''" $PACKAGE_INFO_FILE
 
-          pushd ${{ inputs.python-package }}
+          pushd $SRC_DIR${PYPROJECT_NAME//.//}
 
           VERSION=$(python -c 'import package_info; print(f"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}")')
           echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"

@@ -107,6 +107,9 @@ jobs:
   bump-next-version:
     runs-on: ubuntu-latest
     needs: [create-release-branch]
+    env:
+      SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
+      PYPROJECT_NAME: ${{ inputs.python-package }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

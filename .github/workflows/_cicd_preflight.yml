@@ -202,9 +202,10 @@ jobs:
         shell: bash
         env:
           IS_MEMBER: ${{ steps.check-sso.outputs.is_member }}
+          IS_CI_WORKLOAD: ${{ steps.is_ci_workload.outputs.main }}
         if: ${{ inputs.default_runner_prefix != '' }}
         run: |
-          if [[ "$IS_MEMBER" == "true" ]]; then
+          if [[ "$IS_MEMBER" == "true" || "$IS_CI_WORKLOAD" == "true" ]]; then
             echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
             echo "test_data_path=${{ inputs.default_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
           else

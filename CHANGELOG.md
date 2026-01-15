@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.69.0...v0.69.1) (2026-01-15)
+
+
+### Bug Fixes
+
+* Update preflight to run CI workloads on main branch on default runners ([#360](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/360)) ([d4732f3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d4732f38f2ba5d052be3c0b32d32f9fcc978e9ec))
+
 ## [0.69.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.68.0...v0.69.0) (2026-01-12)
 
 

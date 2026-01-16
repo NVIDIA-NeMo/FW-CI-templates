@@ -39,6 +39,18 @@ on:
         required: false
         default: main
         type: string
+      docs_only_files:
+        description: "The files to check for docs-only changes"
+        required: false
+        default: |
+          doc:
+            - '**.md'
+            - docs/**
+          src:
+            - '!**.md'
+            - '!docs/**'
+        type: string
+
     outputs:
       is_ci_workload:
         description: "Whether it is triggered by schedule event"
@@ -67,6 +79,9 @@ on:
       test_data_path:
         description: "The test data path to use"
         value: ${{ jobs.pre-flight.outputs.test_data_path }}
+      no_fail_fast:
+        description: "Whether the no-fail-fast label is set"
+        value: ${{ jobs.pre-flight.outputs.no_fail_fast }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT:
         required: false
@@ -82,6 +97,7 @@ jobs:
       is_member: ${{ steps.check-sso.outputs.is_member || 'false' }}
       runner_prefix: ${{ steps.select_runner.outputs.runner_prefix || '' }}
       test_data_path: ${{ steps.select_runner.outputs.test_data_path || '' }}
+      no_fail_fast: ${{ steps.no_fail_fast.outputs.main }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -113,13 +129,7 @@ jobs:
         uses: step-security/changed-files@v45.0.1
         with:
           base_sha: ${{ steps.base-ref.outputs.base }}
-          files_yaml: |
-            doc:
-              - '**.md'
-              - docs/**
-            src:
-              - '!**.md'
-              - '!docs/**'
+          files_yaml: ${{ inputs.docs_only_files }}
 
       - name: Check if PR has docs-only label
         shell: bash
@@ -181,6 +191,20 @@ jobs:
           fi
 
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check if no-fail-fast is set
+        shell: bash
+        id: no_fail_fast
+        env:
+          HAS_FAIL_FAST_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-fail-fast') }}
+        run: |
+          if [[ "$HAS_FAIL_FAST_LABEL" == "true" || "$EVENT_NAME" == "schedule" ]]; then
+            no_fail_fast=true
+          else
+            no_fail_fast=false
+          fi
+
+          echo "main=$no_fail_fast" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
         uses: actions/checkout@v4

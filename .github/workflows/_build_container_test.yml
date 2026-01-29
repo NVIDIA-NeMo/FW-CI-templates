@@ -1,0 +1,320 @@
+# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Build container
+on:
+  workflow_call:
+    inputs:
+      build-ref:
+        required: false
+        default: ${{ github.sha }}
+        description: Ref (branch or SHA) to build
+        type: string
+      image-name:
+        required: true
+        description: Name of image to build & push
+        type: string
+      build-args:
+        required: false
+        description: Additional build args to use
+        type: string
+      build-contexts:
+        required: false
+        description: Additional build contexts to use
+        type: string
+      dockerfile:
+        required: true
+        description: Path to dockerfile
+        type: string
+      image-label:
+        required: false
+        description: Image label for pruning
+        type: string
+      prune-filter-timerange:
+        required: false
+        description: "Go duration strings (e.g. 10m, 1h30m) computed relative to the daemon machine's time"
+        type: string
+        default: 24h
+      use-cache:
+        required: false
+        type: boolean
+        description: "Improve build-time by using a cache image"
+        default: true
+      use-inline-cache:
+        required: false
+        type: boolean
+        description: "Use inline cache (only if use-cache is true)"
+        default: true
+      runner:
+        required: false
+        type: string
+        description: "Runner to use"
+        default: self-hosted-azure-builder
+      cache-from:
+        required: false
+        type: string
+        description: "Cache from"
+        default: ""
+      has-azure-credentials:
+        required: false
+        description: "Whether to use Azure credentials to login to the ACR"
+        type: boolean
+        default: false
+      target:
+        required: false
+        description: "The docker build stage to target"
+        type: string
+        default: ""
+      enable-pull-cache:
+        required: false
+        description: "Whether to enable pull cache"
+        type: boolean
+        default: true
+    secrets:
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_SUBSCRIPTION_ID:
+        required: false
+      GH_TOKEN:
+        required: false
+    outputs:
+      container-uri:
+        description: URI of container
+        value: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  main:
+    runs-on: ${{ inputs.runner }}
+    environment: nemo-ci
+    env:
+      IMAGE_NAME: ${{ inputs.image-name }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_REF: ${{ github.ref }}
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Install Azure CLI
+        if: ${{ inputs.has-azure-credentials }}
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Azure Login
+        if: ${{ inputs.has-azure-credentials }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure ACR Login
+        if: ${{ inputs.has-azure-credentials }}
+        run: |
+          az acr login --name nemoci
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.build-ref }}
+          submodules: "recursive"
+
+      - name: Clean runner cache
+        env:
+          LABEL: ${{ inputs.image-label }}
+        run: |
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=${{ inputs.prune-filter-timerange }}" --force
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # We use `docker` driver as this speeds things up for
+          # trivial (non-multi-stage) builds.
+          driver: ${{ inputs.use-inline-cache == true && 'docker' || 'docker-container' }}
+          buildkitd-config: ${{ inputs.enable-pull-cache == true && '/etc/buildkit/buildkitd.toml' || null }}
+
+      - name: Set TAGS and PR_NUMBER
+        run: |
+          if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull-request/([0-9]+) ]]; then
+            export PR_NUMBER="${BASH_REMATCH[1]}"
+            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          fi
+
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:main"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          elif [[ -n "$PR_NUMBER" ]]; then
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            TAGS="\
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+            echo "TAGS<<EOF" >> $GITHUB_ENV
+            echo "$TAGS" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
+      - name: No cache
+        if: ${{ inputs.use-cache == false }}
+        run: |
+          echo "CACHE_FROM=" >> $GITHUB_ENV
+
+      - name: Configure inline cache
+        if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
+        run: |
+
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${TAGS}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
+
+          elif [[ -n "$PR_NUMBER" ]]; then
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER || true
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME:main
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
+            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
+
+          else
+            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME:main
+            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
+
+          fi
+
+      - name: Configure registry cache
+        if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
+        run: |
+          if [[ "$GH_REF" == "refs/heads/main" ]]; then
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_TO="\
+            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main,mode=max"
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+          elif [[ -n "$PR_NUMBER" ]]; then
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_TO="\
+            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+          else
+
+            CACHE_FROM="\
+            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
+            if [[ -n "${{ inputs.cache-from }}" ]]; then
+              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            else
+              echo "${CACHE_FROM}" >> $GITHUB_ENV
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            CACHE_TO=""
+            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
+            echo "$CACHE_TO" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          file: ${{ github.run_id }}/${{ inputs.dockerfile }}
+          push: true
+          build-args: ${{ inputs.build-args }}
+          build-contexts: ${{ inputs.build-contexts }}
+          cache-from: |
+            ${{ env.CACHE_FROM }}
+          cache-to: |
+            ${{ env.CACHE_TO }}
+          no-cache: ${{ !inputs.use-cache }}
+          tags: |
+            ${{ env.TAGS }}
+          pull: ${{ !inputs.use-cache }}
+          context: ${{ github.run_id }}/
+          target: ${{ inputs.target }}
+          secrets: |
+            GH_TOKEN=${{ secrets.GH_TOKEN }}

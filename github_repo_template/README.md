@@ -8,5 +8,3 @@ Run:
 `detect-secrets scan --exclude-files 'pyproject\.toml|\.github/workflows/config/\.secrets\.baseline' > .github/workflows/config/.secrets.baseline`
 
 Note in the above `pyproject.toml` and `.github/workflows/config/.secrets.baseline` are examples of files wanted to be ignored.
-
-My fake password: XXXX-XXXXX

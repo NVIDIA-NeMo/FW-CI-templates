@@ -374,6 +374,11 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                       submittedAt
                     }
                   }
+                  changesRequestedReviews: reviews(last: 1, states: CHANGES_REQUESTED) {
+                    nodes {
+                      submittedAt
+                    }
+                  }
                 }
               }
             }
@@ -455,10 +460,11 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                     last_comment_date = comment.get("createdAt", "")
                     break
 
-            # Get PR approval info and target branch (only for PRs)
+            # Get PR approval info, changes requested info, and target branch (only for PRs)
             is_approved = False
             last_approval_date = ""
             last_approver = ""
+            has_changes_requested = False
             target_branch = ""
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
@@ -469,9 +475,14 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                     last_approval_date = datetime.fromisoformat(last_review.get("submittedAt", "").replace("Z", "+00:00"))
                     last_approver = last_review.get("author", {}).get("login", "")
 
+                # Check for changes requested reviews - if any exist, PR doesn't need attention
+                changes_requested_reviews = content.get("changesRequestedReviews", {}).get("nodes", [])
+                if len(changes_requested_reviews) > 0:
+                    has_changes_requested = True
+
             # Determine if item needs attention:
             # - If the last commenter is the author and the last comment is more than 48 hours old
-            # - OR if the PR is approved and the last approval is more than 48 hours old
+            # - OR if the PR is approved, last approval is more than 48 hours old, and no changes requested
             needs_attention = False
             comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
             if (
@@ -481,6 +492,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                 ) or
                 (
                     is_approved and
+                    not has_changes_requested and
                     last_approval_date < datetime.now(timezone.utc) - timedelta(hours=48)
                 )
             ):

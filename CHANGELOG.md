@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.70.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.69.1...v0.70.0) (2026-01-30)
+
+
+### Features
+
+* Update secrete detector with message to help resolve ([#363](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/363)) ([eb4dfde](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eb4dfdeafb85ae599844e655904d92df91cf8548))
+
+
+### Bug Fixes
+
+* Remove needs-follow-up label from dev branch MCore PRs ([#364](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/364)) ([c2991ea](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c2991ea92e5aff4a48d4da5b4e856044ad0009bf))
+
 ## [0.69.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.69.0...v0.69.1) (2026-01-15)
 
 

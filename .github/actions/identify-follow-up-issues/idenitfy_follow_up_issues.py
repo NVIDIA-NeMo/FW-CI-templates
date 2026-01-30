@@ -194,9 +194,16 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
         token: GitHub personal access token
     """
     # Filter for issues that need attention AND don't already have the label
+    # Exclude Megatron-LM PRs targeting 'dev' branch
     issues_to_label = [
         i for i in issues
-        if i["needs_attention"] and not i["has_followup_label"]
+        if i["needs_attention"]
+        and not i["has_followup_label"]
+        and not (
+            i["repo_name"] == "Megatron-LM"
+            and i["item_type"] == "PullRequest"
+            and i.get("target_branch") == "dev"
+        )
     ]
 
     if not issues_to_label:
@@ -233,18 +240,29 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
 def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str):
     """Remove the 'needs-follow-up' label from issues that no longer need follow-up.
 
-    An issue no longer needs follow-up if the last commenter is not the issue author.
+    An issue no longer needs follow-up if:
+    - The last commenter is not the issue author, OR
+    - The item is a Megatron-LM PR targeting the 'dev' branch
 
     Args:
         issues: List of issue dictionaries
         org: GitHub organization name
         token: GitHub personal access token
     """
-    # Filter for issues that have the label but no longer need attention
-    # (last commenter is not the issue author)
+    # Filter for issues that have the label and either:
+    # - No longer need attention, OR
+    # - Are Megatron-LM PRs targeting 'dev' branch
     issues_to_unlabel = [
         i for i in issues
-        if i["has_followup_label"] and not i["needs_attention"]
+        if i["has_followup_label"]
+        and (
+            not i["needs_attention"]
+            or (
+                i["repo_name"] == "Megatron-LM"
+                and i["item_type"] == "PullRequest"
+                and i.get("target_branch") == "dev"
+            )
+        )
     ]
 
     if not issues_to_unlabel:
@@ -326,6 +344,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                   title
                   state
                   createdAt
+                  baseRefName
                   author {
                     __typename
                     login
@@ -436,11 +455,13 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                     last_comment_date = comment.get("createdAt", "")
                     break
 
-            # Get PR approval info (only for PRs)
+            # Get PR approval info and target branch (only for PRs)
             is_approved = False
             last_approval_date = ""
             last_approver = ""
+            target_branch = ""
             if item_type == "PullRequest":
+                target_branch = content.get("baseRefName", "")
                 reviews = content.get("reviews", {}).get("nodes", [])
                 if len(reviews) > 0:
                     is_approved = True
@@ -484,6 +505,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                 "is_approved": is_approved,
                 "last_approval_date": last_approval_date,
                 "last_approver": last_approver,
+                "target_branch": target_branch,
             }
             items_list.append(item_dict)
 

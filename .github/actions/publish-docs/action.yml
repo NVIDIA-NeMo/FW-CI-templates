@@ -72,6 +72,10 @@ inputs:
       By default, only run tags that match the pattern /.+-v[0-9]+.[0-9]+.[0-9]+/.
       Set to false to also run on merges to the default branch and also specify the rules for when to run.
     default: "true"
+  docs-version-override:
+    description: Override the version of the docs to publish. If not specified, the version will be extracted from the tag.
+    required: false
+    default: ""
   s3-target-root:
     description: Root URL/path for S3 bucket
     required: true
@@ -118,7 +122,12 @@ runs:
         echo "::notice:: GitHub ref: ${GITHUB_REF}"
         echo "::notice:: Commit message: ${COMMIT_MSG}"
 
-        if [[ "$GITHUB_REF" =~ /(.+)-v([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
+        # Use docs-version-override if provided, otherwise extract from tag
+        if [[ -n "${{ inputs.docs-version-override }}" ]]; then
+          VERSION="${{ inputs.docs-version-override }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "::notice:: Publishing docs for version ${VERSION} (from override)" >> $GITHUB_STEP_SUMMARY
+        elif [[ "$GITHUB_REF" =~ /(.+)-v([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
           case ${{ inputs.project-type }} in
             single-docset)
               VERSION="${BASH_REMATCH[2]}"

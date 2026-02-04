@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.70.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.0...v0.70.1) (2026-02-04)
+
+
+### Bug Fixes
+
+* Make build-test-publish workflow compatible with MBridge ([#367](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/367)) ([a68897d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a68897d289c64569d344d54e5ffdd8c880be08c8))
+* Make build-test-publish workflow compatible with MBridge ([#367](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/367)) ([a68897d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a68897d289c64569d344d54e5ffdd8c880be08c8))
+
 ## [0.70.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.69.1...v0.70.0) (2026-01-30)
 
 

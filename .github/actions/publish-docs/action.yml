@@ -122,6 +122,9 @@ runs:
         echo "::notice:: GitHub ref: ${GITHUB_REF}"
         echo "::notice:: Commit message: ${COMMIT_MSG}"
 
+        VERSION=""
+        DOCSET=""
+
         # Use docs-version-override if provided, otherwise extract from tag
         if [[ -n "${{ inputs.docs-version-override }}" ]]; then
           VERSION="${{ inputs.docs-version-override }}"

@@ -220,7 +220,11 @@ jobs:
           EOF
           )
 
-          python -c "$cmd"
+          if [[ "$PACKAGING" == "uv" ]]; then
+            uv run --no-sync --active python -c "$cmd"
+          else
+            python -c "$cmd"
+          fi
 
           EXPECTED_VERSION=$(cat version.txt)
           NAME=$(cat name.txt | tr '_' '-')

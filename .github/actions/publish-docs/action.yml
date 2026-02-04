@@ -261,6 +261,7 @@ runs:
       run: |
         echo "Syncing artifacts to latest directory"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/latest" --exclude .buildinfo --exclude .doctrees --delete
+        aws s3 cp "versions1.json" "${S3_ROOT}/${S3_PATH}/"
 
         echo "published=true" >> $GITHUB_OUTPUT
 

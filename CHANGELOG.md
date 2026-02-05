@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.1...v0.70.2) (2026-02-05)
+
+
+### Bug Fixes
+
+* Increase fetch-depth ([#370](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/370)) ([756a10c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/756a10cc29a5d63f1672dd79594e8fe21259fbf3))
+
 ## [0.70.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.0...v0.70.1) (2026-02-04)
 
 

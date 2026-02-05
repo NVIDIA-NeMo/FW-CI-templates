@@ -128,6 +128,7 @@ jobs:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
           submodules: ${{ inputs.submodules }}
+          fetch-depth: 0
 
       - name: Get Python version
         id: python-version

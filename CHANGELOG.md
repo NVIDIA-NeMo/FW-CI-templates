@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.2...v0.71.0) (2026-02-06)
+
+
+### Features
+
+* Enable docs version override when releasing docs ([#366](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/366)) ([5a817b6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5a817b6355a6939383bd2dfedbd2b235c7664956))
+
 ## [0.70.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.1...v0.70.2) (2026-02-05)
 
 

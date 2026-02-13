@@ -159,12 +159,13 @@ runs:
           exit 0
         fi
 
+        # If the docs-version-override input is provided and the overwrite-latest-on-tag input is true, publish latest.
         # Do not publish latest if the commit message contains /not-latest or the tag includes "not-latest".
         # If the overwrite-latest-on-tag input is true and the ref is a tag, publish latest.
         # If the overwrite-latest-on-tag input is false and the ref is a tag, do not publish latest.
         # Otherwise, publish latest for merges to the default branch. Projects that run on version tags only do not reach this code path.
-        if [[ -n "${{ inputs.docs-version-override }}" ]]; then
-          PUBLISH_LATEST=false
+        if [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && -n "${{ inputs.docs-version-override }}" ]]; then
+          PUBLISH_LATEST=true
         elif [[ "${COMMIT_MSG}" =~ /not-latest ]] || [[ "$GITHUB_REF" =~ "not-latest" ]]; then
           PUBLISH_LATEST=false
         elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then

@@ -133,11 +133,6 @@ on:
         description: Type of documentation project
         type: string
         default: single-docset
-      version:
-        required: true
-        description: Version to release
-        type: string
-        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -442,7 +437,7 @@ jobs:
     env:
       REPOSITORY: ${{ github.repository }}
       PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ inputs.version }}
+      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
       TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
       - name: Checkout repository

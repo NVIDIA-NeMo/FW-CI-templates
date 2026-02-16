@@ -459,7 +459,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
         with:
-          configuration: ${{ inputs.gh-release-changelog-config }}
+          configuration: ${{ github.run_id }}/${{ inputs.gh-release-changelog-config }}
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
           ignorePreReleases: "false"

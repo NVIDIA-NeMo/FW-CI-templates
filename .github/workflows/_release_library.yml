@@ -135,13 +135,13 @@ on:
         default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
+        required: false
       TWINE_PASSWORD:
-        required: true
+        required: false
       SLACK_WEBHOOK_ADMIN:
-        required: true
+        required: false
       SLACK_WEBHOOK:
-        required: true
+        required: false
       PAT:
         required: true
       SSH_KEY:

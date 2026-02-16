@@ -74,6 +74,11 @@ on:
         description: Starting tag for changelog builder (leave empty for auto-detect)
         type: string
         default: ""
+      gh-release-changelog-mode:
+        required: false
+        description: Mode for changelog builder
+        type: string
+        default: PR
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -460,7 +465,8 @@ jobs:
           ignorePreReleases: "false"
           failOnError: "false"
           fromTag: ${{ inputs.gh-release-from-tag }}
-          toTag: ${{ env.TAG_PREFIX }}v${{ env.VERSION }}
+          toTag: ${{ inputs.release-ref }}
+          mode: ${{ inputs.gh-release-changelog-mode }}
 
       - name: Create release
         id: version-number

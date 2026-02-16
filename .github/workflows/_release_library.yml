@@ -446,6 +446,30 @@ jobs:
           path: ${{ github.run_id }}
           ref: ${{ inputs.release-ref }}
           token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine fromTag for changelog
+        id: determine-from-tag
+        if: inputs.gh-release-use-changelog-builder == true
+        run: |
+          cd ${{ github.run_id }}
+
+          # If gh-release-from-tag is provided, use it
+          if [[ -n "${{ inputs.gh-release-from-tag }}" ]]; then
+            FROM_TAG="${{ inputs.gh-release-from-tag }}"
+            echo "Using provided fromTag: $FROM_TAG"
+          else
+            # Get the most recent tag
+            FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [[ -z "$FROM_TAG" ]]; then
+              echo "No previous tags found, leaving fromTag empty"
+            else
+              echo "Auto-detected most recent tag: $FROM_TAG"
+            fi
+          fi
+
+          echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Changelog
         id: build-changelog
@@ -459,7 +483,7 @@ jobs:
           repo: ${{ github.event.repository.name }}
           ignorePreReleases: "false"
           failOnError: "false"
-          fromTag: ${{ inputs.gh-release-from-tag }}
+          fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
 

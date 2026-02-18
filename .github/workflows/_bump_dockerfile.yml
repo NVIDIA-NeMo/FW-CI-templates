@@ -6,7 +6,7 @@ on:
       source-repository:
         type: string
         required: true
-      source-ref: 
+      source-ref:
         type: string
         required: false
         default: main
@@ -38,7 +38,6 @@ defaults:
 jobs:
   bump-dockerfile:
     runs-on: ubuntu-latest
-    environment: main
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v4
@@ -74,7 +73,7 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
         env:
-          title: 'chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'
+          title: "chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})"
         with:
           path: ${{ github.run_id }}
           branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}
@@ -91,4 +90,4 @@ jobs:
           commit-message: ${{ env.title }}
           signoff: true
           reviewers: ${{ inputs.pr-reviewers }}
-          labels: '${{ inputs.cicd-label }}'
+          labels: "${{ inputs.cicd-label }}"

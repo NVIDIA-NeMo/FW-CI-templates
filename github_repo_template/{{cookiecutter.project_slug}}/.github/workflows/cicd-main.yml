@@ -64,7 +64,6 @@ jobs:
     needs: [cicd-container-build]
     runs-on: {% raw %}${{ matrix.runner }}{% endraw %}
     name: {% raw %}${{ matrix.script }}{% endraw %}
-    environment: nemo-ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,7 +92,6 @@ jobs:
     needs: [cicd-unit-tests]
     runs-on: {% raw %}${{ matrix.runner }}{% endraw %}
     name: {% raw %}${{ matrix.is_optional && 'PLEASEFIXME_' || '' }}${{ matrix.script }}{% endraw %}
-    environment: nemo-ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4

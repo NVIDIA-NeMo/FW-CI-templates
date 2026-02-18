@@ -22,7 +22,6 @@ on:
 jobs:
   approve-queue:
     runs-on: ubuntu-latest
-    environment: main
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

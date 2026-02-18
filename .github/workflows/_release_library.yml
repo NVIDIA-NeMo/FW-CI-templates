@@ -97,7 +97,7 @@ on:
         required: false
         description: Whether to checkout submodules
         type: string
-        default: ''
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -146,7 +146,6 @@ jobs:
 
   bump-next-version:
     runs-on: ubuntu-latest
-    environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
     needs: build-test-publish-wheel-dry-run
     if: |
       (
@@ -390,7 +389,6 @@ jobs:
   create-gh-release:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     if: |
       (
         success() || !failure()
@@ -473,7 +471,6 @@ jobs:
   notify:
     needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/

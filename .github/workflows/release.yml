@@ -13,7 +13,6 @@ jobs:
   release-please:
     if: github.repository_owner == 'NVIDIA-NeMo'
     runs-on: ubuntu-latest
-    environment: main
     steps:
       - uses: googleapis/release-please-action@v4
         with:

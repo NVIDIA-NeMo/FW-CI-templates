@@ -30,7 +30,6 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    environment: ${{ inputs.environment }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}

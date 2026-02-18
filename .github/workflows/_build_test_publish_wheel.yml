@@ -359,7 +359,6 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     if: failure()
-    environment: public
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

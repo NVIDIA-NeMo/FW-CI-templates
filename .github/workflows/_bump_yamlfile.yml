@@ -52,7 +52,6 @@ defaults:
 jobs:
   bump-file:
     runs-on: ubuntu-latest
-    environment: main
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v4

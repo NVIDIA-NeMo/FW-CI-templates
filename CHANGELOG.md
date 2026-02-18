@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.72.0...v0.73.0) (2026-02-18)
+
+
+### Features
+
+* Allow docs and changelog to be published in a Github release ([#377](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/377)) ([e733dd8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e733dd8d70da4746260f66241ceeb20eba6b83d8))
+
 ## [0.72.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.71.0...v0.72.0) (2026-02-15)
 
 

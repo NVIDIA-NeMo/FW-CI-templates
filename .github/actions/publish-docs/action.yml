@@ -82,6 +82,11 @@ inputs:
   s3-target-path:
     description: Target path within S3 bucket
     required: true
+  update-version-picker:
+    description: Whether to update the version picker
+    required: false
+    type: boolean
+    default: true
 
 runs:
   using: 'composite'
@@ -241,13 +246,15 @@ runs:
         echo "Syncing artifacts to versioned directory: ${VERSION}"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/${VERSION}" --exclude .buildinfo --exclude .doctrees --delete
 
-        for file in versions.json versions1.json; do
-          if [ -f "${file}" ]; then
-            aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}" || {
-              echo "::error::Failed to copy ${file} to S3 parent of versioned directory"
-            }
-          fi
-        done
+        if [[ ${{ inputs.update-version-picker }} == 'true' ]]; then
+          for file in versions.json versions1.json; do
+            if [ -f "${file}" ]; then
+              aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}" || {
+                echo "::error::Failed to copy ${file} to S3 parent of versioned directory"
+              }
+            fi
+          done
+        fi
 
         echo "published=true" >> $GITHUB_OUTPUT
 
@@ -262,7 +269,6 @@ runs:
       run: |
         echo "Syncing artifacts to latest directory"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/latest" --exclude .buildinfo --exclude .doctrees --delete
-        aws s3 cp "versions1.json" "${S3_ROOT}/${S3_PATH}/"
 
         echo "published=true" >> $GITHUB_OUTPUT
 

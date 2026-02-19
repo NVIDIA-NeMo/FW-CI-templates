@@ -194,7 +194,7 @@ jobs:
         uses: ./ci-templates/.github/actions/check-nvidia-sso
         if: ${{ inputs.default_runner_prefix != '' }}
         with:
-          username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login }}
+          username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login || github.actor }}
           github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
       - name: Select runner and test data path

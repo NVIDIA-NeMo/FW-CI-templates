@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.1...v0.73.2) (2026-02-19)
+
+
+### Bug Fixes
+
+* SSO for non-PR events ([#383](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/383)) ([d525868](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d525868a00a234b3c09b01ccf449118cb8852845))
+
 ## [0.73.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.0...v0.73.1) (2026-02-19)
 
 

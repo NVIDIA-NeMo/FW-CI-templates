@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.0...v0.73.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* Exempt svcnvidia-nemo-ci ([#381](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/381)) ([a9ddd15](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a9ddd1550a5325ca87f018a475097f3a249eb072))
+
 ## [0.73.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.72.0...v0.73.0) (2026-02-18)
 
 

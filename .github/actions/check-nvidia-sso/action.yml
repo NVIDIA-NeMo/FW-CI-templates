@@ -101,6 +101,15 @@ runs:
         USERNAME="${{ inputs.username }}"
         SSO_FILE="${{ inputs.sso_users_filename }}"
 
+        # Check if username is svcnvidia-nemo-ci
+        if [ "$USERNAME" == "svcnvidia-nemo-ci" ]; then
+          echo "svcnvidia-nemo-ci is in NVIDIA SSO users"
+          echo "is_member=true" >> $GITHUB_OUTPUT
+          echo "is_org_member=true" >> $GITHUB_OUTPUT
+          echo "user_orgs=NVIDIA,NVIDIA-NeMo" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
         echo "Checking if $USERNAME is in NVIDIA SSO users list..."
 
         # Check if SSO file is available

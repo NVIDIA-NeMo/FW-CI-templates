@@ -171,6 +171,8 @@ runs:
         # Otherwise, publish latest for merges to the default branch. Projects that run on version tags only do not reach this code path.
         if [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && -n "${{ inputs.docs-version-override }}" ]]; then
           PUBLISH_LATEST=true
+        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'false' && -n "${{ inputs.docs-version-override }}" ]]; then
+          PUBLISH_LATEST=false
         elif [[ "${COMMIT_MSG}" =~ /not-latest ]] || [[ "$GITHUB_REF" =~ "not-latest" ]]; then
           PUBLISH_LATEST=false
         elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then

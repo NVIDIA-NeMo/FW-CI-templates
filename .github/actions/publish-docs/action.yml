@@ -251,7 +251,7 @@ runs:
         if [[ ${{ inputs.update-version-picker }} == 'true' ]]; then
           for file in versions.json versions1.json; do
             if [ -f "${file}" ]; then
-              aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}" || {
+              aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}/" || {
                 echo "::error::Failed to copy ${file} to S3 parent of versioned directory"
               }
             fi

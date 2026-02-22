@@ -69,6 +69,11 @@ on:
         description: Path to changelog builder configuration file
         type: string
         default: ".github/workflows/config/changelog-config.json"
+      gh-release-changelog-included-paths:
+        required: false
+        description: Paths to include in the changelog
+        type: string
+        default: ""
       gh-release-from-tag:
         required: false
         description: Starting tag for changelog builder (leave empty for auto-detect)
@@ -460,8 +465,12 @@ jobs:
             FROM_TAG="${{ inputs.gh-release-from-tag }}"
             echo "Using provided fromTag: $FROM_TAG"
           else
-            # Get the most recent tag
-            FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            # Get the most recent tag (optionally scoped by TAG_PREFIX for monorepos)
+            if [[ -n "$TAG_PREFIX" ]]; then
+              FROM_TAG=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname 2>/dev/null | head -n1 || echo "")
+            else
+              FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            fi
             if [[ -z "$FROM_TAG" ]]; then
               echo "No previous tags found, leaving fromTag empty"
             else
@@ -486,6 +495,7 @@ jobs:
           fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
+          includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
 
       - name: Create release
         id: version-number

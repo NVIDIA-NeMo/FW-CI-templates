@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.2...v0.74.0) (2026-02-23)
+
+
+### Features
+
+* Allow option to update or not update docs version picker ([#385](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/385)) ([2e45605](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2e456054225b8989d0924e9ff86fbd98613c6428))
+
 ## [0.73.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.1...v0.73.2) (2026-02-19)
 
 

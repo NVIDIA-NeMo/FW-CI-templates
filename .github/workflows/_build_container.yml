@@ -80,6 +80,11 @@ on:
         description: "Whether to enable pull cache"
         type: boolean
         default: true
+      registry:
+        required: false
+        description: "The registry to use"
+        type: string
+        default: nemoci.azurecr.io
     secrets:
       AZURE_CLIENT_ID:
         required: false
@@ -92,7 +97,7 @@ on:
     outputs:
       container-uri:
         description: URI of container
-        value: nemoci.azurecr.io/${{ inputs.image-name }}:${{ github.run_id }}
+        value: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ github.run_id }}
 
 defaults:
   run:
@@ -256,7 +261,7 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
             CACHE_TO="\
-            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:main,mode=max"
+            type=registry,ref=${{ inputs.registry }}/$IMAGE_NAME-buildcache:main,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
             echo "$CACHE_TO" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -264,8 +269,8 @@ jobs:
           elif [[ -n "$PR_NUMBER" ]]; then
 
             CACHE_FROM="\
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER"
+            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main
+            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:$PR_NUMBER"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
               echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
@@ -275,7 +280,7 @@ jobs:
             echo "EOF" >> $GITHUB_ENV
 
             CACHE_TO="\
-            type=registry,ref=nemoci.azurecr.io/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
+            type=registry,ref=${{ inputs.registry }}/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
             echo "CACHE_TO<<EOF" >> $GITHUB_ENV
             echo "$CACHE_TO" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -283,7 +288,7 @@ jobs:
           else
 
             CACHE_FROM="\
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
               echo "${{ inputs.cache-from }}" >> $GITHUB_ENV

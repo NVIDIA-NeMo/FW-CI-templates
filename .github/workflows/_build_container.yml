@@ -165,21 +165,21 @@ jobs:
 
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
             TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:main"
+            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
+            ${{ inputs.registry }}/$IMAGE_NAME:main"
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
           elif [[ -n "$PR_NUMBER" ]]; then
             TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
+            ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER"
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
           else
             TAGS="\
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID"
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
@@ -195,7 +195,7 @@ jobs:
         run: |
 
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
@@ -208,13 +208,13 @@ jobs:
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
 
           elif [[ -n "$PR_NUMBER" ]]; then
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER || true
+            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
+            docker pull ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER || true
 
             CACHE_FROM="\
-            nemoci.azurecr.io/$IMAGE_NAME:main
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID
-            nemoci.azurecr.io/$IMAGE_NAME:$PR_NUMBER"
+            ${{ inputs.registry }}/$IMAGE_NAME:main
+            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
+            ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER"
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
@@ -227,11 +227,11 @@ jobs:
             echo "CACHE_TO=type=inline" >> $GITHUB_ENV
 
           else
-            docker pull nemoci.azurecr.io/$IMAGE_NAME:main || true
+            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
 
             CACHE_FROM="\
-            nemoci.azurecr.io/$IMAGE_NAME:main
-            nemoci.azurecr.io/$IMAGE_NAME:$RUN_ID"
+            ${{ inputs.registry }}/$IMAGE_NAME:main
+            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID"
 
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
@@ -251,7 +251,7 @@ jobs:
           if [[ "$GH_REF" == "refs/heads/main" ]]; then
 
             CACHE_FROM="\
-            nemoci.azurecr.io/$IMAGE_NAME-buildcache:main"
+            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main"
             echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
             if [[ -n "${{ inputs.cache-from }}" ]]; then
               echo "${{ inputs.cache-from }}" >> $GITHUB_ENV

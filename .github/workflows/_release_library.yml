@@ -122,7 +122,7 @@ on:
         required: false
         description: Whether to checkout submodules
         type: string
-        default: ''
+        default: ""
       publish-docs:
         required: false
         description: Publish documentation to S3 after release
@@ -154,6 +154,22 @@ on:
       SSH_PWD:
         required: false
       BOT_KEY:
+        required: true
+      AWS_ASSUME_ROLE_ARN:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AKAMAI_HOST:
+        required: true
+      AKAMAI_CLIENT_TOKEN:
+        required: true
+      AKAMAI_CLIENT_SECRET:
+        required: true
+      AKAMAI_ACCESS_TOKEN:
+        required: true
+      S3_BUCKET_NAME:
         required: true
 
 permissions:

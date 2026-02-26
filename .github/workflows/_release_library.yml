@@ -138,7 +138,7 @@ on:
         description: Type of documentation project
         type: string
         default: single-docset
-      release-version:
+      version:
         required: false
         description: Version to release
         type: string

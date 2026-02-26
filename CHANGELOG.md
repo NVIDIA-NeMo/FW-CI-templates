@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.1...v0.76.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* Pass submodule to second build job ([#394](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/394)) ([4bd325a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4bd325a1254265bf6564cb72c66dc1c380201e81))
+
 ## [0.76.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.0...v0.76.1) (2026-02-26)
 
 

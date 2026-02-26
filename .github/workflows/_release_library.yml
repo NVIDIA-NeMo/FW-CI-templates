@@ -138,6 +138,11 @@ on:
         description: Type of documentation project
         type: string
         default: single-docset
+      container-options:
+        required: false
+        description: Options to pass to the container
+        type: string
+        default: " "
     secrets:
       TWINE_USERNAME:
         required: true
@@ -194,6 +199,7 @@ jobs:
       no-build-isolation: ${{ inputs.no-build-isolation }}
       root-dir: ${{ inputs.root-dir }}
       submodules: ${{ inputs.submodules }}
+      container-options: ${{ inputs.container-options }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
@@ -438,6 +444,7 @@ jobs:
       no-build-isolation: ${{ inputs.no-build-isolation }}
       root-dir: ${{ inputs.root-dir }}
       submodules: ${{ inputs.submodules }}
+      container-options: ${{ inputs.container-options }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

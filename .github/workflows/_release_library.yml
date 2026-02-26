@@ -148,6 +148,16 @@ on:
         description: Skip the version bump step
         type: boolean
         default: false
+      skip-wheel-build:
+        required: false
+        description: Skip the wheel build step
+        type: boolean
+        default: false
+      release-version:
+        required: false
+        description: Version to use for the release
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -190,7 +200,7 @@ jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.70.1
-    if: inputs.dry-run == false
+    if: inputs.dry-run == false && inputs.skip-wheel-build == false
     with:
       dry-run: true
       python-package: ${{ inputs.python-package }}
@@ -439,7 +449,7 @@ jobs:
       (
         success() || !failure()
       )
-      && !cancelled()
+      && !cancelled() && inputs.skip-wheel-build == false
     with:
       dry-run: ${{ inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
@@ -475,7 +485,7 @@ jobs:
     env:
       REPOSITORY: ${{ github.repository }}
       PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+      VERSION: ${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
       TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
       - name: Checkout repository
@@ -599,7 +609,7 @@ jobs:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
       PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
       PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+      VERSION: ${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -631,7 +641,7 @@ jobs:
       && inputs.publish-docs == true
       && !cancelled()
     with:
-      ref: ${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
+      ref: ${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
 
   publish-docs:
     needs: [build-test-publish-wheel, create-gh-release, build-docs]
@@ -644,7 +654,7 @@ jobs:
       && inputs.publish-docs == true
       && !cancelled()
     env:
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
+      VERSION: ${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
       LIBRARY_NAME: ${{ inputs.library-name }}
       S3_TARGET_PATH: ${{ inputs.docs-target-path }}
     steps:

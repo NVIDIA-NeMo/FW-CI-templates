@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.0...v0.76.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* Docs release secrets ([#392](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/392)) ([d1c2786](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d1c27867b842944998ff663454fd5303c7eaff85))
+
 ## [0.76.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.75.0...v0.76.0) (2026-02-26)
 
 

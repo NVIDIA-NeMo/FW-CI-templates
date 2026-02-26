@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.77.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.2...v0.77.0) (2026-02-26)
+
+
+### Features
+
+* Expose container-options ([#396](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/396)) ([3f8a8e1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3f8a8e18c0059d9324facffc94f8370d4ad7398f))
+
 ## [0.76.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.1...v0.76.2) (2026-02-26)
 
 

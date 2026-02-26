@@ -143,6 +143,11 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      skip-version-bump:
+        required: false
+        description: Skip the version bump step
+        type: boolean
+        default: false
     secrets:
       TWINE_USERNAME:
         required: true
@@ -250,6 +255,7 @@ jobs:
 
       - name: Bump version
         id: bump-version
+        if: inputs.skip-version-bump == false
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -283,6 +289,7 @@ jobs:
           echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
 
       - name: Create and push deployment branch
+        if: inputs.skip-version-bump == false
         env:
           PYPROJECT_NAME: ${{ inputs.python-package }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -309,6 +316,7 @@ jobs:
 
       - name: Wait for status checks on tmp branch
         uses: actions/github-script@v7
+        if: inputs.skip-version-bump == false
         id: wait-status
         with:
           github-token: ${{ steps.app-token.outputs.token }}
@@ -376,6 +384,7 @@ jobs:
             }
 
       - name: Merge into ${{ inputs.version-bump-branch }}
+        if: inputs.skip-version-bump == false
         run: |
           cd ${{ github.run_id }}
 
@@ -418,7 +427,7 @@ jobs:
           fi
 
       - name: Delete ${{ env.TMP_BRANCH }} branch
-        if: always()
+        if: inputs.skip-version-bump == false
         run: |
           cd ${{ github.run_id }}
           git push -d origin ${{ env.TMP_BRANCH }}

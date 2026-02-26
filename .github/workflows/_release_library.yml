@@ -601,35 +601,35 @@ jobs:
             eval "$CMD"
           fi
 
-  notify:
-    needs: [build-test-publish-wheel, create-gh-release]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    env:
-      GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
-      PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
-      PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
+  # notify:
+  #   needs: [build-test-publish-wheel, create-gh-release]
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+  #   env:
+  #     GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
+  #     PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
+  #     PROJECT_NAME: ${{ inputs.library-name }}
+  #     VERSION: ${{ needs.build-test-publish-wheel.outputs.version || inputs.release-version }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v6
+  #       with:
+  #         repository: NVIDIA-NeMo/FW-CI-templates
+  #         ref: v0.17.0
+  #         path: send-slack-alert
 
-      - name: Send Slack alert
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
-        env:
-          MESSAGE: |
-            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
+  #     - name: Send Slack alert
+  #       uses: ./send-slack-alert/.github/actions/send-slack-alert
+  #       env:
+  #         MESSAGE: |
+  #           ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
 
-            • <${{ env.GH_URL }}|GitHub release>
-            • <${{ env.PYPI_URL }}|PyPi release>
+  #           • <${{ env.GH_URL }}|GitHub release>
+  #           • <${{ env.PYPI_URL }}|PyPi release>
 
-        with:
-          message: ${{ env.MESSAGE }}
-          webhook: ${{ secrets.SLACK_WEBHOOK }}
+  #       with:
+  #         message: ${{ env.MESSAGE }}
+  #         webhook: ${{ secrets.SLACK_WEBHOOK }}
 
   build-docs:
     needs: [build-test-publish-wheel, create-gh-release]

@@ -37,4 +37,4 @@ runs:
         ORG: ${{ inputs.org }}
       run: |
         pip install requests
-        python ${GITHUB_ACTION_PATH}/idenitfy_follow_up_issues.py --project-id $PROJECT_ID --org $ORG --update-labels
+        python ${GITHUB_ACTION_PATH}/identify_follow_up_issues.py --project-id $PROJECT_ID --org $ORG --update-labels

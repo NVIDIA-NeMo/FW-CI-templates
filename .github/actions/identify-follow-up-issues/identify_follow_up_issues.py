@@ -16,6 +16,9 @@
 
 Issues and PRs that need follow-up are community items that have not been responded to in 48 hours.
 The item requires a response if the last commenter is the original author.
+
+For PRs, both issue-level comments and review (inline) comments are considered. If someone other
+than the author leaves a review comment, that counts as follow-up and the label is removed.
 """
 import argparse
 import csv
@@ -361,6 +364,19 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                       createdAt
                     }
                   }
+                  reviewThreads(first: 50) {
+                    nodes {
+                      comments(first: 30) {
+                        nodes {
+                          author {
+                            __typename
+                            login
+                          }
+                          createdAt
+                        }
+                      }
+                    }
+                  }
                   labels(first: 100) {
                     nodes {
                       name
@@ -444,20 +460,42 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
             if author_is_bot:
                 continue
 
-            # Find the last non-bot commenter by iterating through comments in reverse
+            # Find the last non-bot commenter from both issue comments and (for PRs) review comments
             comments = content.get("comments", {}).get("nodes", [])
             last_commenter = author
             last_commenter_is_bot = author_is_bot
             last_comment_date = created_at
 
-            # Comments are returned in chronological order, so iterate in reverse to find last non-bot
-            for comment in reversed(comments):
+            # Build list of (commenter_login, commenter_is_bot, date) from issue comments
+            activity = []
+            for comment in comments:
                 commenter_obj = comment.get("author", {}) or {}
                 commenter_type = commenter_obj.get("__typename", "")
-                if commenter_type != "Bot":
-                    last_commenter = commenter_obj.get("login", "")
+                activity.append((
+                    commenter_obj.get("login", ""),
+                    commenter_type == "Bot",
+                    comment.get("createdAt", ""),
+                ))
+
+            # For PRs, also include review thread (inline) comments; they are separate from issue comments
+            if item_type == "PullRequest":
+                for thread in content.get("reviewThreads", {}).get("nodes", []):
+                    for comment in thread.get("comments", {}).get("nodes", []):
+                        commenter_obj = comment.get("author", {}) or {}
+                        commenter_type = commenter_obj.get("__typename", "")
+                        activity.append((
+                            commenter_obj.get("login", ""),
+                            commenter_type == "Bot",
+                            comment.get("createdAt", ""),
+                        ))
+
+            # Use the chronologically latest non-bot activity
+            activity.sort(key=lambda x: x[2], reverse=True)
+            for commenter_login, is_bot, date in activity:
+                if not is_bot:
+                    last_commenter = commenter_login
                     last_commenter_is_bot = False
-                    last_comment_date = comment.get("createdAt", "")
+                    last_comment_date = date
                     break
 
             # Get PR approval info, changes requested info, and target branch (only for PRs)

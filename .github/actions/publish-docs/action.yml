@@ -299,7 +299,7 @@ runs:
         cat /tmp/flush.xml
 
         # Validate and prepare email list JSON
-        echo -n "${{ inputs.emails-csv }}" | jq -Rc 'split(",")' > /tmp/email-addresses.json || {
+        echo -n "${{ inputs.emails-csv }}" | jq -Rc 'split(",") | map(select(length > 0))' > /tmp/email-addresses.json || {
           echo "::error::Invalid JSON format for Akamai notification emails"
           exit 1
         }

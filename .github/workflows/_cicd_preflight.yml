@@ -34,6 +34,16 @@ on:
         required: false
         default: ""
         type: string
+      default_registry:
+        description: "The default registry to use"
+        required: false
+        default: ""
+        type: string
+      non_nvidia_registry:
+        description: "The registry to use for non-NVIDIA users"
+        required: false
+        default: ""
+        type: string
       workflow_ref:
         description: "The ref to use for the workflow"
         required: false
@@ -82,6 +92,7 @@ jobs:
       is_member: ${{ steps.check-sso.outputs.is_member || 'false' }}
       runner_prefix: ${{ steps.select_runner.outputs.runner_prefix || '' }}
       test_data_path: ${{ steps.select_runner.outputs.test_data_path || '' }}
+      registry: ${{ steps.select_runner.outputs.registry || '' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -208,7 +219,9 @@ jobs:
           if [[ "$IS_MEMBER" == "true" || "$IS_CI_WORKLOAD" == "true" ]]; then
             echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
             echo "test_data_path=${{ inputs.default_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+            echo "registry=${{ inputs.default_registry }}" | tee -a "$GITHUB_OUTPUT"
           else
             echo "runner_prefix=${{ inputs.non_nvidia_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
             echo "test_data_path=${{ inputs.non_nvidia_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+            echo "registry=${{ inputs.non_nvidia_registry }}" | tee -a "$GITHUB_OUTPUT"
           fi

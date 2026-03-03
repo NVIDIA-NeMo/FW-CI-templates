@@ -77,6 +77,9 @@ on:
       test_data_path:
         description: "The test data path to use"
         value: ${{ jobs.pre-flight.outputs.test_data_path }}
+      registry:
+        description: "The registry to use"
+        value: ${{ jobs.pre-flight.outputs.registry }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT:
         required: false

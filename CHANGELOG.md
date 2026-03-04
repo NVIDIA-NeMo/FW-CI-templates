@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.77.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.0...v0.77.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* Version mgmt for Hatch ([#399](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/399)) ([6d177cb](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6d177cbd892f074094b2657664f625831e382db7))
+
 ## [0.77.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.2...v0.77.0) (2026-02-26)
 
 

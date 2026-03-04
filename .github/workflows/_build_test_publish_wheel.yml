@@ -196,7 +196,7 @@ jobs:
             else
               RANDOM_DEV=$((RANDOM % 9000 + 1000))
               pip install hatch
-              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")
+              VERSION=$(hatch version)$RANDOM_DEV
               hatch version $VERSION
             fi
           fi

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.78.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.1...v0.78.0) (2026-03-05)
+
+
+### Features
+
+* Allow custom registry in the build containers job ([#401](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/401)) ([0e905a8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0e905a882aa329b768807ae3ca35cd8e12a6e009))
+
 ## [0.77.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.0...v0.77.1) (2026-03-04)
 
 

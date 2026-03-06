@@ -197,7 +197,7 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
         token: GitHub personal access token
     """
     # Filter for issues that need attention AND don't already have the label
-    # Exclude Megatron-LM PRs targeting 'dev' branch
+    # Exclude Megatron-LM PRs targeting 'dev' branch and draft PRs
     issues_to_label = [
         i for i in issues
         if i["needs_attention"]
@@ -207,6 +207,7 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
             and i["item_type"] == "PullRequest"
             and i.get("target_branch") == "dev"
         )
+        and not (i["item_type"] == "PullRequest" and i.get("is_draft"))
     ]
 
     if not issues_to_label:
@@ -245,7 +246,8 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
 
     An issue no longer needs follow-up if:
     - The last commenter is not the issue author, OR
-    - The item is a Megatron-LM PR targeting the 'dev' branch
+    - The item is a Megatron-LM PR targeting the 'dev' branch, OR
+    - The item is a draft PR
 
     Args:
         issues: List of issue dictionaries
@@ -254,7 +256,8 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
     """
     # Filter for issues that have the label and either:
     # - No longer need attention, OR
-    # - Are Megatron-LM PRs targeting 'dev' branch
+    # - Are Megatron-LM PRs targeting 'dev' branch, OR
+    # - Are draft PRs
     issues_to_unlabel = [
         i for i in issues
         if i["has_followup_label"]
@@ -265,6 +268,7 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
                 and i["item_type"] == "PullRequest"
                 and i.get("target_branch") == "dev"
             )
+            or (i["item_type"] == "PullRequest" and i.get("is_draft"))
         )
     ]
 
@@ -346,6 +350,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                   number
                   title
                   state
+                  isDraft
                   createdAt
                   baseRefName
                   author {
@@ -498,14 +503,16 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                     last_comment_date = date
                     break
 
-            # Get PR approval info, changes requested info, and target branch (only for PRs)
+            # Get PR approval info, changes requested info, target branch, and draft status (only for PRs)
             is_approved = False
             last_approval_date = ""
             last_approver = ""
             has_changes_requested = False
             target_branch = ""
+            is_draft = False
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
+                is_draft = content.get("isDraft", False)
                 reviews = content.get("reviews", {}).get("nodes", [])
                 if len(reviews) > 0:
                     is_approved = True
@@ -556,6 +563,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                 "last_approval_date": last_approval_date,
                 "last_approver": last_approver,
                 "target_branch": target_branch,
+                "is_draft": is_draft,
             }
             items_list.append(item_dict)
 

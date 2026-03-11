@@ -422,163 +422,163 @@ jobs:
   #         cd ${{ github.run_id }}
   #         git push -d origin ${{ env.TMP_BRANCH }}
 
-  # build-test-publish-wheel:
-  #   uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.70.1
-  #   needs: bump-next-version
-  #   if: |
-  #     (
-  #       success() || !failure()
-  #     )
-  #     && !cancelled()
-  #   with:
-  #     dry-run: ${{ inputs.dry-run }}
-  #     python-package: ${{ inputs.python-package }}
-  #     python-version: ${{ inputs.python-version }}
-  #     ref: ${{ inputs.release-ref }}
-  #     packaging: ${{ inputs.packaging }}
-  #     has-src-dir: ${{ inputs.has-src-dir }}
-  #     skip-test-wheel: ${{ inputs.skip-test-wheel }}
-  #     custom-container: ${{ inputs.custom-container }}
-  #     runner: ${{ inputs.runner }}
-  #     no-build-isolation: ${{ inputs.no-build-isolation }}
-  #     root-dir: ${{ inputs.root-dir }}
-  #     submodules: ${{ inputs.submodules }}
-  #   secrets:
-  #     TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-  #     TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-  #     SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-  #     SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-
-  create-gh-release:
-    # needs: [build-test-publish-wheel]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+  build-test-publish-wheel:
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.70.1
+    needs: bump-next-version
     if: |
       (
         success() || !failure()
       )
-      && inputs.create-gh-release == true
       && !cancelled()
-    outputs:
-      is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
-    env:
-      REPOSITORY: ${{ github.repository }}
-      PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ inputs.version }}
-      TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.release-ref }}
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-          fetch-tags: true
+    with:
+      dry-run: ${{ inputs.dry-run }}
+      python-package: ${{ inputs.python-package }}
+      python-version: ${{ inputs.python-version }}
+      ref: ${{ inputs.release-ref }}
+      packaging: ${{ inputs.packaging }}
+      has-src-dir: ${{ inputs.has-src-dir }}
+      skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      custom-container: ${{ inputs.custom-container }}
+      runner: ${{ inputs.runner }}
+      no-build-isolation: ${{ inputs.no-build-isolation }}
+      root-dir: ${{ inputs.root-dir }}
+      submodules: ${{ inputs.submodules }}
+    secrets:
+      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
-      - name: Determine fromTag for changelog
-        id: determine-from-tag
-        if: inputs.gh-release-use-changelog-builder == true
-        run: |
-          cd ${{ github.run_id }}
+  # create-gh-release:
+  #   # needs: [build-test-publish-wheel]
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+  #   if: |
+  #     (
+  #       success() || !failure()
+  #     )
+  #     && inputs.create-gh-release == true
+  #     && !cancelled()
+  #   outputs:
+  #     is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
+  #   env:
+  #     REPOSITORY: ${{ github.repository }}
+  #     PROJECT_NAME: ${{ inputs.library-name }}
+  #     VERSION: ${{ inputs.version }}
+  #     TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v6
+  #       with:
+  #         path: ${{ github.run_id }}
+  #         ref: ${{ inputs.release-ref }}
+  #         token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+  #         fetch-depth: 0
+  #         fetch-tags: true
 
-          # If gh-release-from-tag is provided, use it
-          if [[ -n "${{ inputs.gh-release-from-tag }}" ]]; then
-            FROM_TAG="${{ inputs.gh-release-from-tag }}"
-            echo "Using provided fromTag: $FROM_TAG"
-          else
-            # Get the most recent tag (optionally scoped by TAG_PREFIX for monorepos)
-            if [[ -n "$TAG_PREFIX" ]]; then
-              FROM_TAG=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname 2>/dev/null | head -n1 || echo "")
-            else
-              FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            fi
-            if [[ -z "$FROM_TAG" ]]; then
-              echo "No previous tags found, leaving fromTag empty"
-            else
-              echo "Auto-detected most recent tag: $FROM_TAG"
-            fi
-          fi
+  #     - name: Determine fromTag for changelog
+  #       id: determine-from-tag
+  #       if: inputs.gh-release-use-changelog-builder == true
+  #       run: |
+  #         cd ${{ github.run_id }}
 
-          echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
+  #         # If gh-release-from-tag is provided, use it
+  #         if [[ -n "${{ inputs.gh-release-from-tag }}" ]]; then
+  #           FROM_TAG="${{ inputs.gh-release-from-tag }}"
+  #           echo "Using provided fromTag: $FROM_TAG"
+  #         else
+  #           # Get the most recent tag (optionally scoped by TAG_PREFIX for monorepos)
+  #           if [[ -n "$TAG_PREFIX" ]]; then
+  #             FROM_TAG=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname 2>/dev/null | head -n1 || echo "")
+  #           else
+  #             FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+  #           fi
+  #           if [[ -z "$FROM_TAG" ]]; then
+  #             echo "No previous tags found, leaving fromTag empty"
+  #           else
+  #             echo "Auto-detected most recent tag: $FROM_TAG"
+  #           fi
+  #         fi
 
-      - name: Build Changelog
-        id: build-changelog
-        if: inputs.gh-release-use-changelog-builder == true
-        uses: mikepenz/release-changelog-builder-action@v6.1.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-        with:
-          configuration: ${{ github.run_id }}/${{ inputs.gh-release-changelog-config }}
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          ignorePreReleases: "false"
-          failOnError: "false"
-          fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
-          toTag: ${{ inputs.release-ref }}
-          mode: ${{ inputs.gh-release-changelog-mode }}
-          includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
+  #         echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
 
-      - name: Create release
-        id: version-number
-        env:
-          SHA: ${{ inputs.release-ref }}
-          GH_TOKEN: ${{ secrets.PAT }}
-          IS_DRY_RUN: ${{ inputs.dry-run }}
-          BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
-        run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
+  #     - name: Build Changelog
+  #       id: build-changelog
+  #       if: inputs.gh-release-use-changelog-builder == true
+  #       uses: mikepenz/release-changelog-builder-action@v6.1.0
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+  #       with:
+  #         configuration: ${{ github.run_id }}/${{ inputs.gh-release-changelog-config }}
+  #         owner: ${{ github.repository_owner }}
+  #         repo: ${{ github.event.repository.name }}
+  #         ignorePreReleases: "false"
+  #         failOnError: "false"
+  #         fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
+  #         toTag: ${{ inputs.release-ref }}
+  #         mode: ${{ inputs.gh-release-changelog-mode }}
+  #         includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
 
-          IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
-          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
-          IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
-          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
+  #     - name: Create release
+  #       id: version-number
+  #       env:
+  #         SHA: ${{ inputs.release-ref }}
+  #         GH_TOKEN: ${{ secrets.PAT }}
+  #         IS_DRY_RUN: ${{ inputs.dry-run }}
+  #         BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
+  #       run: |
+  #         cd ${{ github.run_id }}
+  #         cd ${{ inputs.root-dir }}
 
-          # Use built changelog if available, otherwise fall back to CHANGELOG.md
-          if [[ -n "$BUILT_CHANGELOG" ]]; then
-            CHANGELOG="$BUILT_CHANGELOG"
-          elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
-            DATE=$(date +"%Y-%m-%d")
-            CHANGELOG="Prerelease: $NAME ($DATE)"
-          else
-            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
-            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
-          fi
+  #         IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
+  #         IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
+  #         IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
+  #         NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 
-          echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
+  #         # Use built changelog if available, otherwise fall back to CHANGELOG.md
+  #         if [[ -n "$BUILT_CHANGELOG" ]]; then
+  #           CHANGELOG="$BUILT_CHANGELOG"
+  #         elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
+  #           DATE=$(date +"%Y-%m-%d")
+  #           CHANGELOG="Prerelease: $NAME ($DATE)"
+  #         else
+  #           CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+  #           CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+  #         fi
 
-          PAYLOAD=$(jq -nc \
-                      --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
-                      --arg CI_COMMIT_BRANCH "$SHA" \
-                      --arg NAME "$NAME" \
-                      --arg BODY "$CHANGELOG" \
-                      --argjson PRERELEASE "$IS_PRERELEASE" \
-                      '{
-                        "tag_name": $TAG_NAME,
-                        "target_commitish": $CI_COMMIT_BRANCH,
-                        "name": $NAME,
-                        "body": $BODY,
-                        "draft": false,
-                        "prerelease": $PRERELEASE,
-                      }'
-                  )
-          echo -E "$PAYLOAD" > payload.txt
+  #         echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
 
-          CMD=$(echo -E 'curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer '"$GH_TOKEN"'" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/'"$REPOSITORY"'/releases \
-            -d @payload.txt
-          ')
+  #         PAYLOAD=$(jq -nc \
+  #                     --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
+  #                     --arg CI_COMMIT_BRANCH "$SHA" \
+  #                     --arg NAME "$NAME" \
+  #                     --arg BODY "$CHANGELOG" \
+  #                     --argjson PRERELEASE "$IS_PRERELEASE" \
+  #                     '{
+  #                       "tag_name": $TAG_NAME,
+  #                       "target_commitish": $CI_COMMIT_BRANCH,
+  #                       "name": $NAME,
+  #                       "body": $BODY,
+  #                       "draft": false,
+  #                       "prerelease": $PRERELEASE,
+  #                     }'
+  #                 )
+  #         echo -E "$PAYLOAD" > payload.txt
 
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            echo -E "$CMD"
-          else
-            eval "$CMD"
-          fi
+  #         CMD=$(echo -E 'curl -L \
+  #           -X POST \
+  #           -H "Accept: application/vnd.github+json" \
+  #           -H "Authorization: Bearer '"$GH_TOKEN"'" \
+  #           -H "X-GitHub-Api-Version: 2022-11-28" \
+  #           https://api.github.com/repos/'"$REPOSITORY"'/releases \
+  #           -d @payload.txt
+  #         ')
+
+  #         if [[ "$IS_DRY_RUN" == "true" ]]; then
+  #           echo -E "$CMD"
+  #         else
+  #           eval "$CMD"
+  #         fi
 
   # notify:
   #   needs: [build-test-publish-wheel, create-gh-release]
@@ -610,65 +610,65 @@ jobs:
   #         message: ${{ env.MESSAGE }}
   #         webhook: ${{ secrets.SLACK_WEBHOOK }}
 
-  build-docs:
-    needs: [create-gh-release]
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.72.0
-    if: |
-      (
-        success() || !failure()
-      )
-      && inputs.publish-docs == true
-      && !cancelled()
-    with:
-      ref: v${{ inputs.version }}
+  # build-docs:
+  #   needs: [create-gh-release]
+  #   uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.72.0
+  #   if: |
+  #     (
+  #       success() || !failure()
+  #     )
+  #     && inputs.publish-docs == true
+  #     && !cancelled()
+  #   with:
+  #     ref: v${{ inputs.version }}
 
-  publish-docs:
-    needs: [create-gh-release, build-docs]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    if: |
-      (
-        success() || !failure()
-      )
-      && inputs.publish-docs == true
-      && !cancelled()
-    env:
-      VERSION: ${{ inputs.version }}
-      LIBRARY_NAME: ${{ inputs.library-name }}
-      S3_TARGET_PATH: ${{ inputs.docs-target-path }}
-    steps:
-      - name: Checkout FW-CI-templates
-        uses: actions/checkout@v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.72.0
-          path: FW-CI-templates
+  # publish-docs:
+  #   needs: [create-gh-release, build-docs]
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+  #   if: |
+  #     (
+  #       success() || !failure()
+  #     )
+  #     && inputs.publish-docs == true
+  #     && !cancelled()
+  #   env:
+  #     VERSION: ${{ inputs.version }}
+  #     LIBRARY_NAME: ${{ inputs.library-name }}
+  #     S3_TARGET_PATH: ${{ inputs.docs-target-path }}
+  #   steps:
+  #     - name: Checkout FW-CI-templates
+  #       uses: actions/checkout@v6
+  #       with:
+  #         repository: NVIDIA-NeMo/FW-CI-templates
+  #         ref: v0.72.0
+  #         path: FW-CI-templates
 
-      - name: Generate request name
-        id: request-name
-        shell: bash
-        run: |
-          REQUEST_NAME="${S3_TARGET_PATH//\//-}-publish-docs-${{ github.run_id }}"
-          echo "value=${REQUEST_NAME}" >> $GITHUB_OUTPUT
+  #     - name: Generate request name
+  #       id: request-name
+  #       shell: bash
+  #       run: |
+  #         REQUEST_NAME="${S3_TARGET_PATH//\//-}-publish-docs-${{ github.run_id }}"
+  #         echo "value=${REQUEST_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Publish documentation
-        uses: ./FW-CI-templates/.github/actions/publish-docs
-        with:
-          dry-run: ${{ inputs.dry-run }}
-          artifacts-name: docs-html
-          artifacts-path: _build/html
-          emails-csv: ${{ inputs.notify-emails && format('{0},{1}', vars.docs_release_emails, inputs.notify-emails) || vars.docs_release_emails }}
-          overwrite-latest-on-tag: true
-          docs-version-override: ${{ env.VERSION }}
-          project-type: ${{ inputs.docs-project-type }}
-          request-name: ${{ steps.request-name.outputs.value }}
-          aws-region: ${{ vars.DOCS_AWS_REGION }}
-          aws-role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          akamai-host: ${{ secrets.AKAMAI_HOST }}
-          akamai-client-token: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
-          akamai-client-secret: ${{ secrets.AKAMAI_CLIENT_SECRET }}
-          akamai-access-token: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
-          s3-target-root: ${{ secrets.S3_BUCKET_NAME }}
-          s3-target-path: ${{ inputs.docs-target-path }}
+  #     - name: Publish documentation
+  #       uses: ./FW-CI-templates/.github/actions/publish-docs
+  #       with:
+  #         dry-run: ${{ inputs.dry-run }}
+  #         artifacts-name: docs-html
+  #         artifacts-path: _build/html
+  #         emails-csv: ${{ inputs.notify-emails && format('{0},{1}', vars.docs_release_emails, inputs.notify-emails) || vars.docs_release_emails }}
+  #         overwrite-latest-on-tag: true
+  #         docs-version-override: ${{ env.VERSION }}
+  #         project-type: ${{ inputs.docs-project-type }}
+  #         request-name: ${{ steps.request-name.outputs.value }}
+  #         aws-region: ${{ vars.DOCS_AWS_REGION }}
+  #         aws-role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         akamai-host: ${{ secrets.AKAMAI_HOST }}
+  #         akamai-client-token: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+  #         akamai-client-secret: ${{ secrets.AKAMAI_CLIENT_SECRET }}
+  #         akamai-access-token: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+  #         s3-target-root: ${{ secrets.S3_BUCKET_NAME }}
+  #         s3-target-path: ${{ inputs.docs-target-path }}

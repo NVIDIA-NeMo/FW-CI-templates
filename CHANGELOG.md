@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.78.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.0...v0.78.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* Exclude draft PRs from needing follow-up ([#403](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/403)) ([a33342b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a33342be3773097b62cca35013d2a9d8be1494ba))
+
 ## [0.78.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.1...v0.78.0) (2026-03-05)
 
 

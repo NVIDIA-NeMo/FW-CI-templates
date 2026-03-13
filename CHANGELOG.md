@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.1...v0.79.0) (2026-03-13)
+
+
+### Features
+
+* Add claude_review template ([#405](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/405)) ([f1fd34f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f1fd34fe81e14d3849e75c69f7a48cb0cd1603bc))
+
 ## [0.78.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.0...v0.78.1) (2026-03-06)
 
 

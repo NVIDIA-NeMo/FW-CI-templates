@@ -44,7 +44,7 @@ jobs:
           echo "sha=$(gh pr view $PR_NUMBER --repo $REPO --json headRefOid -q .headRefOid)" | tee -a $GITHUB_OUTPUT
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           ref: ${{ steps.get-pr-head-commit.outputs.sha }}

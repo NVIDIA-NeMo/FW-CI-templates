@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.0...v0.79.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* Set boostrap-sha ([#411](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/411)) ([3a95d55](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3a95d55176bd0a0a2e5e1ad5e4432d3964091c2b))
+
 ## [0.79.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.1...v0.79.0) (2026-03-13)
 
 

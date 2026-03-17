@@ -1,3 +1,4 @@
-{    
-    "signoff": "Oliver Koenig <okoenig@nvidia.com>"
+{
+    "signoff": "Oliver Koenig <okoenig@nvidia.com>",
+    "bootstrap-sha": "1defdeed7299524e22635283533806526d63a2fc"
 }

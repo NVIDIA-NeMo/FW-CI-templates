@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.0...v0.80.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* sso_users_filename input type in preflight ([#415](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/415)) ([42aac07](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/42aac07759b9c2c367ae76760786ca9e6949dd2a))
+
 ## [0.80.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.1...v0.80.0) (2026-03-19)
 
 

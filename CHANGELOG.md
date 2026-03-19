@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.1...v0.80.0) (2026-03-19)
+
+
+### Features
+
+* Allow passing sso_users_filename to preflight ([#413](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/413)) ([539aac2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/539aac21f1105aa0840f7279c20b131a17af8271))
+
 ## [0.79.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.0...v0.79.1) (2026-03-17)
 
 

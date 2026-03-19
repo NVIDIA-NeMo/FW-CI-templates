@@ -49,6 +49,10 @@ on:
         required: false
         default: main
         type: string
+      sso_users_filename:
+        description: "Filename of SSO users JSON"
+        required: false
+        default: "users_sso.json"
     outputs:
       is_ci_workload:
         description: "Whether it is triggered by schedule event"
@@ -210,6 +214,7 @@ jobs:
         with:
           username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login || github.actor }}
           github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          sso_users_filename: ${{ inputs.sso_users_filename }}
 
       - name: Select runner and test data path
         id: select_runner

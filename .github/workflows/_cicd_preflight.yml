@@ -53,6 +53,7 @@ on:
         description: "Filename of SSO users JSON"
         required: false
         default: "users_sso.json"
+        type: string
     outputs:
       is_ci_workload:
         description: "Whether it is triggered by schedule event"

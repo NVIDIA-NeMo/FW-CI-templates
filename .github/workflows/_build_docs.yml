@@ -92,7 +92,16 @@ jobs:
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
-          sphinx-build --builder linkcheck . _build/linkcheck || true
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            sphinx-build --builder linkcheck . _build/linkcheck && break || true
+            if [ $attempt -lt $MAX_RETRIES ]; then
+              echo "Linkcheck attempt ${attempt}/${MAX_RETRIES} produced broken links, retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            fi
+          done
 
       - name: Upload linkcheck output
         uses: actions/upload-artifact@v4

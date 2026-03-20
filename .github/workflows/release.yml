@@ -14,8 +14,20 @@ jobs:
     if: github.repository_owner == 'NVIDIA-NeMo'
     runs-on: ubuntu-latest
     environment: main
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.PAT }}
           release-type: simple
+
+  bump-downstream:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    uses: ./.github/workflows/_bump_downstream.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit

@@ -39,12 +39,14 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Configure git identity and credentials
+        env:
+          PAT: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
         run: |
           login=$(gh api user --jq '.login')
           name=$(gh api user --jq '.name // .login')
           git config --global user.email "${login}@users.noreply.github.com"
           git config --global user.name "${name}"
-          gh auth setup-git
+          git config --global url."https://${PAT}@github.com/".insteadOf "https://github.com/"
 
       - name: Run Claude Code Action to bump downstream repos
         uses: anthropics/claude-code-action@beta

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.81.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.3...v0.81.0) (2026-03-20)
+
+
+### Features
+
+* add hatch support to release_library version bump step ([#422](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/422)) ([6422718](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/642271887bedaa5c613264564fa587981a740a37))
+
 ## [0.80.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.2...v0.80.3) (2026-03-20)
 
 

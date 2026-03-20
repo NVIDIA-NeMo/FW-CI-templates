@@ -47,6 +47,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
           allowed_tools: >
             Bash(gh search code:*),
             Bash(gh repo clone:*),

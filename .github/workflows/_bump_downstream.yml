@@ -91,11 +91,17 @@ jobs:
             ### 3. Skip FW-CI-templates itself
             Ignore any match whose repository is `NVIDIA-NeMo/FW-CI-templates` (that is this repo).
 
-            ### 4. For each downstream repo
-            a. Clone the repo:
+            ### 4. Setup git auth
+            Configure git to use GH_TOKEN for all HTTPS operations:
+            ```
+            gh auth setup-git
+            ```
+
+            ### 5. For each downstream repo
+            a. Clone into the runner workdir (not /tmp):
                ```
-               gh repo clone <owner>/<repo> /tmp/<repo>
-               cd /tmp/<repo>
+               gh repo clone <owner>/<repo> $GITHUB_WORKSPACE/<repo>
+               cd $GITHUB_WORKSPACE/<repo>
                ```
             b. Find the file(s) that contain the old tag pin:
                ```
@@ -114,7 +120,7 @@ jobs:
                git commit -s -m "chore: bump FW-CI-templates workflow pins to ${{ env.TAG }}"
                ```
 
-            ### 5. Push and open PR — special handling for Megatron-LM
+            ### 6. Push and open PR — special handling for Megatron-LM
             **For all repos except NVIDIA/Megatron-LM:**
             ```
             git push origin ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
@@ -127,9 +133,9 @@ jobs:
 
             **For NVIDIA/Megatron-LM only:**
             Push to the fork `ko3n1g/Megatron-LM` and open a PR that targets the upstream
-            `NVIDIA/Megatron-LM`:
+            `NVIDIA/Megatron-LM`. Auth is already handled by `gh auth setup-git`:
             ```
-            git remote add fork https://x-access-token:${GH_TOKEN}@github.com/ko3n1g/Megatron-LM.git
+            git remote add fork https://github.com/ko3n1g/Megatron-LM.git
             git push fork ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
             gh pr create \
               --repo NVIDIA/Megatron-LM \
@@ -139,7 +145,7 @@ jobs:
               --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
             ```
 
-            ### 6. PR body template
+            ### 7. PR body template
             Use this body for every PR:
             ```
             ## Bump FW-CI-templates workflow pins to ${{ env.TAG }}
@@ -153,7 +159,7 @@ jobs:
             - [ ] Verify CI passes
             ```
 
-            ### 7. Skip if PR already exists
+            ### 8. Skip if PR already exists
             Before creating a PR, check:
             ```
             gh pr list --repo <owner>/<repo> --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }} --json number

@@ -11,6 +11,10 @@ on:
         required: true
         description: "Release tag to bump to (e.g. v0.80.2)"
 
+permissions:
+  id-token: write
+  contents: read
+
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}

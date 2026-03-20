@@ -1,9 +1,6 @@
 name: Bump downstream workflow pins
 
 on:
-  push:
-    branches:
-      - ko3n1g/feat/automate-downstream-bump
   workflow_dispatch:
     inputs:
       tag:
@@ -61,7 +58,7 @@ jobs:
             Bash(sed:*),
             Bash(grep:*),
             Bash(find:*)
-          prompt: |
+          direct_prompt: |
             You are a CI automation bot. A new release of NVIDIA-NeMo/FW-CI-templates has just been created.
 
             **New tag:** ${{ env.TAG }}

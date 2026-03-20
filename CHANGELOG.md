@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.2...v0.80.3) (2026-03-20)
+
+
+### Bug Fixes
+
+* Increase max wait attempts ([#420](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/420)) ([87fd928](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/87fd928ed453b0e9ac9f980e795a43dddaecd8a1))
+
 ## [0.80.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.1...v0.80.2) (2026-03-20)
 
 

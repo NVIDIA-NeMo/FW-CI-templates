@@ -44,9 +44,9 @@ jobs:
       - name: Run Claude Code Action to bump downstream repos
         uses: anthropics/claude-code-action@beta
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
         with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_tools: >
             Bash(gh search code:*),
             Bash(gh repo clone:*),

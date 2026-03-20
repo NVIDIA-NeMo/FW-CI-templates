@@ -47,6 +47,8 @@ jobs:
           git config --global user.email "${login}@users.noreply.github.com"
           git config --global user.name "${name}"
           git config --global url."https://${PAT}@github.com/".insteadOf "https://github.com/"
+          # Verify auth works
+          git ls-remote https://github.com/NVIDIA-NeMo/NeMo.git HEAD
 
       - name: Run Claude Code Action to bump downstream repos
         uses: anthropics/claude-code-action@beta
@@ -62,7 +64,7 @@ jobs:
             Bash(gh search code:*),
             Bash(gh repo clone:*),
             Bash(gh release view:*),
-            Bash(gh pr create:*),
+            Bash(gh api:*),
             Bash(gh pr list:*),
             Bash(gh auth setup-git),
             Bash(git checkout:*),
@@ -135,26 +137,28 @@ jobs:
             **For all repos except NVIDIA/Megatron-LM:**
             ```
             git push origin ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
-            gh pr create \
-              --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
-              --body "..." \
-              --base main \
-              --head ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+            gh api repos/<owner>/<repo>/pulls \
+              --method POST \
+              -f title="chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
+              -f body="<PR body>" \
+              -f base="main" \
+              -f head="ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}"
             ```
 
             **For NVIDIA/Megatron-LM only:**
-            Push to the fork `ko3n1g/Megatron-LM` and open a PR that targets the upstream
-            `NVIDIA/Megatron-LM`. Auth is already handled by `gh auth setup-git`:
+            Push to the fork `ko3n1g/Megatron-LM` and open a PR that targets upstream `NVIDIA/Megatron-LM`:
             ```
             git remote add fork https://github.com/ko3n1g/Megatron-LM.git
             git push fork ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
-            gh pr create \
-              --repo NVIDIA/Megatron-LM \
-              --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
-              --body "..." \
-              --base main \
-              --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+            gh api repos/NVIDIA/Megatron-LM/pulls \
+              --method POST \
+              -f title="chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
+              -f body="<PR body>" \
+              -f base="main" \
+              -f head="ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}"
             ```
+
+            Important: use `gh api` (REST) for all PR creation — do NOT use `gh pr create` as it uses GraphQL which is not supported by this token.
 
             ### 7. PR body template
             Use this body for every PR:
@@ -171,11 +175,11 @@ jobs:
             ```
 
             ### 8. Skip if PR already exists
-            Before creating a PR, check:
+            Before creating a PR, check via REST:
             ```
-            gh pr list --repo <owner>/<repo> --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }} --json number
+            gh api repos/<owner>/<repo>/pulls?head=ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}&state=open
             ```
-            If a PR already exists, skip that repo.
+            If the response is non-empty, a PR already exists — skip that repo.
 
             ### Final note
             Print a summary at the end: list every repo you processed, whether a PR was

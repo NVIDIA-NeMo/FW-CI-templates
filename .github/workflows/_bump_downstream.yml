@@ -38,6 +38,13 @@ jobs:
           echo "$body" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: Configure git identity
+        run: |
+          gh api user --jq '"\(.name) <\(.email // (.login + "@users.noreply.github.com"))"' \
+            | xargs -I{} git config --global user.name "{}" || true
+          git config --global user.email "$(gh api user --jq '.login')@users.noreply.github.com"
+          git config --global user.name "$(gh api user --jq '.name // .login')"
+
       - name: Run Claude Code Action to bump downstream repos
         uses: anthropics/claude-code-action@beta
         env:
@@ -52,10 +59,13 @@ jobs:
             Bash(gh release view:*),
             Bash(gh pr create:*),
             Bash(gh pr list:*),
+            Bash(gh auth setup-git),
             Bash(git checkout:*),
+            Bash(git -C:*),
             Bash(git add:*),
             Bash(git commit:*),
             Bash(git push:*),
+            Bash(git config:*),
             Bash(sed:*),
             Bash(grep:*),
             Bash(find:*)

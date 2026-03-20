@@ -38,12 +38,13 @@ jobs:
           echo "$body" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Configure git identity
+      - name: Configure git identity and credentials
         run: |
-          gh api user --jq '"\(.name) <\(.email // (.login + "@users.noreply.github.com"))"' \
-            | xargs -I{} git config --global user.name "{}" || true
-          git config --global user.email "$(gh api user --jq '.login')@users.noreply.github.com"
-          git config --global user.name "$(gh api user --jq '.name // .login')"
+          login=$(gh api user --jq '.login')
+          name=$(gh api user --jq '.name // .login')
+          git config --global user.email "${login}@users.noreply.github.com"
+          git config --global user.name "${name}"
+          gh auth setup-git
 
       - name: Run Claude Code Action to bump downstream repos
         uses: anthropics/claude-code-action@beta
@@ -103,13 +104,7 @@ jobs:
             ### 3. Skip FW-CI-templates itself
             Ignore any match whose repository is `NVIDIA-NeMo/FW-CI-templates` (that is this repo).
 
-            ### 4. Setup git auth
-            Configure git to use GH_TOKEN for all HTTPS operations:
-            ```
-            gh auth setup-git
-            ```
-
-            ### 5. For each downstream repo
+            ### 4. For each downstream repo
             a. Clone into the runner workdir (not /tmp):
                ```
                gh repo clone <owner>/<repo> $GITHUB_WORKSPACE/<repo>
@@ -133,6 +128,8 @@ jobs:
                ```
 
             ### 6. Push and open PR — special handling for Megatron-LM
+            Git credentials are already configured — push directly to origin for all NVIDIA-NeMo repos. Do NOT add fork remotes or use forks for NVIDIA-NeMo repos.
+
             **For all repos except NVIDIA/Megatron-LM:**
             ```
             git push origin ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}

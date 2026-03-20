@@ -95,10 +95,17 @@ jobs:
             gh search code "NVIDIA-NeMo/FW-CI-templates/.github/workflows/" --repo NVIDIA/Megatron-LM --json repository,path,url
             ```
 
-            ### 2. Filter to changed workflows
-            For each match, check whether the referenced workflow file appears anywhere in the
-            release notes above. If the release notes mention it (or this is a blanket version
-            bump), include it. When in doubt, include it — the sed replace is idempotent.
+            ### 2. Filter to changed workflows only
+            From the release notes, extract the exact workflow filenames that were changed in
+            this release (e.g. `_cicd_preflight.yml`, `_build_docs.yml`). You can infer this
+            from the PR titles and commit messages in the changelog.
+
+            For each downstream file found in step 1, only proceed if it contains a pin to one
+            of those changed workflows. Skip files that only reference unchanged workflows — do
+            not bump them.
+
+            If you cannot determine which specific workflows changed (e.g. the changelog is
+            vague), fall back to bumping all pins.
 
             ### 3. Skip FW-CI-templates itself
             Ignore any match whose repository is `NVIDIA-NeMo/FW-CI-templates` (that is this repo).
@@ -114,10 +121,12 @@ jobs:
                grep -rl "NVIDIA-NeMo/FW-CI-templates/.github/workflows/.*@" .
                ```
             c. Determine the old tag currently pinned (inspect the file).
-            d. Replace old tag with new tag in all matching files:
+            d. In each file, only replace pins to workflows that actually changed in this
+               release. Use a targeted sed pattern per changed workflow, e.g.:
                ```
-               sed -i 's|NVIDIA-NeMo/FW-CI-templates/.github/workflows/\(.*\)@[^"'\'' ]*|NVIDIA-NeMo/FW-CI-templates/.github/workflows/\1@${{ env.TAG }}|g' <file>
+               sed -i 's|NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@[^"'\'' ]*|NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@${{ env.TAG }}|g' <file>
                ```
+               Do not touch lines referencing workflows that were not part of this release.
             e. Check if there is actually a diff; skip if nothing changed.
             f. Create a branch named `ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}`.
             g. Commit:

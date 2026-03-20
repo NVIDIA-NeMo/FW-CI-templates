@@ -128,7 +128,7 @@ jobs:
                ```
                Do not touch lines referencing workflows that were not part of this release.
             e. Check if there is actually a diff; skip if nothing changed.
-            f. Create a branch named `ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}`.
+            f. Create a branch named `svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}`.
             g. Commit:
                ```
                git add -A
@@ -140,25 +140,25 @@ jobs:
 
             **For all repos except NVIDIA/Megatron-LM:**
             ```
-            git push origin ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+            git push origin svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
             gh pr create \
               --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
               --body "..." \
               --base main \
-              --head ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+              --head svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
             ```
 
             **For NVIDIA/Megatron-LM only:**
             Push to the fork `ko3n1g/Megatron-LM` and open a PR that targets upstream `NVIDIA/Megatron-LM`:
             ```
             git remote add fork https://github.com/ko3n1g/Megatron-LM.git
-            git push fork ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+            git push fork svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
             gh pr create \
               --repo NVIDIA/Megatron-LM \
               --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
               --body "..." \
               --base main \
-              --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }}
+              --head ko3n1g:svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
             ```
 
             ### 6. PR body template
@@ -178,7 +178,7 @@ jobs:
             ### 7. Skip if PR already exists
             Before creating a PR, check:
             ```
-            gh pr list --repo <owner>/<repo> --head ko3n1g:ko3n1g/chore/bump-fw-ci-templates-${{ env.TAG }} --json number
+            gh pr list --repo <owner>/<repo> --head ko3n1g:svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }} --json number
             ```
             If a PR already exists, skip that repo.
 

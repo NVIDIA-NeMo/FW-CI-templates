@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.1...v0.80.2) (2026-03-20)
+
+
+### Bug Fixes
+
+* add retry with exponential backoff to sphinx linkcheck ([#417](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/417)) ([842ef1e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/842ef1eecee8488a22ffc658e9e4f34072c59372))
+
 ## [0.80.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.0...v0.80.1) (2026-03-19)
 
 

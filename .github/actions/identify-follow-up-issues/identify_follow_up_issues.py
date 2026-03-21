@@ -19,6 +19,10 @@ The item requires a response if the last commenter is the original author.
 
 For PRs, both issue-level comments and review (inline) comments are considered. If someone other
 than the author leaves a review comment, that counts as follow-up and the label is removed.
+
+If an author pushes new commits after a reviewer's feedback, those commits are treated as author
+activity. The needs-follow-up label will be re-applied after 48 hours if the reviewer hasn't
+responded to the new commits.
 """
 import argparse
 import csv
@@ -400,6 +404,14 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                       submittedAt
                     }
                   }
+                  commits(last: 1) {
+                    nodes {
+                      commit {
+                        pushedDate
+                        committedDate
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -493,6 +505,16 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                             commenter_type == "Bot",
                             comment.get("createdAt", ""),
                         ))
+
+                # Include the last commit as author activity so that new commits pushed after
+                # reviewer feedback are treated as the author's response. This ensures the
+                # needs-follow-up label is re-applied after 48h if the reviewer hasn't responded.
+                commits = content.get("commits", {}).get("nodes", [])
+                if commits:
+                    commit = commits[0].get("commit", {})
+                    commit_date = commit.get("pushedDate") or commit.get("committedDate", "")
+                    if commit_date:
+                        activity.append((author, False, commit_date))
 
             # Use the chronologically latest non-bot activity
             activity.sort(key=lambda x: x[2], reverse=True)

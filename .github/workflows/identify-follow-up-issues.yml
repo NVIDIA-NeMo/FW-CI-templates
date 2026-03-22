@@ -24,7 +24,7 @@ jobs:
     environment: main
     steps:
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Identify Follow Up Issues
         uses: ./.github/actions/identify-follow-up-issues

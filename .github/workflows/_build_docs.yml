@@ -48,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: "recursive"
           ref: ${{ inputs.ref }}
@@ -82,7 +82,7 @@ jobs:
           fi
 
       - name: Upload docs as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docs-html
           path: ${{ inputs.docs-directory }}/_build/html
@@ -104,7 +104,7 @@ jobs:
           done
 
       - name: Upload linkcheck output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: linkcheck-artifact
           path: ${{ inputs.docs-directory }}/_build/linkcheck

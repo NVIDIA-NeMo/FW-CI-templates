@@ -123,7 +123,7 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
@@ -148,7 +148,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
@@ -237,7 +237,7 @@ jobs:
           echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ steps.build.outputs.DIST_DIR }}
@@ -254,13 +254,13 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/${{ github.run_id }}/
@@ -284,7 +284,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
@@ -338,7 +338,7 @@ jobs:
       name: ${{ inputs.dry-run && 'public' || 'main' }}
     steps:
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
@@ -369,7 +369,7 @@ jobs:
       COMMIT_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0

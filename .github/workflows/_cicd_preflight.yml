@@ -107,7 +107,7 @@ jobs:
       HAS_LABEL: ${{ github.event.label.name == 'Run CICD' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -202,7 +202,7 @@ jobs:
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: ${{ inputs.workflow_ref }}

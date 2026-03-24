@@ -55,7 +55,7 @@ jobs:
     environment: main
     steps:
       - name: Checkout ${{ inputs.source-repository }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.source-repository }}
           ref: ${{ inputs.source-ref }}
@@ -72,7 +72,7 @@ jobs:
           echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout ${{ github.repository }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ inputs.base-branch }}

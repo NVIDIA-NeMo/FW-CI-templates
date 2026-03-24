@@ -136,7 +136,7 @@ jobs:
           az acr login --name nemoci
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.build-ref }}

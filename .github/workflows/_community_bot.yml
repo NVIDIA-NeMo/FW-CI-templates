@@ -37,7 +37,7 @@ jobs:
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_TOKEN }}
 

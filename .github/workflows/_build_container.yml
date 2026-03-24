@@ -173,6 +173,7 @@ jobs:
           elif [[ -n "$PR_NUMBER" ]]; then
             TAGS="\
             ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
+            ${{ inputs.registry }}/$IMAGE_NAME:main
             ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER"
             echo "TAGS<<EOF" >> $GITHUB_ENV
             echo "$TAGS" >> $GITHUB_ENV

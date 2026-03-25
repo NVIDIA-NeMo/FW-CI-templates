@@ -143,6 +143,11 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      restrict-to-admins:
+        required: false
+        description: Only allow repository admins to run this workflow
+        type: boolean
+        default: true
     secrets:
       TWINE_USERNAME:
         required: true
@@ -182,10 +187,37 @@ permissions:
   pull-requests: write # To create PR(s)
 
 jobs:
+  check-admin-permission:
+    runs-on: ubuntu-latest
+    if: inputs.restrict-to-admins == true
+    steps:
+      - name: Check if user has admin permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: permissionLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+
+            const permission = permissionLevel.permission;
+            console.log(`User ${context.actor} has permission: ${permission}`);
+
+            if (permission !== 'admin') {
+              core.setFailed(`User ${context.actor} does not have admin permission (has: ${permission}). Only admins can release.`);
+            }
+
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
+    needs: check-admin-permission
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.77.1
-    if: inputs.dry-run == false
+    if: |
+      (
+        success() || !failure()
+      )
+      && !cancelled()
+      && inputs.dry-run == false
     with:
       dry-run: true
       python-package: ${{ inputs.python-package }}
@@ -209,7 +241,7 @@ jobs:
   bump-next-version:
     runs-on: ubuntu-latest
     environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
-    needs: build-test-publish-wheel-dry-run
+    needs: [check-admin-permission, build-test-publish-wheel-dry-run]
     if: |
       (
         success() || !failure()

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.82.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.81.1...v0.82.0) (2026-03-25)
+
+
+### Features
+
+* Allow no-extras arg for building docs with uv ([#429](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/429)) ([46f49e2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/46f49e27cf92073fa65ceb1dc2a3c743d5e44846))
+
+
+### Bug Fixes
+
+* re-apply needs-follow-up label when commits pushed after review feedback ([#409](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/409)) ([bbd132c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/bbd132cb792acd95b694555ea03d5569b111af66))
+
 ## [0.81.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.81.0...v0.81.1) (2026-03-20)
 
 

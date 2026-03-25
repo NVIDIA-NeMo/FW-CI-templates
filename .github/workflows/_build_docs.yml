@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      no-extras:
+        description: "Whether to skip installing extras when sync-all is true"
+        required: false
+        type: string
+        default: ""
       ref:
         description: Ref (SHA or branch name) to build the docs for
         required: false
@@ -58,12 +63,21 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
+        env:
+          NO_EXTRAS: ${{ inputs.no-extras }}
         run: |
           uv venv
           if [ "${{ inputs.sync-all }}" = "true" ]; then
-            uv sync --all-extras --all-groups
+            # Validate: only allow repeated --no-extra <name> flags
+            if [ -n "$NO_EXTRAS" ]; then
+              if ! echo "$NO_EXTRAS" | grep -qP '^(--no-extra\s+[a-zA-Z0-9._-]+\s*)+$'; then
+                echo "::error::Invalid no-extras value: '$NO_EXTRAS'. Expected format: '--no-extra name1 --no-extra name2'"
+                exit 1
+              fi
+            fi
+            uv sync --all-extras --all-groups $NO_EXTRAS
           elif [ -f "${{ inputs.requirements-file }}" ]; then
-            uv pip install -r ${{ inputs.requirements-file }}
+            uv pip install -r "${{ inputs.requirements-file }}"
           else
             uv sync --only-group docs
           fi

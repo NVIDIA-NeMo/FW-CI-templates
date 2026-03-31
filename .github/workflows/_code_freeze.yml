@@ -47,6 +47,11 @@ on:
         description: "Packaging tool (supported: setuptools, hatch)"
         type: string
         default: setuptools
+      release-branch-prefix:
+        required: false
+        description: "Prefix for the release branch name (e.g. 'core_' results in 'core_rX.Y.Z')"
+        type: string
+        default: ""
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -72,6 +77,7 @@ jobs:
       DRY_RUN: ${{ inputs.dry-run }}
       SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
       PYPROJECT_NAME: ${{ inputs.python-package }}
+      RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
     environment:
       name: ${{ inputs.use-pat && 'main' || 'public' }}
     steps:
@@ -96,12 +102,13 @@ jobs:
           pushd $SRC_DIR${PYPROJECT_NAME//.//}
 
           VERSION=$(python -c 'import package_info; print(f"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}")')
-          echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
+          RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
+          echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
-          git switch --force-create r$VERSION
+          git switch --force-create ${RELEASE_BRANCH}
 
           if [[ "$DRY_RUN" != "true" ]]; then
-            git push -u origin r$VERSION --force
+            git push -u origin ${RELEASE_BRANCH} --force
           fi
 
   bump-next-version:

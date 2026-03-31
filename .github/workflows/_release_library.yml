@@ -42,8 +42,14 @@ on:
         description: Do not publish a wheel and GitHub release.
       version-bump-branch:
         type: string
-        required: true
+        required: false
+        default: main
         description: Branch to target for version bump
+      skip-version-bump:
+        type: boolean
+        required: false
+        default: false
+        description: Skip the version bump commit and PR (for dynamic versioning setups where the version is derived from git tags)
       packaging:
         required: false
         description: "Packaging tool (supported: setuptools, hatch, uv)"
@@ -243,7 +249,8 @@ jobs:
     environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
     needs: [check-admin-permission, build-test-publish-wheel-dry-run]
     if: |
-      (
+      !inputs.skip-version-bump
+      && (
         success() || !failure()
       )
       && !cancelled()

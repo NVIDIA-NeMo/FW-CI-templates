@@ -111,6 +111,21 @@ jobs:
             git push -u origin ${RELEASE_BRANCH} --force
           fi
 
+      - name: Create cherry-pick label
+        if: ${{ inputs.dry-run != true }}
+        env:
+          GH_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
+        run: |
+          DESCRIPTION="Auto-cherrypick to release branch. Apply before merge; cherrypick happens after merge."
+          gh label create "${RELEASE_BRANCH}" \
+            --repo ${{ github.repository }} \
+            --description "${DESCRIPTION}" \
+            --color "0075ca" 2>&1 \
+          || gh label edit "${RELEASE_BRANCH}" \
+            --repo ${{ github.repository }} \
+            --description "${DESCRIPTION}" 2>&1
+
   bump-next-version:
     runs-on: ubuntu-latest
     needs: [create-release-branch]

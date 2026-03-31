@@ -125,6 +125,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           ref: main
+          token: ${{ inputs.use-pat && secrets.PAT || github.token }}
 
       - name: Bump version
         id: bump-version

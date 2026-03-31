@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.86.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.85.0...v0.86.0) (2026-03-31)
+
+
+### Features
+
+* auto-create cherry-pick label after release branch push ([#436](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/436)) ([2bd5c67](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2bd5c67d4b6e9f72d5a0096e046c916ae14e82ac))
+
 ## [0.85.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.84.0...v0.85.0) (2026-03-31)
 
 

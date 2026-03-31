@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.86.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.0...v0.86.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* Install `poetry-dynamic-versioning` ([#438](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/438)) ([ddfaa9a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ddfaa9a7ea4ceeded9919b964fae43f7dcd15ba6))
+
 ## [0.86.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.85.0...v0.86.0) (2026-03-31)
 
 

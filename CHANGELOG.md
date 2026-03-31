@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.84.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.83.0...v0.84.0) (2026-03-31)
+
+
+### Features
+
+* Dummy commit to trigger release ([#432](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/432)) ([7fdc76a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/7fdc76a8a47cbdb71ea3d06e8be9e5bc8149d7be))
+
 ## [0.82.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.81.1...v0.82.0) (2026-03-25)
 
 

@@ -101,7 +101,7 @@ jobs:
 
           pushd $SRC_DIR${PYPROJECT_NAME//.//}
 
-          VERSION=$(python -c 'import package_info; print(f"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}")')
+          VERSION=$(python -c "import package_info; print(f\"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}\")")
           RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
           echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 

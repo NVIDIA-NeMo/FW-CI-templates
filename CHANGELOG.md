@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.85.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.84.0...v0.85.0) (2026-03-31)
+
+
+### Features
+
+* add `release-branch-prefix` input to code freeze workflow ([#434](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/434)) ([511da59](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/511da5981eb502c4b4f9372b7ea08e6fe16ca61e))
+
 ## [0.84.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.83.0...v0.84.0) (2026-03-31)
 
 

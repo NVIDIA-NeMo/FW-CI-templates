@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.87.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.1...v0.87.0) (2026-04-01)
+
+
+### Features
+
+* add extra-no-build-isolation-packages input to wheel build workflow ([#440](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/440)) ([833caa8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/833caa8c2a9ef69f01b2487a3c12c7c592f7b007))
+
 ## [0.86.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.0...v0.86.1) (2026-03-31)
 
 

@@ -84,6 +84,11 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      extra-no-build-isolation-packages:
+        required: false
+        description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -121,6 +126,7 @@ jobs:
       DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
       ROOTDIR: ${{ inputs.root-dir }}
+      EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -179,12 +185,18 @@ jobs:
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               uv pip install torch
               uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
+              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
+                uv pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
+              fi
             fi
             uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               pip install torch
               pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
+              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
+                pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
+              fi
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
           fi

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.88.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.87.0...v0.88.0) (2026-04-03)
+
+
+### Features
+
+* add thumbs-up reaction to triggering comment in claude review workflow ([#431](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/431)) ([a7f9c31](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a7f9c314cf705f7db8390730d129464430fe3909))
+
 ## [0.87.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.1...v0.87.0) (2026-04-01)
 
 

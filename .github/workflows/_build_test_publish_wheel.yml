@@ -165,6 +165,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
           NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
+          NO_VCS_VERSION: "1"
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR

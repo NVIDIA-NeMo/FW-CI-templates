@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.88.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.88.0...v0.88.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* set NO_VCS_VERSION=1 in wheel build step ([#443](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/443)) ([881f284](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/881f284a83494776b71ff24a679fd9626785d5a8))
+
 ## [0.88.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.87.0...v0.88.0) (2026-04-03)
 
 

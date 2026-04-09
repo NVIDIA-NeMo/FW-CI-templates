@@ -1,0 +1,181 @@
+name: Bump downstream workflow pins
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+        description: "Release tag to bump to (e.g. v0.80.2)"
+
+permissions:
+  id-token: write
+  contents: read
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  bump-downstream:
+    runs-on: ubuntu-latest
+    environment: main
+    env:
+      GH_TOKEN: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
+      TAG: ${{ inputs.tag || 'v0.80.1' }}
+    steps:
+      - name: Checkout FW-CI-templates at ${{ env.TAG }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Get release notes
+        id: release
+        run: |
+          body=$(gh release view "${{ env.TAG }}" --json body -q '.body')
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$body" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git identity
+        run: |
+          login=$(gh api user --jq '.login')
+          name=$(gh api user --jq '.name // .login')
+          git config --global user.email "${login}@users.noreply.github.com"
+          git config --global user.name "${name}"
+          gh auth setup-git
+
+      - name: Run Claude Code Action to bump downstream repos
+        uses: anthropics/claude-code-action@beta
+        env:
+          GH_TOKEN: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.PAT_BUMP_DOWNSTREAM }}
+          mode: agent
+          claude_env: |
+            GH_TOKEN=${{ secrets.PAT_BUMP_DOWNSTREAM }}
+          allowed_tools: >
+            Bash(gh repo list:*),
+            Bash(gh repo clone:*),
+            Bash(gh release view:*),
+            Bash(gh pr create:*),
+            Bash(gh pr list:*),
+            Bash(git checkout:*),
+            Bash(git -C:*),
+            Bash(git add:*),
+            Bash(git commit:*),
+            Bash(git push:*),
+            Bash(git config:*),
+            Bash(sed:*),
+            Bash(grep:*),
+            Bash(find:*)
+          direct_prompt: |
+            You are a CI automation bot. A new release of NVIDIA-NeMo/FW-CI-templates has just been created.
+
+            **New tag:** ${{ env.TAG }}
+
+            **Release notes / changelog:**
+            ${{ steps.release.outputs.body }}
+
+            **Your task:** For every repo in the NVIDIA-NeMo org (and NVIDIA/Megatron-LM), find workflow files that reference a FW-CI-templates workflow that changed in this release, and bump those pins to the new tag.
+
+            ## Steps
+
+            ### 1. Identify changed workflows
+            From the release notes, extract the exact workflow filenames that changed in this
+            release (e.g. `_cicd_preflight.yml`, `_claude_review.yml`). Infer these from the
+            PR titles and commit messages in the changelog.
+
+            If you cannot determine which specific workflows changed (e.g. the changelog is
+            vague), treat all FW-CI-templates workflow references as changed.
+
+            ### 2. Enumerate all repos
+            Fetch the full list of repos to check:
+            ```
+            gh repo list NVIDIA-NeMo --limit 1000 --json nameWithOwner --jq '.[].nameWithOwner'
+            ```
+            Also include `NVIDIA/Megatron-LM`.
+            Skip `NVIDIA-NeMo/FW-CI-templates` (this repo).
+
+            ### 3. For each repo
+            For each repo in the list:
+
+            a. Clone into the runner workdir (not /tmp):
+               ```
+               gh repo clone <owner>/<repo> $GITHUB_WORKSPACE/<repo>
+               ```
+            b. Search for workflow files that reference any of the changed workflows:
+               ```
+               grep -rl "NVIDIA-NeMo/FW-CI-templates/.github/workflows/<changed_workflow>" $GITHUB_WORKSPACE/<repo>/.github/workflows/
+               ```
+               If no files match, skip this repo entirely — do not clone further or open a PR.
+            c. For each matching file, run a targeted sed per changed workflow:
+               ```
+               sed -i 's|NVIDIA-NeMo/FW-CI-templates/.github/workflows/<changed_workflow>@[^ "'\'']*|NVIDIA-NeMo/FW-CI-templates/.github/workflows/<changed_workflow>@${{ env.TAG }}|g' <file>
+               ```
+               Do not touch lines referencing workflows that were not part of this release.
+            d. Verify there is an actual diff:
+               ```
+               git -C $GITHUB_WORKSPACE/<repo> diff --exit-code
+               ```
+               Skip if nothing changed.
+            e. Create a branch named `svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}`.
+            f. Commit:
+               ```
+               git -C $GITHUB_WORKSPACE/<repo> add -A
+               git -C $GITHUB_WORKSPACE/<repo> commit -s -m "chore: bump FW-CI-templates workflow pins to ${{ env.TAG }}"
+               ```
+
+            ### 5. Push and open PR — special handling for Megatron-LM
+            Git credentials are already configured — push directly to origin for all NVIDIA-NeMo repos. Do NOT use forks for NVIDIA-NeMo repos.
+
+            **For all repos except NVIDIA/Megatron-LM:**
+            ```
+            git -C $GITHUB_WORKSPACE/<repo> push origin svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
+            gh pr create \
+              --repo <owner>/<repo> \
+              --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
+              --body "..." \
+              --base main \
+              --head svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
+            ```
+
+            **For NVIDIA/Megatron-LM only:**
+            Push to the fork `ko3n1g/Megatron-LM` and open a PR that targets upstream `NVIDIA/Megatron-LM`:
+            ```
+            git -C $GITHUB_WORKSPACE/Megatron-LM remote add fork https://github.com/ko3n1g/Megatron-LM.git
+            git -C $GITHUB_WORKSPACE/Megatron-LM push fork svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
+            gh pr create \
+              --repo NVIDIA/Megatron-LM \
+              --title "chore(beep boop 🤖): bump FW-CI-templates workflow pins to ${{ env.TAG }}" \
+              --body "..." \
+              --base main \
+              --head ko3n1g:svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }}
+            ```
+
+            ### 6. PR body template
+            Use this body for every PR:
+            ```
+            ## Bump FW-CI-templates workflow pins to ${{ env.TAG }}
+
+            This PR was opened automatically after the [${{ env.TAG }} release](https://github.com/NVIDIA-NeMo/FW-CI-templates/releases/tag/${{ env.TAG }}) of [NVIDIA-NeMo/FW-CI-templates](https://github.com/NVIDIA-NeMo/FW-CI-templates).
+
+            ### What changed
+            ${{ steps.release.outputs.body }}
+
+            ### Checklist
+            - [ ] Verify CI passes
+            ```
+
+            ### 7. Skip if PR already exists
+            Before creating a PR, check:
+            ```
+            gh pr list --repo <owner>/<repo> --head svcnvidia-nemo/chore/bump-fw-ci-templates-${{ env.TAG }} --json number
+            ```
+            If a PR already exists, skip that repo.
+
+            ### Final note
+            Print a summary at the end: list every repo you processed, whether a PR was
+            opened, skipped (no diff), or already existed.

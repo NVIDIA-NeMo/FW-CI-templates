@@ -21,6 +21,7 @@ on:
 jobs:
   identify-follow-up-issues:
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'NVIDIA-NeMo'  # Do not run on forked repositories.
     environment: main
     steps:
       - name: Checkout NVIDIA-NeMo/FW-CI-templates

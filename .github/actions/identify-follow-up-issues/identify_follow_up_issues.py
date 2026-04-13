@@ -35,8 +35,11 @@ import requests
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 GITHUB_REST_API_URL = "https://api.github.com"
 NEEDS_FOLLOWUP_LABEL = "needs-follow-up"
+WAITING_FOR_CUSTOMER_LABEL = "waiting-for-customer"
 LABEL_COLOR = "d93f0b"
 LABEL_DESCRIPTION = "Issue needs follow-up"
+WAITING_FOR_CUSTOMER_COLOR = "fbca04"
+WAITING_FOR_CUSTOMER_DESCRIPTION = "Waiting for response from the original author"
 
 
 def run_graphql_query(query: str, variables: dict, token: str) -> dict:
@@ -68,14 +71,17 @@ def run_graphql_query(query: str, variables: dict, token: str) -> dict:
     return result
 
 
-def ensure_label_exists(org: str, repo: str, token: str) -> bool:
-    """Ensure the 'needs-follow-up' label exists in the repository.
-
-    Creates it if it doesn't exist.
+def _ensure_label_exists(
+    org: str, repo: str, label_name: str, color: str, description: str, token: str
+) -> bool:
+    """Ensure a label exists in the repository, creating it if necessary.
 
     Args:
         org: GitHub organization name
         repo: Repository name
+        label_name: Name of the label
+        color: Hex color code for the label (without '#')
+        description: Description of the label
         token: GitHub personal access token
 
     Returns:
@@ -88,7 +94,7 @@ def ensure_label_exists(org: str, repo: str, token: str) -> bool:
     }
 
     # Check if label exists
-    url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/labels/{NEEDS_FOLLOWUP_LABEL}"
+    url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/labels/{label_name}"
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
@@ -98,14 +104,14 @@ def ensure_label_exists(org: str, repo: str, token: str) -> bool:
         # Label doesn't exist, create it
         create_url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/labels"
         label_data = {
-            "name": NEEDS_FOLLOWUP_LABEL,
-            "color": LABEL_COLOR,
-            "description": LABEL_DESCRIPTION,
+            "name": label_name,
+            "color": color,
+            "description": description,
         }
         create_response = requests.post(create_url, headers=headers, json=label_data)
 
         if create_response.status_code == 201:
-            print(f"  Created label '{NEEDS_FOLLOWUP_LABEL}' in {org}/{repo}")
+            print(f"  Created label '{label_name}' in {org}/{repo}")
             return True
         else:
             print(f"  Warning: Failed to create label in {org}/{repo}: {create_response.status_code}")
@@ -115,14 +121,22 @@ def ensure_label_exists(org: str, repo: str, token: str) -> bool:
     return False
 
 
-def add_label_to_issue(org: str, repo: str, issue_number: int, token: str) -> bool:
-    """Add the 'needs-follow-up' label to an issue.
+def ensure_label_exists(org: str, repo: str, token: str) -> bool:
+    """Ensure the 'needs-follow-up' label exists in the repository."""
+    return _ensure_label_exists(org, repo, NEEDS_FOLLOWUP_LABEL, LABEL_COLOR, LABEL_DESCRIPTION, token)
+
+
+def add_label_to_issue(
+    org: str, repo: str, issue_number: int, token: str, label: str = NEEDS_FOLLOWUP_LABEL
+) -> bool:
+    """Add a label to an issue or PR.
 
     Args:
         org: GitHub organization name
         repo: Repository name
         issue_number: Issue number
         token: GitHub personal access token
+        label: Label name to add (defaults to 'needs-follow-up')
 
     Returns:
         True if label was added successfully, False otherwise
@@ -134,7 +148,7 @@ def add_label_to_issue(org: str, repo: str, issue_number: int, token: str) -> bo
     }
 
     url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/issues/{issue_number}/labels"
-    response = requests.post(url, headers=headers, json={"labels": [NEEDS_FOLLOWUP_LABEL]})
+    response = requests.post(url, headers=headers, json={"labels": [label]})
     if response.status_code == 200:
         return True
     else:
@@ -142,14 +156,17 @@ def add_label_to_issue(org: str, repo: str, issue_number: int, token: str) -> bo
         return False
 
 
-def remove_label_from_issue(org: str, repo: str, issue_number: int, token: str) -> bool:
-    """Remove the 'needs-follow-up' label from an issue.
+def remove_label_from_issue(
+    org: str, repo: str, issue_number: int, token: str, label: str = NEEDS_FOLLOWUP_LABEL
+) -> bool:
+    """Remove a label from an issue or PR.
 
     Args:
         org: GitHub organization name
         repo: Repository name
         issue_number: Issue number
         token: GitHub personal access token
+        label: Label name to remove (defaults to 'needs-follow-up')
 
     Returns:
         True if label was removed successfully, False otherwise
@@ -160,7 +177,7 @@ def remove_label_from_issue(org: str, repo: str, issue_number: int, token: str) 
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/issues/{issue_number}/labels/{NEEDS_FOLLOWUP_LABEL}"
+    url = f"{GITHUB_REST_API_URL}/repos/{org}/{repo}/issues/{issue_number}/labels/{label}"
     response = requests.delete(url, headers=headers)
 
     if response.status_code in (200, 204):
@@ -206,6 +223,7 @@ def apply_labels_to_issues_needing_attention(issues: list[dict], org: str, token
         i for i in issues
         if i["needs_attention"]
         and not i["has_followup_label"]
+        and not i["has_waiting_for_customer_label"]
         and not (
             i["repo_name"] == "Megatron-LM"
             and i["item_type"] == "PullRequest"
@@ -283,6 +301,10 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
     print(f"\nRemoving '{NEEDS_FOLLOWUP_LABEL}' label from {len(issues_to_unlabel)} resolved issues...")
 
     removed_count = 0
+    waiting_count = 0
+
+    # Track repos where we've already ensured the waiting-for-customer label exists
+    repos_with_waiting_label: set[str] = set()
 
     for issue in issues_to_unlabel:
         repo = issue["repo_name"]
@@ -295,7 +317,60 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
         if remove_label_from_issue(repo_org, repo, issue_number, token):
             removed_count += 1
 
+            # Add waiting-for-customer if the item is still open (not closed/merged)
+            if issue.get("state") != "OPEN":
+                continue
+
+            # Ensure waiting-for-customer label exists in this repo
+            if repo not in repos_with_waiting_label:
+                if _ensure_label_exists(
+                    repo_org, repo, WAITING_FOR_CUSTOMER_LABEL,
+                    WAITING_FOR_CUSTOMER_COLOR, WAITING_FOR_CUSTOMER_DESCRIPTION, token
+                ):
+                    repos_with_waiting_label.add(repo)
+                else:
+                    continue
+
+            if add_label_to_issue(repo_org, repo, issue_number, token, WAITING_FOR_CUSTOMER_LABEL):
+                waiting_count += 1
+
     print(f"Successfully removed label from {removed_count} of {len(issues_to_unlabel)} issues.")
+    if waiting_count:
+        print(f"Added '{WAITING_FOR_CUSTOMER_LABEL}' label to {waiting_count} issues.")
+
+
+def remove_waiting_for_customer_label(issues: list[dict], org: str, token: str):
+    """Remove 'waiting-for-customer' label from items where the last commenter is the original author.
+
+    Args:
+        issues: List of issue dictionaries
+        org: GitHub organization name
+        token: GitHub personal access token
+    """
+    issues_to_unlabel = [
+        i for i in issues
+        if i["has_waiting_for_customer_label"]
+        and i["last_commenter"] == i["issue_author"]
+    ]
+
+    if not issues_to_unlabel:
+        print(f"No issues need the '{WAITING_FOR_CUSTOMER_LABEL}' label removed.")
+        return
+
+    print(f"\nRemoving '{WAITING_FOR_CUSTOMER_LABEL}' label from {len(issues_to_unlabel)} issues...")
+
+    removed_count = 0
+
+    for issue in issues_to_unlabel:
+        repo = issue["repo_name"]
+        issue_number = issue["issue_id"]
+        repo_org = get_repo_org(repo, org)
+
+        if remove_label_from_issue(repo_org, repo, issue_number, token, WAITING_FOR_CUSTOMER_LABEL):
+            removed_count += 1
+            issue["has_waiting_for_customer_label"] = False
+
+    print(f"Successfully removed '{WAITING_FOR_CUSTOMER_LABEL}' from {removed_count} of {len(issues_to_unlabel)} issues.")
 
 
 def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]:
@@ -461,6 +536,7 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
             labels = content.get("labels", {}).get("nodes", [])
             label_names = [label.get("name", "") for label in labels]
             has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
+            has_waiting_for_customer_label = WAITING_FOR_CUSTOMER_LABEL in label_names
 
             # Only include open issues/PRs
             if content.get("state") != "OPEN" and not has_followup_label:
@@ -581,11 +657,13 @@ def fetch_project_items(org: str, project_number: int, token: str) -> list[dict]
                 "last_comment_date": last_comment_date,
                 "needs_attention": needs_attention,
                 "has_followup_label": has_followup_label,
+                "has_waiting_for_customer_label": has_waiting_for_customer_label,
                 "is_approved": is_approved,
                 "last_approval_date": last_approval_date,
                 "last_approver": last_approver,
                 "target_branch": target_branch,
                 "is_draft": is_draft,
+                "state": content.get("state", ""),
             }
             items_list.append(item_dict)
 
@@ -635,6 +713,7 @@ def main():
     token = os.environ["GITHUB_TOKEN"]
     items = fetch_project_items(args.org, args.project_id, token)
     if args.update_labels:
+        remove_waiting_for_customer_label(items, args.org, token)
         apply_labels_to_issues_needing_attention(items, args.org, token)
         remove_labels_from_resolved_issues(items, args.org, token)
 

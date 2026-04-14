@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.89.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.88.1...v0.89.0) (2026-04-14)
+
+
+### Features
+
+* add waiting-for-customer label management to follow-up issues script ([#446](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/446)) ([ccdc488](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ccdc488d77b567a57efd8982bfd5622923922521))
+
 ## [0.88.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.88.0...v0.88.1) (2026-04-09)
 
 

@@ -301,6 +301,10 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
     print(f"\nRemoving '{NEEDS_FOLLOWUP_LABEL}' label from {len(issues_to_unlabel)} resolved issues...")
 
     removed_count = 0
+    waiting_count = 0
+
+    # Track repos where we've already ensured the waiting-for-customer label exists
+    repos_with_waiting_label: set[str] = set()
 
     for issue in issues_to_unlabel:
         repo = issue["repo_name"]
@@ -313,52 +317,26 @@ def remove_labels_from_resolved_issues(issues: list[dict], org: str, token: str)
         if remove_label_from_issue(repo_org, repo, issue_number, token):
             removed_count += 1
 
-    print(f"Successfully removed label from {removed_count} of {len(issues_to_unlabel)} issues.")
-
-
-def apply_waiting_for_customer_label(issues: list[dict], org: str, token: str):
-    """Add 'waiting-for-customer' label to open items where the last comment is from a non-author.
-
-    Args:
-        issues: List of issue dictionaries
-        org: GitHub organization name
-        token: GitHub personal access token
-    """
-    issues_to_label = [
-        i for i in issues
-        if i["state"] == "OPEN"
-        and not i["has_waiting_for_customer_label"]
-        and i["last_commenter"] != i["issue_author"]
-    ]
-
-    if not issues_to_label:
-        print(f"No issues need the '{WAITING_FOR_CUSTOMER_LABEL}' label added.")
-        return
-
-    print(f"\nApplying '{WAITING_FOR_CUSTOMER_LABEL}' label to {len(issues_to_label)} issues...")
-
-    repos_with_label: set[str] = set()
-    labeled_count = 0
-
-    for issue in issues_to_label:
-        repo = issue["repo_name"]
-        issue_number = issue["issue_id"]
-        repo_org = get_repo_org(repo, org)
-
-        if repo not in repos_with_label:
-            if _ensure_label_exists(
-                repo_org, repo, WAITING_FOR_CUSTOMER_LABEL,
-                WAITING_FOR_CUSTOMER_COLOR, WAITING_FOR_CUSTOMER_DESCRIPTION, token
-            ):
-                repos_with_label.add(repo)
-            else:
+            # Add waiting-for-customer if the item is still open (not closed/merged)
+            if issue.get("state") != "OPEN":
                 continue
 
-        if add_label_to_issue(repo_org, repo, issue_number, token, WAITING_FOR_CUSTOMER_LABEL):
-            labeled_count += 1
-            issue["has_waiting_for_customer_label"] = True
+            # Ensure waiting-for-customer label exists in this repo
+            if repo not in repos_with_waiting_label:
+                if _ensure_label_exists(
+                    repo_org, repo, WAITING_FOR_CUSTOMER_LABEL,
+                    WAITING_FOR_CUSTOMER_COLOR, WAITING_FOR_CUSTOMER_DESCRIPTION, token
+                ):
+                    repos_with_waiting_label.add(repo)
+                else:
+                    continue
 
-    print(f"Successfully added '{WAITING_FOR_CUSTOMER_LABEL}' to {labeled_count} of {len(issues_to_label)} issues.")
+            if add_label_to_issue(repo_org, repo, issue_number, token, WAITING_FOR_CUSTOMER_LABEL):
+                waiting_count += 1
+
+    print(f"Successfully removed label from {removed_count} of {len(issues_to_unlabel)} issues.")
+    if waiting_count:
+        print(f"Added '{WAITING_FOR_CUSTOMER_LABEL}' label to {waiting_count} issues.")
 
 
 def remove_waiting_for_customer_label(issues: list[dict], org: str, token: str):
@@ -736,7 +714,6 @@ def main():
     items = fetch_project_items(args.org, args.project_id, token)
     if args.update_labels:
         remove_waiting_for_customer_label(items, args.org, token)
-        apply_waiting_for_customer_label(items, args.org, token)
         apply_labels_to_issues_needing_attention(items, args.org, token)
         remove_labels_from_resolved_issues(items, args.org, token)
 

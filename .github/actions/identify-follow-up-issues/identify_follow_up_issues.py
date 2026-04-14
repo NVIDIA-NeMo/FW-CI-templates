@@ -736,9 +736,9 @@ def main():
     items = fetch_project_items(args.org, args.project_id, token)
     if args.update_labels:
         remove_waiting_for_customer_label(items, args.org, token)
+        apply_waiting_for_customer_label(items, args.org, token)
         apply_labels_to_issues_needing_attention(items, args.org, token)
         remove_labels_from_resolved_issues(items, args.org, token)
-        apply_waiting_for_customer_label(items, args.org, token)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.91.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.90.0...v0.91.0) (2026-04-15)
+
+
+### Features
+
+* add reusable _sync_skills workflow and CLAUDE.md ([#448](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/448)) ([eea9f2f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eea9f2fc8c88d2c3e0ea90b6e6d1cb1607595591))
+
+
+### Bug Fixes
+
+* Revert waiting-for-customer label ([#451](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/451)) ([4fdba94](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4fdba94afc980f46181655723e52335f8479bad5))
+
 ## [0.90.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.89.0...v0.90.0) (2026-04-14)
 
 

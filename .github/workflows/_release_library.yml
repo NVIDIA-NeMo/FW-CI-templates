@@ -154,6 +154,11 @@ on:
         description: Only allow repository admins to run this workflow
         type: boolean
         default: true
+      extra-no-build-isolation-packages:
+        required: false
+        description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
         required: true
@@ -217,7 +222,7 @@ jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
     needs: check-admin-permission
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.77.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.87.0
     if: |
       (
         success() || !failure()
@@ -238,6 +243,7 @@ jobs:
       root-dir: ${{ inputs.root-dir }}
       submodules: ${{ inputs.submodules }}
       container-options: ${{ inputs.container-options }}
+      extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}

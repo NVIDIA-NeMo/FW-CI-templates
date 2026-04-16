@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.93.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.92.0...v0.93.0) (2026-04-16)
+
+
+### Features
+
+* Bump workflow ([#455](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/455)) ([47578e0](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/47578e094bc078f151a368ae836320e89aa828bb))
+
 ## [0.92.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.91.0...v0.92.0) (2026-04-16)
 
 

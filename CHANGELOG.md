@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.92.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.91.0...v0.92.0) (2026-04-16)
+
+
+### Features
+
+* Add extra-no-build-isolation-packages input ([#453](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/453)) ([72d1163](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/72d1163d731f5a9f55939d8c2685a30c2d7018c1))
+
 ## [0.91.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.90.0...v0.91.0) (2026-04-15)
 
 

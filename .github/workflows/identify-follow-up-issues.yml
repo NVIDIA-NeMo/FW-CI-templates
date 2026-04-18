@@ -15,7 +15,7 @@
 name: Identify Follow Up Issues
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -33,3 +33,6 @@ jobs:
           github_token: ${{ secrets.PAT }}
           project_id: ${{ vars.COMMUNITY_PROJECT_ID }}
           org: ${{ vars.COMMUNITY_PROJECT_ORG }}
+          openai_base_url: ${{ secrets.ISSUES_OPENAI_BASE_URL }}
+          openai_api_key: ${{ secrets.ISSUES_OPENAI_API_KEY }}
+          llm_model: ${{ vars.ISSUES_LLM_MODEL }}

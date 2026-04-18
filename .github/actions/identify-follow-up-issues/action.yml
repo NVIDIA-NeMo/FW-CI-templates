@@ -25,6 +25,15 @@ inputs:
   org:
     description: GitHub organization name
     required: true
+  openai_base_url:
+    description: Base URL for the OpenAI-compatible API
+    required: true
+  openai_api_key:
+    description: API key for the LLM endpoint
+    required: true
+  llm_model:
+    description: Model name to use for classification
+    required: true
 
 runs:
   using: 'composite'
@@ -35,6 +44,9 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         PROJECT_ID: ${{ inputs.project_id }}
         ORG: ${{ inputs.org }}
+        OPENAI_BASE_URL: ${{ inputs.openai_base_url }}
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        LLM_MODEL: ${{ inputs.llm_model }}
       run: |
-        pip install requests
+        pip install requests openai
         python ${GITHUB_ACTION_PATH}/identify_follow_up_issues.py --project-id $PROJECT_ID --org $ORG --update-labels

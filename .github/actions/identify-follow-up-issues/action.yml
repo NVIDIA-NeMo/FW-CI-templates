@@ -48,5 +48,5 @@ runs:
         OPENAI_API_KEY: ${{ inputs.openai_api_key }}
         LLM_MODEL: ${{ inputs.llm_model }}
       run: |
-        pip install requests
+        pip install requests openai
         python ${GITHUB_ACTION_PATH}/identify_follow_up_issues.py --project-id $PROJECT_ID --org $ORG --update-labels

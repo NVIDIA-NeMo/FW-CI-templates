@@ -281,8 +281,9 @@ def update_labels(issues: list[dict], org: str, token: str):
             if remove_label_from_issue(repo_org, repo, issue_number, NEEDS_FOLLOWUP_LABEL, token):
                 followup_removed += 1
 
-        # Handle waiting-on-customer label
-        if classification == "waiting-on-author" and not issue["has_waiting_on_customer_label"] and not excluded:
+        # Handle waiting-on-customer label (mutually exclusive with needs-follow-up)
+        wants_waiting_label = classification == "waiting-on-author" and not issue["needs_attention"] and not excluded
+        if wants_waiting_label and not issue["has_waiting_on_customer_label"]:
             if repo not in repos_with_waiting_label:
                 if ensure_label_exists(repo_org, repo, WAITING_ON_CUSTOMER_LABEL, WAITING_ON_CUSTOMER_COLOR, WAITING_ON_CUSTOMER_DESCRIPTION, token):
                     repos_with_waiting_label.add(repo)
@@ -290,7 +291,7 @@ def update_labels(issues: list[dict], org: str, token: str):
                     continue
             if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_CUSTOMER_LABEL, token):
                 waiting_added += 1
-        elif issue["has_waiting_on_customer_label"] and classification != "waiting-on-author":
+        elif issue["has_waiting_on_customer_label"] and not wants_waiting_label:
             if remove_label_from_issue(repo_org, repo, issue_number, WAITING_ON_CUSTOMER_LABEL, token):
                 waiting_removed += 1
 
@@ -533,12 +534,20 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 for login, date, body in reversed(non_bot_activity[:5])
             ]
 
-            # Get target branch and draft status for PRs
+            # Get target branch, draft status, and approval info for PRs
             target_branch = ""
             is_draft = False
+            last_approval_date = ""
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
                 is_draft = content.get("isDraft", False)
+
+                # Find the latest approval date
+                for review in content.get("reviews", {}).get("nodes", []):
+                    if review.get("state") == "APPROVED":
+                        submitted = review.get("submittedAt", "")
+                        if submitted > last_approval_date:
+                            last_approval_date = submitted
 
             repo_name = content.get("repository", {}).get("name", "")
             issue_number = content.get("number")
@@ -563,6 +572,7 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 "has_waiting_on_customer_label": has_waiting_on_customer_label,
                 "target_branch": target_branch,
                 "is_draft": is_draft,
+                "last_approval_date": last_approval_date,
             }
 
             # Classify with LLM — skip closed items
@@ -577,7 +587,15 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
                 is_stale = comment_dt < datetime.now(timezone.utc) - timedelta(hours=48)
                 item_dict["needs_attention"] = classification == "waiting-on-maintainers" and is_stale
-                print(f"  {item_dict['url']}: {classification} (stale={is_stale})")
+
+                # Approved PRs not merged after 48 hours always need follow-up
+                if item_type == "PullRequest" and last_approval_date:
+                    approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
+                    approval_stale = approval_dt < datetime.now(timezone.utc) - timedelta(hours=48)
+                    if approval_stale:
+                        item_dict["needs_attention"] = True
+
+                print(f"  {item_dict['url']}: {classification} (stale={is_stale}, approved_unmerged={'48h+' if item_type == 'PullRequest' and last_approval_date and item_dict['needs_attention'] else 'n/a'})")
 
             items_list.append(item_dict)
 

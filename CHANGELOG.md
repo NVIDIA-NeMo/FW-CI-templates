@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.94.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.93.0...v0.94.0) (2026-04-21)
+
+
+### Features
+
+* Replace needs-follow-up label with waiting-on-maintainers ([#460](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/460)) ([797c2ab](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/797c2abf7b3edfb35af573159b3e993870265eb7))
+* Use LLM for identifying follow-up issues ([#457](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/457)) ([e1995c1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e1995c1b5afc1fc50140aefec426b531b5163c13))
+
 ## [0.93.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.92.0...v0.93.0) (2026-04-16)
 
 

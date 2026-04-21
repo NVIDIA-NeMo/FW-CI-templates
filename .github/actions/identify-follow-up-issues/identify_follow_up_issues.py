@@ -16,7 +16,7 @@
 
 Uses the latest comment or review comment on each issue/PR to determine whether
 the item is waiting on the original author or waiting on maintainers. Items
-waiting on maintainers receive the 'needs-follow-up' label.
+waiting on maintainers receive the 'waiting-on-maintainers' label.
 
 Requires the following environment variables:
 - GITHUB_TOKEN: GitHub Personal Access Token
@@ -34,9 +34,11 @@ import requests
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 GITHUB_REST_API_URL = "https://api.github.com"
-NEEDS_FOLLOWUP_LABEL = "needs-follow-up"
-NEEDS_FOLLOWUP_COLOR = "d93f0b"
-NEEDS_FOLLOWUP_DESCRIPTION = "Issue needs follow-up"
+DEPRECATED_NEEDS_FOLLOWUP_LABEL = "needs-follow-up"  # Old label to migrate away from
+
+WAITING_ON_MAINTAINERS_LABEL = "waiting-on-maintainers"
+WAITING_ON_MAINTAINERS_COLOR = "d93f0b"
+WAITING_ON_MAINTAINERS_DESCRIPTION = "Waiting on maintainers to respond"
 
 WAITING_ON_CUSTOMER_LABEL = "waiting-on-customer"
 WAITING_ON_CUSTOMER_COLOR = "c2e0c6"
@@ -248,18 +250,19 @@ def _is_excluded(item: dict) -> bool:
 def update_labels(issues: list[dict], org: str, token: str):
     """Update labels on all issues based on LLM classification.
 
-    - waiting-on-maintainers (needs_attention=True): add needs-follow-up, remove waiting-on-customer
-    - waiting-on-author (needs_attention=False): add waiting-on-customer, remove needs-follow-up
+    - waiting-on-maintainers (needs_attention=True): add waiting-on-maintainers, remove waiting-on-customer
+    - waiting-on-author (needs_attention=False): add waiting-on-customer, remove waiting-on-maintainers
     - Excluded items (Megatron-LM dev PRs, draft PRs): remove both labels
+    - Migration: remove deprecated 'needs-follow-up' label wherever found
     """
-    # Track repos where we've already ensured each label exists
-    repos_with_followup_label: set[str] = set()
+    repos_with_maintainers_label: set[str] = set()
     repos_with_waiting_label: set[str] = set()
 
-    followup_added = 0
-    followup_removed = 0
+    maintainers_added = 0
+    maintainers_removed = 0
     waiting_added = 0
     waiting_removed = 0
+    deprecated_removed = 0
 
     for issue in issues:
         repo = issue["repo_name"]
@@ -268,20 +271,25 @@ def update_labels(issues: list[dict], org: str, token: str):
         excluded = _is_excluded(issue)
         classification = issue.get("classification", "")
 
-        # Handle needs-follow-up label
-        if issue["needs_attention"] and not issue["has_followup_label"] and not excluded:
-            if repo not in repos_with_followup_label:
-                if ensure_label_exists(repo_org, repo, NEEDS_FOLLOWUP_LABEL, NEEDS_FOLLOWUP_COLOR, NEEDS_FOLLOWUP_DESCRIPTION, token):
-                    repos_with_followup_label.add(repo)
+        # Migration: remove deprecated 'needs-follow-up' label
+        if issue.get("has_deprecated_label"):
+            if remove_label_from_issue(repo_org, repo, issue_number, DEPRECATED_NEEDS_FOLLOWUP_LABEL, token):
+                deprecated_removed += 1
+
+        # Handle waiting-on-maintainers label
+        if issue["needs_attention"] and not issue["has_maintainers_label"] and not excluded:
+            if repo not in repos_with_maintainers_label:
+                if ensure_label_exists(repo_org, repo, WAITING_ON_MAINTAINERS_LABEL, WAITING_ON_MAINTAINERS_COLOR, WAITING_ON_MAINTAINERS_DESCRIPTION, token):
+                    repos_with_maintainers_label.add(repo)
                 else:
                     continue
-            if add_label_to_issue(repo_org, repo, issue_number, NEEDS_FOLLOWUP_LABEL, token):
-                followup_added += 1
-        elif issue["has_followup_label"] and (not issue["needs_attention"] or excluded):
-            if remove_label_from_issue(repo_org, repo, issue_number, NEEDS_FOLLOWUP_LABEL, token):
-                followup_removed += 1
+            if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
+                maintainers_added += 1
+        elif issue["has_maintainers_label"] and (not issue["needs_attention"] or excluded):
+            if remove_label_from_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
+                maintainers_removed += 1
 
-        # Handle waiting-on-customer label (mutually exclusive with needs-follow-up)
+        # Handle waiting-on-customer label (mutually exclusive with waiting-on-maintainers)
         wants_waiting_label = classification == "waiting-on-author" and not issue["needs_attention"] and not excluded
         if wants_waiting_label and not issue["has_waiting_on_customer_label"]:
             if repo not in repos_with_waiting_label:
@@ -295,7 +303,9 @@ def update_labels(issues: list[dict], org: str, token: str):
             if remove_label_from_issue(repo_org, repo, issue_number, WAITING_ON_CUSTOMER_LABEL, token):
                 waiting_removed += 1
 
-    print(f"\n'{NEEDS_FOLLOWUP_LABEL}': added={followup_added}, removed={followup_removed}")
+    if deprecated_removed:
+        print(f"\nMigration: removed deprecated '{DEPRECATED_NEEDS_FOLLOWUP_LABEL}' from {deprecated_removed} issues")
+    print(f"'{WAITING_ON_MAINTAINERS_LABEL}': added={maintainers_added}, removed={maintainers_removed}")
     print(f"'{WAITING_ON_CUSTOMER_LABEL}': added={waiting_added}, removed={waiting_removed}")
 
 
@@ -457,11 +467,12 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             # Check if item already has managed labels
             labels = content.get("labels", {}).get("nodes", [])
             label_names = [label.get("name", "") for label in labels]
-            has_followup_label = NEEDS_FOLLOWUP_LABEL in label_names
+            has_maintainers_label = WAITING_ON_MAINTAINERS_LABEL in label_names
             has_waiting_on_customer_label = WAITING_ON_CUSTOMER_LABEL in label_names
+            has_deprecated_label = DEPRECATED_NEEDS_FOLLOWUP_LABEL in label_names
 
-            # Only include open issues/PRs
-            if content.get("state") != "OPEN" and not has_followup_label and not has_waiting_on_customer_label:
+            # Only include open issues/PRs (also include closed items with labels to clean up)
+            if content.get("state") != "OPEN" and not has_maintainers_label and not has_waiting_on_customer_label and not has_deprecated_label:
                 continue
 
             # Get author info
@@ -568,8 +579,9 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 "last_commenter": last_commenter,
                 "last_comment_date": last_comment_date,
                 "recent_comments": recent_comments,
-                "has_followup_label": has_followup_label,
+                "has_maintainers_label": has_maintainers_label,
                 "has_waiting_on_customer_label": has_waiting_on_customer_label,
+                "has_deprecated_label": has_deprecated_label,
                 "target_branch": target_branch,
                 "is_draft": is_draft,
                 "last_approval_date": last_approval_date,
@@ -620,8 +632,11 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
     print(f"Found {len(items_list)} open items ({issue_count} issues, {pr_count} PRs)")
     needs_attention_count = sum(1 for i in items_list if i["needs_attention"])
     print(f"Items needing attention (waiting-on-maintainers): {needs_attention_count}")
-    has_label_count = sum(1 for i in items_list if i["has_followup_label"])
-    print(f"Items with '{NEEDS_FOLLOWUP_LABEL}' label: {has_label_count}")
+    has_label_count = sum(1 for i in items_list if i["has_maintainers_label"])
+    print(f"Items with '{WAITING_ON_MAINTAINERS_LABEL}' label: {has_label_count}")
+    deprecated_count = sum(1 for i in items_list if i.get("has_deprecated_label"))
+    if deprecated_count:
+        print(f"Items with deprecated '{DEPRECATED_NEEDS_FOLLOWUP_LABEL}' label to migrate: {deprecated_count}")
     return items_list
 
 
@@ -642,10 +657,11 @@ def write_debug_csv(items: list[dict], org: str, output_path: str):
         "author",
         "last_commenter",
         "classification",
-        "has_followup_label",
-        "followup_action",
+        "has_maintainers_label",
+        "maintainers_action",
         "has_waiting_on_customer_label",
         "waiting_on_customer_action",
+        "has_deprecated_label",
     ]
 
     with open(output_path, "w", newline="") as f:
@@ -656,18 +672,19 @@ def write_debug_csv(items: list[dict], org: str, output_path: str):
             excluded = _is_excluded(item)
             classification = item.get("classification", "")
 
-            # Determine needs-follow-up action
-            if item.get("needs_attention") and not item["has_followup_label"] and not excluded:
-                followup_action = "add-label"
-            elif item["has_followup_label"] and (not item.get("needs_attention") or excluded):
-                followup_action = "remove-label"
+            # Determine waiting-on-maintainers action
+            if item.get("needs_attention") and not item["has_maintainers_label"] and not excluded:
+                maintainers_action = "add-label"
+            elif item["has_maintainers_label"] and (not item.get("needs_attention") or excluded):
+                maintainers_action = "remove-label"
             else:
-                followup_action = "no-change"
+                maintainers_action = "no-change"
 
-            # Determine waiting-on-customer action
-            if classification == "waiting-on-author" and not item["has_waiting_on_customer_label"] and not excluded:
+            # Determine waiting-on-customer action (mutually exclusive with waiting-on-maintainers)
+            wants_waiting = classification == "waiting-on-author" and not item.get("needs_attention") and not excluded
+            if wants_waiting and not item["has_waiting_on_customer_label"]:
                 waiting_action = "add-label"
-            elif item["has_waiting_on_customer_label"] and classification != "waiting-on-author":
+            elif item["has_waiting_on_customer_label"] and not wants_waiting:
                 waiting_action = "remove-label"
             else:
                 waiting_action = "no-change"
@@ -681,17 +698,18 @@ def write_debug_csv(items: list[dict], org: str, output_path: str):
                 "author": item["issue_author"],
                 "last_commenter": item["last_commenter"],
                 "classification": classification,
-                "has_followup_label": item["has_followup_label"],
-                "followup_action": followup_action,
+                "has_maintainers_label": item["has_maintainers_label"],
+                "maintainers_action": maintainers_action,
                 "has_waiting_on_customer_label": item["has_waiting_on_customer_label"],
                 "waiting_on_customer_action": waiting_action,
+                "has_deprecated_label": item.get("has_deprecated_label", False),
             })
 
     print(f"Debug CSV written to {output_path}")
 
 
 def main():
-    """Classify issues/PRs and manage the 'needs-follow-up' label using LLM classification."""
+    """Classify issues/PRs and manage waiting-on-maintainers/waiting-on-customer labels using LLM classification."""
     parser = argparse.ArgumentParser(
         description="Classify issues/PRs as waiting-on-author or waiting-on-maintainers using an LLM"
     )
@@ -710,7 +728,7 @@ def main():
     parser.add_argument(
         "--update-labels",
         action="store_true",
-        help="Add or remove the 'needs-follow-up' label based on LLM classification",
+        help="Update waiting-on-maintainers and waiting-on-customer labels based on LLM classification",
     )
     parser.add_argument(
         "--debug",

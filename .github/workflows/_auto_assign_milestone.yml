@@ -1,0 +1,93 @@
+# Copyright (c) 2020-2026, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Auto-assign Milestone
+
+on:
+  workflow_call:
+    secrets:
+      PAT:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  assign-milestone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Check if PR has milestone
+        id: check-milestone
+        env:
+          GH_TOKEN: ${{ secrets.PAT || github.token }}
+        run: |
+          MILESTONE=$(gh pr view ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number }} \
+            --repo ${{ github.repository }} \
+            --json milestone \
+            --jq '.milestone.title')
+
+          if [ "$MILESTONE" = "null" ] || [ -z "$MILESTONE" ]; then
+            echo "has_milestone=false" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "has_milestone=true" | tee -a "$GITHUB_OUTPUT"
+            echo "PR already has milestone: $MILESTONE"
+          fi
+
+      - name: Get most recent open milestone
+        if: steps.check-milestone.outputs.has_milestone == 'false'
+        id: get-milestone
+        env:
+          GH_TOKEN: ${{ secrets.PAT || github.token }}
+        run: |
+          MILESTONE_NUMBER=$(gh api \
+            "repos/${{ github.repository }}/milestones?state=open&sort=due_on&direction=desc" \
+            --jq '.[0].number')
+
+          MILESTONE_TITLE=$(gh api \
+            "repos/${{ github.repository }}/milestones?state=open&sort=due_on&direction=desc" \
+            --jq '.[0].title')
+
+          if [ -z "$MILESTONE_NUMBER" ] || [ "$MILESTONE_NUMBER" = "null" ]; then
+            echo "No open milestones found"
+            echo "milestone_found=false" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "milestone_found=true" | tee -a "$GITHUB_OUTPUT"
+            echo "milestone_number=$MILESTONE_NUMBER" | tee -a "$GITHUB_OUTPUT"
+            echo "milestone_title=$MILESTONE_TITLE" | tee -a "$GITHUB_OUTPUT"
+            echo "Found milestone: $MILESTONE_TITLE (number: $MILESTONE_NUMBER)"
+          fi
+
+      - name: Assign milestone to PR
+        if: steps.check-milestone.outputs.has_milestone == 'false' && steps.get-milestone.outputs.milestone_found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT || github.token }}
+          PR_NUMBER: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number }}
+          MILESTONE_NUMBER: ${{ steps.get-milestone.outputs.milestone_number }}
+          MILESTONE_TITLE: ${{ steps.get-milestone.outputs.milestone_title }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}" \
+            --method PATCH \
+            --field milestone="${MILESTONE_NUMBER}"
+
+          echo "Assigned milestone '${MILESTONE_TITLE}' to PR #${PR_NUMBER}"

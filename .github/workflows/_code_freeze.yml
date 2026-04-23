@@ -192,9 +192,40 @@ jobs:
           signoff: true
           assignees: okoenig
 
+  create-milestone:
+    runs-on: ubuntu-latest
+    needs: [create-release-branch]
+    steps:
+      - name: Create next milestone
+        if: ${{ inputs.dry-run != true }}
+        env:
+          GH_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+        run: |
+          LATEST=$(gh api --paginate \
+            "repos/${{ github.repository }}/milestones?state=all&per_page=100" \
+            --jq '.[].title' \
+            | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
+            | sort -V \
+            | tail -1)
+
+          if [[ -z "$LATEST" ]]; then
+            echo "No semver milestone found; skipping creation."
+            exit 0
+          fi
+
+          MAJOR=$(echo "$LATEST" | cut -d. -f1)
+          MINOR=$(echo "$LATEST" | cut -d. -f2)
+          NEXT_VERSION="${MAJOR}.$(( MINOR + 1 )).0"
+
+          echo "Latest milestone: $LATEST → creating $NEXT_VERSION"
+
+          gh api "repos/${{ github.repository }}/milestones" \
+            --method POST \
+            --field title="$NEXT_VERSION"
+
   notify:
     runs-on: ubuntu-latest
-    needs: [create-release-branch, bump-next-version]
+    needs: [create-release-branch, bump-next-version, create-milestone]
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

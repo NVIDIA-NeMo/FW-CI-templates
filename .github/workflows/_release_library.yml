@@ -222,7 +222,7 @@ jobs:
   build-test-publish-wheel-dry-run:
     name: Build test publish wheel (dry run)
     needs: check-admin-permission
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.87.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.88.1
     if: |
       (
         success() || !failure()
@@ -499,7 +499,7 @@ jobs:
           git push -d origin ${{ env.TMP_BRANCH }}
 
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.87.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.88.1
     needs: bump-next-version
     if: |
       (

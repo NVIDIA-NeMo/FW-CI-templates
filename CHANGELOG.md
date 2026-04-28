@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.94.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.0...v0.94.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* bump _build_test_publish_wheel.yml to v0.88.1 in _release_library.yml ([#464](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/464)) ([e2db37d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e2db37d379822988147452aa2dc10d0ae491ff62))
+
 ## [0.94.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.93.0...v0.94.0) (2026-04-21)
 
 

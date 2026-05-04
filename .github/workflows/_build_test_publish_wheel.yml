@@ -16,11 +16,6 @@ name: Build, test, and publish a PyPi wheel
 on:
   workflow_call:
     inputs:
-      dry-run:
-        required: false
-        description: Upload to PyPy Test instance
-        type: boolean
-        default: true
       python-package:
         type: string
         description: Name of Python package
@@ -91,9 +86,9 @@ on:
         default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
+        required: false
       TWINE_PASSWORD:
-        required: true
+        required: false
       SLACK_WEBHOOK_ADMIN:
         required: false
       SLACK_WEBHOOK:
@@ -123,7 +118,6 @@ jobs:
       name: ${{ steps.build.outputs.name }}
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
-      DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
       ROOTDIR: ${{ inputs.root-dir }}
       EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
@@ -200,18 +194,6 @@ jobs:
               fi
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
-          fi
-
-          # If this is a dry run, update the patch version to a random number to upload to test-pypi
-          if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
-              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" "$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-            else
-              RANDOM_DEV=$((RANDOM % 9000 + 1000))
-              pip install hatch
-              VERSION=$(hatch version)$RANDOM_DEV
-              hatch version $VERSION
-            fi
           fi
 
           # Build the wheel
@@ -339,8 +321,51 @@ jobs:
             exit 1
           fi
 
+  validate-wheel:
+    needs: build-wheel
+    runs-on: ubuntu-latest
+    env:
+      PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.ref }}
+
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
+          path: dist/
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install validators
+        run: |
+          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest
+
+      - name: twine check
+        run: |
+          python3 -m twine check dist/*
+
+      - name: check-wheel-contents
+        run: |
+          check-wheel-contents dist/*.whl
+
+      - name: check-manifest
+        if: inputs.packaging == 'setuptools'
+        run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          check-manifest -v
+
   publish-wheel:
-    needs: test-wheel
+    needs: [test-wheel, validate-wheel]
     runs-on: ubuntu-latest
     if: |
       inputs.no-publish == false &&
@@ -348,7 +373,7 @@ jobs:
         inputs.skip-test-wheel == false || !cancelled()
       )
     environment:
-      name: ${{ inputs.dry-run && 'public' || 'main' }}
+      name: main
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v7
@@ -356,18 +381,13 @@ jobs:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
-      - name: Validate wheel
-        run: |
-          python3 -m pip install --upgrade twine==6.0.1
-          python3 -m twine check dist/*
-
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-          REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
         run: |
-          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+          python3 -m pip install --upgrade twine==6.0.1
+          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository pypi dist/*
 
   notify:
     runs-on: ubuntu-latest

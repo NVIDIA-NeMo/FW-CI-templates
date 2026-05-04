@@ -40,6 +40,11 @@ on:
         type: boolean
         required: true
         description: Do not publish a wheel and GitHub release.
+      validate-only:
+        type: boolean
+        required: false
+        default: false
+        description: Run all release steps in compute-only mode — no pushes, no PRs, no PyPI, no GH release, no docs publish. Used by per-PR rehearsals.
       version-bump-branch:
         type: string
         required: false
@@ -161,37 +166,37 @@ on:
         default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
+        required: false
       TWINE_PASSWORD:
-        required: true
+        required: false
       SLACK_WEBHOOK_ADMIN:
-        required: true
+        required: false
       SLACK_WEBHOOK:
-        required: true
+        required: false
       PAT:
-        required: true
+        required: false
       SSH_KEY:
         required: false
       SSH_PWD:
         required: false
       BOT_KEY:
-        required: true
+        required: false
       AWS_ASSUME_ROLE_ARN:
-        required: true
+        required: false
       AWS_ACCESS_KEY_ID:
-        required: true
+        required: false
       AWS_SECRET_ACCESS_KEY:
-        required: true
+        required: false
       AKAMAI_HOST:
-        required: true
+        required: false
       AKAMAI_CLIENT_TOKEN:
-        required: true
+        required: false
       AKAMAI_CLIENT_SECRET:
-        required: true
+        required: false
       AKAMAI_ACCESS_TOKEN:
-        required: true
+        required: false
       S3_BUCKET_NAME:
-        required: true
+        required: false
 
 permissions:
   contents: write # To read repository content
@@ -200,7 +205,7 @@ permissions:
 jobs:
   check-admin-permission:
     runs-on: ubuntu-latest
-    if: inputs.restrict-to-admins == true
+    if: inputs.restrict-to-admins == true && inputs.validate-only == false
     steps:
       - name: Check if user has admin permission
         uses: actions/github-script@v7
@@ -219,41 +224,10 @@ jobs:
               core.setFailed(`User ${context.actor} does not have admin permission (has: ${permission}). Only admins can release.`);
             }
 
-  build-test-publish-wheel-dry-run:
-    name: Build test publish wheel (dry run)
-    needs: check-admin-permission
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.88.1
-    if: |
-      (
-        success() || !failure()
-      )
-      && !cancelled()
-      && inputs.dry-run == false
-    with:
-      dry-run: true
-      python-package: ${{ inputs.python-package }}
-      python-version: ${{ inputs.python-version }}
-      ref: ${{ inputs.release-ref }}
-      packaging: ${{ inputs.packaging }}
-      has-src-dir: ${{ inputs.has-src-dir }}
-      skip-test-wheel: ${{ inputs.skip-test-wheel }}
-      custom-container: ${{ inputs.custom-container }}
-      runner: ${{ inputs.runner }}
-      no-build-isolation: ${{ inputs.no-build-isolation }}
-      root-dir: ${{ inputs.root-dir }}
-      submodules: ${{ inputs.submodules }}
-      container-options: ${{ inputs.container-options }}
-      extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-
   bump-next-version:
     runs-on: ubuntu-latest
-    environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
-    needs: [check-admin-permission, build-test-publish-wheel-dry-run]
+    environment: main
+    needs: [check-admin-permission]
     if: |
       !inputs.skip-version-bump
       && (
@@ -261,12 +235,14 @@ jobs:
       )
       && !cancelled()
     env:
-      IS_DRY_RUN: ${{ inputs.dry-run }}
+      IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
+      IS_VALIDATE_ONLY: ${{ inputs.validate-only }}
       PYPROJECT_NAME: ${{ inputs.python-package }}
       SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
       PACKAGING: ${{ inputs.packaging }}
     steps:
       - uses: actions/create-github-app-token@v2
+        if: inputs.validate-only == false
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
@@ -276,15 +252,17 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ inputs.release-ref }}
 
       - name: Install GPG
+        if: inputs.validate-only == false
         run: sudo apt-get install -y gnupg2
 
       - name: Import GPG key (for signing)
+        if: inputs.validate-only == false
         uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
         id: gpg-action
         with:
@@ -357,7 +335,14 @@ jobs:
             echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
           fi
 
+      - name: Record computed version (validate-only)
+        if: inputs.validate-only == true
+        run: |
+          echo "Computed next version: v${{ steps.bump-version.outputs.version }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "validate-only=true → skipping branch push, PR creation, status-check wait, merge, and branch delete." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Create and push deployment branch
+        if: inputs.validate-only == false
         env:
           PYPROJECT_NAME: ${{ inputs.python-package }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -383,6 +368,7 @@ jobs:
             --body "This is an automated PR to bump ${{ inputs.library-name }}:${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}."
 
       - name: Wait for status checks on tmp branch
+        if: inputs.validate-only == false
         uses: actions/github-script@v8
         id: wait-status
         with:
@@ -451,6 +437,7 @@ jobs:
             }
 
       - name: Merge into ${{ inputs.version-bump-branch }}
+        if: inputs.validate-only == false
         run: |
           cd ${{ github.run_id }}
 
@@ -459,7 +446,7 @@ jobs:
 
           CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
 
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
+          if [[ "$IS_INERT" == "true" ]]; then
             echo "dry-run enabled, would have run: $CMD"
           else
             # Here we account for potential race conditions from multiple concurrent releases.
@@ -493,13 +480,13 @@ jobs:
           fi
 
       - name: Delete ${{ env.TMP_BRANCH }} branch
-        if: always()
+        if: always() && inputs.validate-only == false && env.TMP_BRANCH != ''
         run: |
           cd ${{ github.run_id }}
           git push -d origin ${{ env.TMP_BRANCH }}
 
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.88.1
+    uses: ./.github/workflows/_build_test_publish_wheel.yml
     needs: bump-next-version
     if: |
       (
@@ -507,7 +494,7 @@ jobs:
       )
       && !cancelled()
     with:
-      dry-run: ${{ inputs.dry-run }}
+      no-publish: ${{ inputs.validate-only || inputs.dry-run }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
@@ -519,7 +506,7 @@ jobs:
       no-build-isolation: ${{ inputs.no-build-isolation }}
       root-dir: ${{ inputs.root-dir }}
       submodules: ${{ inputs.submodules }}
-      container-options: ${{ inputs.container-options }}      
+      container-options: ${{ inputs.container-options }}
       extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
@@ -530,7 +517,7 @@ jobs:
   create-gh-release:
     needs: [build-test-publish-wheel]
     runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
     if: |
       (
         success() || !failure()
@@ -601,8 +588,8 @@ jobs:
         id: version-number
         env:
           SHA: ${{ inputs.release-ref }}
-          GH_TOKEN: ${{ secrets.PAT }}
-          IS_DRY_RUN: ${{ inputs.dry-run }}
+          GH_TOKEN: ${{ secrets.PAT || '' }}
+          IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
           BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
         run: |
           cd ${{ github.run_id }}
@@ -652,7 +639,7 @@ jobs:
             -d @payload.txt
           ')
 
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
+          if [[ "$IS_INERT" == "true" ]]; then
             echo -E "$CMD"
           else
             eval "$CMD"
@@ -661,6 +648,12 @@ jobs:
   notify:
     needs: [build-test-publish-wheel, create-gh-release]
     runs-on: ubuntu-latest
+    if: |
+      (
+        success() || !failure()
+      )
+      && inputs.validate-only == false
+      && !cancelled()
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
@@ -709,6 +702,7 @@ jobs:
         success() || !failure()
       )
       && inputs.publish-docs == true
+      && inputs.validate-only == false
       && !cancelled()
     env:
       VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}

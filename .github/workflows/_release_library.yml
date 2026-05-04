@@ -607,9 +607,11 @@ jobs:
           elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
             DATE=$(date +"%Y-%m-%d")
             CHANGELOG="Prerelease: $NAME ($DATE)"
-          else
+          elif [[ -f CHANGELOG.md ]]; then
             CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
             CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+          else
+            CHANGELOG="Release: $NAME"
           fi
 
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"

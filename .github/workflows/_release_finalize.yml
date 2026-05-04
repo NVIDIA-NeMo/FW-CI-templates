@@ -1,0 +1,347 @@
+# Copyright (c) 2020-2026, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "Release: finalize (GH release + docs + notify)"
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+on:
+  workflow_call:
+    inputs:
+      release-ref:
+        required: true
+        type: string
+      release-version:
+        required: true
+        type: string
+        description: The version being released (typically the bump output's release-version).
+      library-name:
+        required: true
+        type: string
+      pypi-name:
+        required: false
+        type: string
+        default: ""
+        description: PyPI project name (only used to build the Slack notification URL). Empty hides the PyPi link.
+      validate-only:
+        required: false
+        type: boolean
+        default: false
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+      create-gh-release:
+        required: false
+        type: boolean
+        default: true
+      gh-release-tag-prefix:
+        required: false
+        type: string
+        default: ""
+      gh-release-use-changelog-builder:
+        required: false
+        type: boolean
+        default: false
+      gh-release-changelog-config:
+        required: false
+        type: string
+        default: ".github/workflows/config/changelog-config.json"
+      gh-release-changelog-included-paths:
+        required: false
+        type: string
+        default: ""
+      gh-release-from-tag:
+        required: false
+        type: string
+        default: ""
+      gh-release-changelog-mode:
+        required: false
+        type: string
+        default: PR
+      publish-docs:
+        required: false
+        type: boolean
+        default: true
+      docs-target-path:
+        required: false
+        type: string
+        default: ""
+      docs-project-type:
+        required: false
+        type: string
+        default: single-docset
+      notify-emails:
+        required: false
+        type: string
+        default: ""
+      root-dir:
+        required: false
+        type: string
+        default: "./"
+    secrets:
+      PAT:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      SLACK_WEBHOOK_ADMIN:
+        required: false
+      AWS_ASSUME_ROLE_ARN:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AKAMAI_HOST:
+        required: false
+      AKAMAI_CLIENT_TOKEN:
+        required: false
+      AKAMAI_CLIENT_SECRET:
+        required: false
+      AKAMAI_ACCESS_TOKEN:
+        required: false
+      S3_BUCKET_NAME:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  create-gh-release:
+    runs-on: ubuntu-latest
+    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+    if: |
+      inputs.create-gh-release == true
+      && !cancelled()
+    outputs:
+      is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
+    env:
+      REPOSITORY: ${{ github.repository }}
+      PROJECT_NAME: ${{ inputs.library-name }}
+      VERSION: ${{ inputs.release-version }}
+      TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.release-ref }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine fromTag for changelog
+        id: determine-from-tag
+        if: inputs.gh-release-use-changelog-builder == true
+        run: |
+          cd ${{ github.run_id }}
+
+          if [[ -n "${{ inputs.gh-release-from-tag }}" ]]; then
+            FROM_TAG="${{ inputs.gh-release-from-tag }}"
+            echo "Using provided fromTag: $FROM_TAG"
+          else
+            if [[ -n "$TAG_PREFIX" ]]; then
+              FROM_TAG=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname 2>/dev/null | head -n1 || echo "")
+            else
+              FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            fi
+            if [[ -z "$FROM_TAG" ]]; then
+              echo "No previous tags found, leaving fromTag empty"
+            else
+              echo "Auto-detected most recent tag: $FROM_TAG"
+            fi
+          fi
+
+          echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Changelog
+        id: build-changelog
+        if: inputs.gh-release-use-changelog-builder == true
+        uses: mikepenz/release-changelog-builder-action@v6.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+        with:
+          configuration: ${{ github.run_id }}/${{ inputs.gh-release-changelog-config }}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          ignorePreReleases: "false"
+          failOnError: "false"
+          fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
+          toTag: ${{ inputs.release-ref }}
+          mode: ${{ inputs.gh-release-changelog-mode }}
+          includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
+
+      - name: Create release
+        id: version-number
+        env:
+          SHA: ${{ inputs.release-ref }}
+          GH_TOKEN: ${{ secrets.PAT || '' }}
+          IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
+          BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
+        run: |
+          cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
+
+          IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
+          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
+          IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
+          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
+
+          if [[ -n "$BUILT_CHANGELOG" ]]; then
+            CHANGELOG="$BUILT_CHANGELOG"
+          elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
+            DATE=$(date +"%Y-%m-%d")
+            CHANGELOG="Prerelease: $NAME ($DATE)"
+          elif [[ -f CHANGELOG.md ]]; then
+            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+          else
+            CHANGELOG="Release: $NAME"
+          fi
+
+          echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
+
+          PAYLOAD=$(jq -nc \
+                      --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
+                      --arg CI_COMMIT_BRANCH "$SHA" \
+                      --arg NAME "$NAME" \
+                      --arg BODY "$CHANGELOG" \
+                      --argjson PRERELEASE "$IS_PRERELEASE" \
+                      '{
+                        "tag_name": $TAG_NAME,
+                        "target_commitish": $CI_COMMIT_BRANCH,
+                        "name": $NAME,
+                        "body": $BODY,
+                        "draft": false,
+                        "prerelease": $PRERELEASE,
+                      }'
+                  )
+          echo -E "$PAYLOAD" > payload.txt
+
+          CMD=$(echo -E 'curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer '"$GH_TOKEN"'" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/'"$REPOSITORY"'/releases \
+            -d @payload.txt
+          ')
+
+          if [[ "$IS_INERT" == "true" ]]; then
+            echo -E "$CMD"
+          else
+            eval "$CMD"
+          fi
+
+  build-docs:
+    needs: [create-gh-release]
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.72.0
+    if: |
+      (
+        success() || !failure()
+      )
+      && (inputs.publish-docs == true || inputs.validate-only == true)
+      && !cancelled()
+    with:
+      ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', inputs.release-version) }}
+
+  publish-docs:
+    needs: [create-gh-release, build-docs]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    if: |
+      (
+        success() || !failure()
+      )
+      && inputs.publish-docs == true
+      && inputs.validate-only == false
+      && !cancelled()
+    env:
+      VERSION: ${{ inputs.release-version }}
+      LIBRARY_NAME: ${{ inputs.library-name }}
+      S3_TARGET_PATH: ${{ inputs.docs-target-path }}
+    steps:
+      - name: Checkout FW-CI-templates
+        uses: actions/checkout@v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: v0.72.0
+          path: FW-CI-templates
+
+      - name: Generate request name
+        id: request-name
+        shell: bash
+        run: |
+          REQUEST_NAME="${S3_TARGET_PATH//\//-}-publish-docs-${{ github.run_id }}"
+          echo "value=${REQUEST_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Publish documentation
+        uses: ./FW-CI-templates/.github/actions/publish-docs
+        with:
+          dry-run: ${{ inputs.dry-run }}
+          artifacts-name: docs-html
+          artifacts-path: _build/html
+          emails-csv: ${{ inputs.notify-emails && format('{0},{1}', vars.docs_release_emails, inputs.notify-emails) || vars.docs_release_emails }}
+          overwrite-latest-on-tag: true
+          docs-version-override: ${{ env.VERSION }}
+          project-type: ${{ inputs.docs-project-type }}
+          request-name: ${{ steps.request-name.outputs.value }}
+          aws-region: ${{ vars.DOCS_AWS_REGION }}
+          aws-role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          akamai-host: ${{ secrets.AKAMAI_HOST }}
+          akamai-client-token: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+          akamai-client-secret: ${{ secrets.AKAMAI_CLIENT_SECRET }}
+          akamai-access-token: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+          s3-target-root: ${{ secrets.S3_BUCKET_NAME }}
+          s3-target-path: ${{ inputs.docs-target-path }}
+
+  notify:
+    needs: [create-gh-release]
+    runs-on: ubuntu-latest
+    if: |
+      (
+        success() || !failure()
+      )
+      && inputs.validate-only == false
+      && !cancelled()
+    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    env:
+      GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ inputs.release-version }}
+      PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ inputs.pypi-name }}/${{ inputs.release-version }}/
+      PROJECT_NAME: ${{ inputs.library-name }}
+      VERSION: ${{ inputs.release-version }}
+      PYPI_NAME: ${{ inputs.pypi-name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: v0.17.0
+          path: send-slack-alert
+
+      - name: Send Slack alert
+        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        env:
+          MESSAGE: |
+            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
+
+            • <${{ env.GH_URL }}|GitHub release>${{ env.PYPI_NAME != '' && format('{0}            • <{1}|PyPi release>', '\n', env.PYPI_URL) || '' }}
+
+        with:
+          message: ${{ env.MESSAGE }}
+          webhook: ${{ secrets.SLACK_WEBHOOK }}

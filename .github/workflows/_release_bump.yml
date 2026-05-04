@@ -1,0 +1,425 @@
+# Copyright (c) 2020-2026, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "Release: bump version(s)"
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+on:
+  workflow_call:
+    inputs:
+      release-ref:
+        required: true
+        description: Ref (SHA or branch) to release
+        type: string
+      validate-only:
+        type: boolean
+        required: false
+        default: false
+        description: Compute the bump but do not push the deploy branch, open the PR, wait, merge, or delete. Used by per-PR rehearsals.
+      dry-run:
+        type: boolean
+        required: false
+        default: false
+        description: Compute the bump and exercise the deploy-branch+PR cycle but echo the merge step instead of pushing to the version-bump branch.
+      version-bump-branch:
+        type: string
+        required: false
+        default: main
+        description: Branch to merge the bump commit into.
+      skip-version-bump:
+        type: boolean
+        required: false
+        default: false
+        description: Skip the bump entirely (for dynamic versioning).
+      restrict-to-admins:
+        type: boolean
+        required: false
+        default: true
+        description: Only repository admins may invoke. Always skipped under validate-only.
+      app-id:
+        type: string
+        required: true
+        description: GitHub App ID used to mint the bot token.
+      library-name:
+        type: string
+        required: true
+        description: Human-readable library name used in the bump PR title.
+      bump-targets:
+        type: string
+        required: false
+        default: ""
+        description: |
+          JSON array of bump targets, each `{"python-package": "...", "src-dir": "..."}`.
+          Empty falls back to a single target derived from python-package + has-src-dir.
+          The first target's current version becomes the release-version output.
+      python-package:
+        type: string
+        required: false
+        default: ""
+        description: Single-target back-compat — ignored when bump-targets is non-empty.
+      has-src-dir:
+        type: boolean
+        required: false
+        default: false
+        description: Single-target back-compat — ignored when bump-targets is non-empty.
+      packaging:
+        type: string
+        required: false
+        default: setuptools
+        description: "Packaging tool (supported: setuptools, hatch, uv)."
+      root-dir:
+        type: string
+        required: false
+        default: "./"
+        description: Sub-directory containing the package source(s).
+    secrets:
+      BOT_KEY:
+        required: false
+      SSH_KEY:
+        required: false
+      SSH_PWD:
+        required: false
+    outputs:
+      release-version:
+        description: The version being released (current version of the first bump target, before the bump).
+        value: ${{ jobs.bump-next-version.outputs.release-version }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-admin-permission:
+    runs-on: ubuntu-latest
+    if: inputs.restrict-to-admins == true && inputs.validate-only == false
+    steps:
+      - name: Check if user has admin permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: permissionLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+
+            const permission = permissionLevel.permission;
+            console.log(`User ${context.actor} has permission: ${permission}`);
+
+            if (permission !== 'admin') {
+              core.setFailed(`User ${context.actor} does not have admin permission (has: ${permission}). Only admins can release.`);
+            }
+
+  bump-next-version:
+    runs-on: ubuntu-latest
+    environment: main
+    needs: [check-admin-permission]
+    if: |
+      !inputs.skip-version-bump
+      && (
+        success() || !failure()
+      )
+      && !cancelled()
+    outputs:
+      release-version: ${{ steps.bump.outputs.release-version }}
+      next-version: ${{ steps.bump.outputs.next-version }}
+    env:
+      IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
+      PACKAGING: ${{ inputs.packaging }}
+      BUMP_TARGETS: ${{ inputs.bump-targets }}
+      FALLBACK_PYPROJECT_NAME: ${{ inputs.python-package }}
+      FALLBACK_SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
+    steps:
+      - uses: actions/create-github-app-token@v2
+        if: inputs.validate-only == false
+        id: app-token
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.release-ref }}
+
+      - name: Install GPG
+        if: inputs.validate-only == false
+        run: sudo apt-get install -y gnupg2
+
+      - name: Import GPG key (for signing)
+        if: inputs.validate-only == false
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
+        id: gpg-action
+        with:
+          gpg_private_key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{ secrets.SSH_PWD }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          workdir: ${{ github.run_id }}
+
+      - name: Bump version(s)
+        id: bump
+        run: |
+          cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
+
+          # Resolve bump targets. JSON array if provided, else single fallback.
+          if [[ -n "$BUMP_TARGETS" ]]; then
+            TARGETS_JSON="$BUMP_TARGETS"
+          else
+            TARGETS_JSON=$(jq -nc \
+              --arg pkg "$FALLBACK_PYPROJECT_NAME" \
+              --arg src "$FALLBACK_SRC_DIR" \
+              '[{"python-package": $pkg, "src-dir": $src}]')
+          fi
+
+          echo "Resolved targets: $TARGETS_JSON"
+
+          RELEASE_VERSION=""
+          NEXT_VERSION=""
+          BUMPED_FILES=()
+
+          while IFS= read -r TGT; do
+            PYPROJECT_NAME=$(echo "$TGT" | jq -r '."python-package"')
+            SRC_DIR=$(echo "$TGT" | jq -r '."src-dir"')
+            PACKAGE_INFO_FILE="${SRC_DIR}${PYPROJECT_NAME//.//}/package_info.py"
+
+            echo "Bumping $PYPROJECT_NAME at $PACKAGE_INFO_FILE"
+
+            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
+              MAJOR=$(awk '/^MAJOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              MINOR=$(awk '/^MINOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              PATCH=$(awk '/^PATCH = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              PRERELEASE=$(awk '/^PRE_RELEASE = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+
+              CURRENT_VERSION="$MAJOR.$MINOR.$PATCH$PRERELEASE"
+
+              if [[ "$PRERELEASE" != "" ]]; then
+                if [[ "$PRERELEASE" == *rc* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
+                elif [[ "$PRERELEASE" == *a* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
+                else
+                  echo "Unknown pre-release: $PRERELEASE"
+                  exit 1
+                fi
+              else
+                NEXT_PATCH=$((${PATCH} + 1))
+                NEXT_PRERELEASE=$PRERELEASE
+              fi
+
+              sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
+              sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
+              BUMPED_FILES+=("$PACKAGE_INFO_FILE")
+
+              TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
+            elif [[ "$PACKAGING" == "hatch" ]]; then
+              pip install hatch
+              VERSION=$(hatch version)
+              MAJOR=$(echo "$VERSION" | cut -d. -f1)
+              MINOR=$(echo "$VERSION" | cut -d. -f2)
+              PATCH_FULL=$(echo "$VERSION" | cut -d. -f3-)
+              PATCH=$(echo "$PATCH_FULL" | grep -oP '^\d+')
+              PRERELEASE=$(echo "$PATCH_FULL" | grep -oP '(?<=\d)(rc\d+|a\d+)' || true)
+
+              CURRENT_VERSION="$VERSION"
+
+              if [[ "$PRERELEASE" != "" ]]; then
+                if [[ "$PRERELEASE" == rc* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
+                elif [[ "$PRERELEASE" == a* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
+                else
+                  echo "Unknown pre-release: $PRERELEASE"
+                  exit 1
+                fi
+              else
+                NEXT_PATCH=$((PATCH + 1))
+                NEXT_PRERELEASE=$PRERELEASE
+              fi
+
+              hatch version "$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
+              TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
+            else
+              echo "Unsupported packaging: $PACKAGING"
+              exit 1
+            fi
+
+            echo "  $PYPROJECT_NAME: $CURRENT_VERSION -> $TARGET_NEXT"
+
+            if [[ -z "$RELEASE_VERSION" ]]; then
+              RELEASE_VERSION="$CURRENT_VERSION"
+              NEXT_VERSION="$TARGET_NEXT"
+            fi
+          done < <(echo "$TARGETS_JSON" | jq -c '.[]')
+
+          echo "release-version=$RELEASE_VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
+
+      - name: Record computed versions (validate-only)
+        if: inputs.validate-only == true
+        run: |
+          {
+            echo "## Bump rehearsal"
+            echo
+            echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
+            echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
+            echo
+            echo "validate-only=true → no branch push, no PR, no status-check wait, no merge, no branch delete."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Create and push deployment branch
+        if: inputs.validate-only == false
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
+
+          TMP_BRANCH="deploy-release/$(uuidgen)"
+          git checkout -b "$TMP_BRANCH"
+          # Stage every bumped package_info.py we touched.
+          while IFS= read -r f; do
+            [[ -n "$f" ]] && git add "$f"
+          done < /tmp/bumped-files.txt
+          git commit -sS -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" || echo "No changes to commit"
+          git push -u origin "$TMP_BRANCH"
+          echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
+
+          gh pr create \
+            --base ${{ inputs.version-bump-branch }} \
+            --head $TMP_BRANCH \
+            --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
+            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}."
+
+      - name: Wait for status checks on tmp branch
+        if: inputs.validate-only == false
+        uses: actions/github-script@v8
+        id: wait-status
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const branch = process.env.TMP_BRANCH;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: refData } = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: `heads/${branch}`,
+            });
+
+            const sha = refData.object.sha;
+
+            console.log(`Polling status for commit SHA: ${sha}`);
+
+            let checksPassed = false;
+            let maxAttempts = 3000;
+            let attempt = 0;
+            const delay = ms => new Promise(res => setTimeout(res, ms));
+
+            while (!checksPassed && attempt < maxAttempts) {
+              attempt++;
+
+              const { data: status } = await github.rest.repos.getCombinedStatusForRef({
+                owner,
+                repo,
+                ref: sha,
+              });
+
+              const { data: checks } = await github.rest.checks.listForRef({
+                owner,
+                repo,
+                ref: sha,
+              });
+
+              const allStatuses = status.statuses;
+              const allChecks = checks.check_runs;
+
+              if (allStatuses.length === 0 && allChecks.length === 0) {
+                console.log(`Attempt ${attempt}: No checks or statuses yet. Waiting...`);
+                await delay(10000);
+                continue;
+              }
+
+              const statusesOk = allStatuses.every(s => s.state === 'success');
+              const checksOk = allChecks.every(c => c.status === 'completed');
+
+              if (statusesOk && checksOk) {
+                console.log('✅ All checks passed.');
+                checksPassed = true;
+                break
+              }
+
+              console.log(`Attempt ${attempt}: Checks not complete yet. Waiting...`);
+              await delay(10000);
+            }
+
+            if (!checksPassed) {
+              core.setFailed('❌ Status checks did not pass in time');
+            }
+
+      - name: Merge into ${{ inputs.version-bump-branch }}
+        if: inputs.validate-only == false
+        run: |
+          cd ${{ github.run_id }}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
+
+          if [[ "$IS_INERT" == "true" ]]; then
+            echo "dry-run enabled, would have run: $CMD"
+          else
+            git fetch origin ${{ inputs.version-bump-branch }}
+            git checkout ${{ inputs.version-bump-branch }}
+            git merge ${{ env.TMP_BRANCH }}
+
+            for attempt in {1..3}; do
+              if eval "$CMD"; then
+                echo "Git push succeeded on attempt $attempt"
+                break
+              else
+                echo "Git push failed on attempt $attempt"
+                if [[ $attempt -lt 3 ]]; then
+                  sleep $((RANDOM % 3 + 1))
+                  git fetch origin ${{ inputs.version-bump-branch }}
+                  git reset --hard origin/${{ inputs.version-bump-branch }}
+                  git merge ${{ env.TMP_BRANCH }}
+                else
+                  echo "Git push failed after 3 attempts"
+                  exit 1
+                fi
+              fi
+            done
+          fi
+
+      - name: Delete ${{ env.TMP_BRANCH }} branch
+        if: always() && inputs.validate-only == false && env.TMP_BRANCH != ''
+        run: |
+          cd ${{ github.run_id }}
+          git push -d origin ${{ env.TMP_BRANCH }} || true

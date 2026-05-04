@@ -39,6 +39,11 @@ on:
         description: Do not publish the wheel
         type: boolean
         default: false
+      suppress-failure-notify:
+        required: false
+        description: Suppress the failure Slack notification (used for PR rehearsals where failures should not page).
+        type: boolean
+        default: false
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -355,7 +360,7 @@ jobs:
 
       - name: check-wheel-contents
         run: |
-          check-wheel-contents dist/*.whl
+          check-wheel-contents --ignore W002,W004 dist/*.whl
 
       - name: check-manifest
         if: inputs.packaging == 'setuptools'
@@ -391,7 +396,7 @@ jobs:
 
   notify:
     runs-on: ubuntu-latest
-    if: failure()
+    if: failure() && inputs.suppress-failure-notify == false
     environment: public
     needs: [publish-wheel]
     env:

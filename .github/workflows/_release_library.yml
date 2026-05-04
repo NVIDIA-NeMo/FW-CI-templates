@@ -495,6 +495,7 @@ jobs:
       && !cancelled()
     with:
       no-publish: ${{ inputs.validate-only || inputs.dry-run }}
+      suppress-failure-notify: ${{ inputs.validate-only }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
@@ -688,10 +689,10 @@ jobs:
       (
         success() || !failure()
       )
-      && inputs.publish-docs == true
+      && (inputs.publish-docs == true || inputs.validate-only == true)
       && !cancelled()
     with:
-      ref: ${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
+      ref: ${{ inputs.validate-only && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', needs.build-test-publish-wheel.outputs.version) }}
 
   publish-docs:
     needs: [build-test-publish-wheel, create-gh-release, build-docs]

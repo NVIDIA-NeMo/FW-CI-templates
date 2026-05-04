@@ -694,7 +694,7 @@ jobs:
       && (inputs.publish-docs == true || inputs.validate-only == true)
       && !cancelled()
     with:
-      ref: ${{ inputs.validate-only && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', needs.build-test-publish-wheel.outputs.version) }}
+      ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', needs.build-test-publish-wheel.outputs.version) }}
 
   publish-docs:
     needs: [build-test-publish-wheel, create-gh-release, build-docs]

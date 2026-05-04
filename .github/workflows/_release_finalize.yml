@@ -340,7 +340,8 @@ jobs:
           MESSAGE: |
             ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
 
-            • <${{ env.GH_URL }}|GitHub release>${{ env.PYPI_NAME != '' && format('{0}            • <{1}|PyPi release>', '\n', env.PYPI_URL) || '' }}
+            • <${{ env.GH_URL }}|GitHub release>
+            • <${{ env.PYPI_URL }}|PyPi release>
 
         with:
           message: ${{ env.MESSAGE }}

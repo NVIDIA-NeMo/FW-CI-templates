@@ -54,6 +54,11 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      wheel-content-ignore:
+        required: false
+        description: Comma-separated check-wheel-contents codes to ignore (e.g. "W002,W004,W009"). W002+W004 are common no-ops; add W009 for repos that ship multiple top-level packages in one wheel.
+        type: string
+        default: "W002,W004"
       custom-container:
         required: false
         description: Custom container to use for the build
@@ -360,7 +365,7 @@ jobs:
 
       - name: check-wheel-contents
         run: |
-          check-wheel-contents --ignore W002,W004 dist/*.whl
+          check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
 
       - name: check-manifest
         if: inputs.packaging == 'setuptools'

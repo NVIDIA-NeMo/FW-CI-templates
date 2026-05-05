@@ -112,6 +112,11 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      wheel-content-ignore:
+        required: false
+        description: Comma-separated check-wheel-contents codes to ignore.
+        type: string
+        default: "W002,W004"
       skip-wheel-build:
         required: false
         description: |
@@ -254,6 +259,7 @@ jobs:
       packaging: ${{ inputs.packaging }}
       has-src-dir: ${{ inputs.has-src-dir }}
       skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      wheel-content-ignore: ${{ inputs.wheel-content-ignore }}
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}

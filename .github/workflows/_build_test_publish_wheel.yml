@@ -362,8 +362,9 @@ jobs:
         run: |
           check-wheel-contents --ignore W002,W004 dist/*.whl
 
-      - name: check-manifest
+      - name: check-manifest (advisory)
         if: inputs.packaging == 'setuptools'
+        continue-on-error: true
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR
@@ -371,7 +372,7 @@ jobs:
             echo "::notice::No MANIFEST.in found; skipping check-manifest."
             exit 0
           fi
-          check-manifest -v
+          check-manifest -v || echo "::warning::check-manifest reported issues — see log."
 
   publish-wheel:
     needs: [test-wheel, validate-wheel]

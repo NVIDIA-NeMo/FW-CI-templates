@@ -193,10 +193,6 @@ on:
         required: false
       SLACK_WEBHOOK:
         required: false
-      SSH_KEY:
-        required: false
-      SSH_PWD:
-        required: false
       BOT_KEY:
         required: false
       AWS_ASSUME_ROLE_ARN:
@@ -239,8 +235,6 @@ jobs:
       root-dir: ${{ inputs.root-dir }}
     secrets:
       BOT_KEY: ${{ secrets.BOT_KEY }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      SSH_PWD: ${{ secrets.SSH_PWD }}
 
   build-test-publish-wheel:
     needs: bump

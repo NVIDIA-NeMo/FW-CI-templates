@@ -89,10 +89,6 @@ on:
     secrets:
       BOT_KEY:
         required: true
-      SSH_KEY:
-        required: false
-      SSH_PWD:
-        required: false
     outputs:
       release-version:
         description: The version being released (current version of the first bump target, before the bump).
@@ -159,33 +155,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ inputs.release-ref }}
-
-      - name: Detect GPG key
-        id: gpg
-        env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-        run: |
-          if [[ -z "$SSH_KEY" ]]; then
-            echo "configured=false" | tee -a "$GITHUB_OUTPUT"
-            echo "::notice::No GPG key (SSH_KEY) configured; commits will be -s only (signed-off, unsigned)."
-          else
-            echo "configured=true" | tee -a "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install GPG
-        if: inputs.validate-only == false && steps.gpg.outputs.configured == 'true'
-        run: sudo apt-get install -y gnupg2
-
-      - name: Import GPG key (for signing)
-        if: inputs.validate-only == false && steps.gpg.outputs.configured == 'true'
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
-        id: gpg-action
-        with:
-          gpg_private_key: ${{ secrets.SSH_KEY }}
-          passphrase: ${{ secrets.SSH_PWD }}
-          git_user_signingkey: true
-          git_commit_gpgsign: true
-          workdir: ${{ github.run_id }}
 
       - name: Bump version(s)
         id: bump
@@ -278,15 +247,12 @@ jobs:
         if: inputs.validate-only == false
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HAS_GPG: ${{ steps.gpg.outputs.configured }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
 
-          if [[ "$HAS_GPG" != "true" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
@@ -294,9 +260,7 @@ jobs:
             [[ -n "$f" ]] && git add "$f"
           done < /tmp/bumped-files.txt
 
-          COMMIT_FLAGS="-s"
-          [[ "$HAS_GPG" == "true" ]] && COMMIT_FLAGS="-sS"
-          git commit $COMMIT_FLAGS -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" || echo "No changes to commit"
+          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 

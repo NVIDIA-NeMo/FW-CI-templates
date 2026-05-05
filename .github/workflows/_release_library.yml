@@ -64,7 +64,7 @@ on:
           Empty falls back to a single target derived from python-package + has-src-dir.
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: "Packaging tool (supported: setuptools, uv)"
         type: string
         default: setuptools
       create-gh-release:

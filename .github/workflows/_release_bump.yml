@@ -83,7 +83,7 @@ on:
         type: string
         required: false
         default: setuptools
-        description: "Packaging tool (supported: setuptools, hatch, uv)."
+        description: "Packaging tool (supported: setuptools, uv)."
       root-dir:
         type: string
         required: false
@@ -238,35 +238,6 @@ jobs:
               sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
               BUMPED_FILES+=("$PACKAGE_INFO_FILE")
 
-              TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
-            elif [[ "$PACKAGING" == "hatch" ]]; then
-              pip install hatch
-              VERSION=$(hatch version)
-              MAJOR=$(echo "$VERSION" | cut -d. -f1)
-              MINOR=$(echo "$VERSION" | cut -d. -f2)
-              PATCH_FULL=$(echo "$VERSION" | cut -d. -f3-)
-              PATCH=$(echo "$PATCH_FULL" | grep -oP '^\d+')
-              PRERELEASE=$(echo "$PATCH_FULL" | grep -oP '(?<=\d)(rc\d+|a\d+)' || true)
-
-              CURRENT_VERSION="$VERSION"
-
-              if [[ "$PRERELEASE" != "" ]]; then
-                if [[ "$PRERELEASE" == rc* ]]; then
-                  NEXT_PATCH=$PATCH
-                  NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
-                elif [[ "$PRERELEASE" == a* ]]; then
-                  NEXT_PATCH=$PATCH
-                  NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
-                else
-                  echo "Unknown pre-release: $PRERELEASE"
-                  exit 1
-                fi
-              else
-                NEXT_PATCH=$((PATCH + 1))
-                NEXT_PRERELEASE=$PRERELEASE
-              fi
-
-              hatch version "$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
               TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
             else
               echo "Unsupported packaging: $PACKAGING"

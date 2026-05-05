@@ -31,7 +31,7 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: "Packaging tool (supported: setuptools, uv)"
         type: string
         default: setuptools
       no-publish:

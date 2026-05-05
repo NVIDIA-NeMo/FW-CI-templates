@@ -563,14 +563,15 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 target_branch = content.get("baseRefName", "")
                 is_draft = content.get("isDraft", False)
 
-                # Track each reviewer's latest review state
+                # Track each non-bot reviewer's latest review state
                 reviewer_latest: dict[str, tuple[str, str]] = {}  # login -> (state, submittedAt)
                 for review in content.get("reviews", {}).get("nodes", []):
                     reviewer_obj = review.get("author", {}) or {}
                     reviewer_login = reviewer_obj.get("login", "")
+                    reviewer_type = reviewer_obj.get("__typename", "")
                     submitted = review.get("submittedAt", "")
                     state = review.get("state", "")
-                    if not reviewer_login or not state:
+                    if not reviewer_login or not state or reviewer_type == "Bot":
                         continue
                     prev = reviewer_latest.get(reviewer_login)
                     if prev is None or submitted > prev[1]:

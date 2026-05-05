@@ -549,19 +549,33 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             target_branch = ""
             is_draft = False
             last_approval_date = ""
-            has_changes_requested = False
+            all_reviewers_approved = False
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
                 is_draft = content.get("isDraft", False)
 
-                # Find the latest approval date and whether changes were requested
+                # Track each reviewer's latest review state
+                reviewer_latest: dict[str, tuple[str, str]] = {}  # login -> (state, submittedAt)
                 for review in content.get("reviews", {}).get("nodes", []):
-                    if review.get("state") == "APPROVED":
-                        submitted = review.get("submittedAt", "")
-                        if submitted > last_approval_date:
-                            last_approval_date = submitted
-                    elif review.get("state") == "CHANGES_REQUESTED":
-                        has_changes_requested = True
+                    reviewer_obj = review.get("author", {}) or {}
+                    reviewer_login = reviewer_obj.get("login", "")
+                    submitted = review.get("submittedAt", "")
+                    state = review.get("state", "")
+                    if not reviewer_login or not state:
+                        continue
+                    prev = reviewer_latest.get(reviewer_login)
+                    if prev is None or submitted > prev[1]:
+                        reviewer_latest[reviewer_login] = (state, submitted)
+
+                # Find the latest approval date
+                for login, (state, submitted) in reviewer_latest.items():
+                    if state == "APPROVED" and submitted > last_approval_date:
+                        last_approval_date = submitted
+
+                # Only treat as fully approved if every reviewer's latest state is APPROVED
+                all_reviewers_approved = bool(reviewer_latest) and all(
+                    state == "APPROVED" for state, _ in reviewer_latest.values()
+                )
 
             repo_name = content.get("repository", {}).get("name", "")
             issue_number = content.get("number")
@@ -604,12 +618,14 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 item_dict["needs_attention"] = classification == "waiting-on-maintainers" and is_stale
 
                 # Approved PRs not merged after 48 hours need follow-up,
-                # unless a reviewer has requested changes — in that case,
-                # defer to the LLM classification (the ball may be with the author).
-                if item_type == "PullRequest" and last_approval_date:
+                # but only if ALL reviewers' latest reviews are approvals.
+                # If any reviewer's latest state is not APPROVED (e.g.
+                # changes requested, commented, dismissed), defer to the
+                # LLM classification instead.
+                if item_type == "PullRequest" and last_approval_date and all_reviewers_approved:
                     approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
                     approval_stale = approval_dt < datetime.now(timezone.utc) - timedelta(hours=48)
-                    if approval_stale and not has_changes_requested:
+                    if approval_stale:
                         item_dict["needs_attention"] = True
 
                 print(f"  {item_dict['url']}: {classification} (stale={is_stale}, approved_unmerged={'48h+' if item_type == 'PullRequest' and last_approval_date and item_dict['needs_attention'] else 'n/a'})")

@@ -27,6 +27,7 @@ Requires the following environment variables:
 import argparse
 import csv
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import openai
@@ -73,33 +74,41 @@ question or request directed at the maintainers.
 Respond with ONLY "waiting-on-author" or "waiting-on-maintainers", nothing else."""
 
 
-def run_graphql_query(query: str, variables: dict, token: str) -> dict:
-    """Execute a GraphQL query against GitHub's API."""
+def run_graphql_query(query: str, variables: dict, token: str, max_retries: int = 5) -> dict:
+    """Execute a GraphQL query against GitHub's API with exponential backoff."""
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
-    response = requests.post(
-        GITHUB_GRAPHQL_URL,
-        json={"query": query, "variables": variables},
-        headers=headers,
-    )
+    for attempt in range(max_retries + 1):
+        response = requests.post(
+            GITHUB_GRAPHQL_URL,
+            json={"query": query, "variables": variables},
+            headers=headers,
+        )
 
-    if response.status_code != 200:
+        if response.status_code == 200:
+            result = response.json()
+
+            if "errors" in result:
+                print("GraphQL errors:")
+                for error in result["errors"]:
+                    print(f"  - {error.get('message', error)}")
+                raise RuntimeError("GraphQL query returned errors")
+
+            return result
+
+        # Retry on server errors (5xx) and rate limits (403, 429)
+        if response.status_code in (403, 429, 500, 502, 503, 504) and attempt < max_retries:
+            delay = 2 ** attempt  # 1s, 2s, 4s, 8s, 16s
+            print(f"  Retrying in {delay}s after HTTP {response.status_code} (attempt {attempt + 1}/{max_retries})...")
+            time.sleep(delay)
+            continue
+
         print(f"Error: GitHub API returned status code {response.status_code}")
         print(f"Response: {response.text}")
         raise RuntimeError("GraphQL query request failed")
-
-    result = response.json()
-
-    if "errors" in result:
-        print("GraphQL errors:")
-        for error in result["errors"]:
-            print(f"  - {error.get('message', error)}")
-        raise RuntimeError("GraphQL query returned errors")
-
-    return result
 
 
 def ensure_label_exists(org: str, repo: str, label_name: str, label_color: str, label_description: str, token: str) -> bool:

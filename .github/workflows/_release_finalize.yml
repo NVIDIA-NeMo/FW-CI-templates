@@ -327,7 +327,20 @@ jobs:
       VERSION: ${{ inputs.release-version }}
       PYPI_NAME: ${{ inputs.pypi-name }}
     steps:
+      - name: Detect webhook
+        id: webhook
+        env:
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [[ -z "$WEBHOOK" ]]; then
+            echo "configured=false" | tee -a "$GITHUB_OUTPUT"
+            echo "::notice::SLACK_WEBHOOK not configured; skipping Slack notify."
+          else
+            echo "configured=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.webhook.outputs.configured == 'true'
         uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
@@ -335,6 +348,7 @@ jobs:
           path: send-slack-alert
 
       - name: Send Slack alert
+        if: steps.webhook.outputs.configured == 'true'
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         env:
           MESSAGE: |

@@ -238,6 +238,7 @@ jobs:
       BOT_KEY: ${{ secrets.BOT_KEY }}
       SSH_KEY: ${{ secrets.SSH_KEY }}
       SSH_PWD: ${{ secrets.SSH_PWD }}
+      PAT: ${{ secrets.PAT }}
 
   build-test-publish-wheel:
     needs: bump

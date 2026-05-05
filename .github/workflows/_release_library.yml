@@ -193,8 +193,6 @@ on:
         required: false
       SLACK_WEBHOOK:
         required: false
-      PAT:
-        required: false
       SSH_KEY:
         required: false
       SSH_PWD:
@@ -302,8 +300,9 @@ jobs:
       docs-project-type: ${{ inputs.docs-project-type }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
+      app-id: ${{ inputs.app-id }}
     secrets:
-      PAT: ${{ secrets.PAT }}
+      BOT_KEY: ${{ secrets.BOT_KEY }}
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
       AWS_ASSUME_ROLE_ARN: ${{ secrets.AWS_ASSUME_ROLE_ARN }}

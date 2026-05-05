@@ -549,16 +549,19 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             target_branch = ""
             is_draft = False
             last_approval_date = ""
+            has_changes_requested = False
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
                 is_draft = content.get("isDraft", False)
 
-                # Find the latest approval date
+                # Find the latest approval date and whether changes were requested
                 for review in content.get("reviews", {}).get("nodes", []):
                     if review.get("state") == "APPROVED":
                         submitted = review.get("submittedAt", "")
                         if submitted > last_approval_date:
                             last_approval_date = submitted
+                    elif review.get("state") == "CHANGES_REQUESTED":
+                        has_changes_requested = True
 
             repo_name = content.get("repository", {}).get("name", "")
             issue_number = content.get("number")
@@ -600,11 +603,13 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 is_stale = comment_dt < datetime.now(timezone.utc) - timedelta(hours=48)
                 item_dict["needs_attention"] = classification == "waiting-on-maintainers" and is_stale
 
-                # Approved PRs not merged after 48 hours always need follow-up
+                # Approved PRs not merged after 48 hours need follow-up,
+                # unless a reviewer has requested changes — in that case,
+                # defer to the LLM classification (the ball may be with the author).
                 if item_type == "PullRequest" and last_approval_date:
                     approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
                     approval_stale = approval_dt < datetime.now(timezone.utc) - timedelta(hours=48)
-                    if approval_stale:
+                    if approval_stale and not has_changes_requested:
                         item_dict["needs_attention"] = True
 
                 print(f"  {item_dict['url']}: {classification} (stale={is_stale}, approved_unmerged={'48h+' if item_type == 'PullRequest' and last_approval_date and item_dict['needs_attention'] else 'n/a'})")

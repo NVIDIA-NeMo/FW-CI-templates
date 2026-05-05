@@ -128,8 +128,11 @@ on:
         type: boolean
         default: false
       app-id:
-        required: true
-        description: GitHub App ID
+        required: false
+        default: ""
+        description: |
+          GitHub App ID for minting the bot token used by bump-next-version.
+          Empty falls back to `secrets.PAT` for git push and PR creation.
         type: string
       root-dir:
         required: false

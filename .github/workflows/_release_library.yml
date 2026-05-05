@@ -136,11 +136,8 @@ on:
         type: boolean
         default: false
       app-id:
-        required: false
-        default: ""
-        description: |
-          GitHub App ID for minting the bot token used by bump-next-version.
-          Empty falls back to `secrets.PAT` for git push and PR creation.
+        required: true
+        description: GitHub App ID for minting the bot token used by bump-next-version.
         type: string
       root-dir:
         required: false
@@ -246,7 +243,6 @@ jobs:
       BOT_KEY: ${{ secrets.BOT_KEY }}
       SSH_KEY: ${{ secrets.SSH_KEY }}
       SSH_PWD: ${{ secrets.SSH_PWD }}
-      PAT: ${{ secrets.PAT }}
 
   build-test-publish-wheel:
     needs: bump

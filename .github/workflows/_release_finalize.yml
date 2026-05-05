@@ -332,10 +332,10 @@ jobs:
     environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ inputs.release-version }}
-      PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ inputs.pypi-name }}/${{ inputs.release-version }}/
       PROJECT_NAME: ${{ inputs.library-name }}
       VERSION: ${{ inputs.release-version }}
       PYPI_NAME: ${{ inputs.pypi-name }}
+      DRY_RUN: ${{ inputs.dry-run }}
     steps:
       - name: Detect webhook
         id: webhook
@@ -349,6 +349,24 @@ jobs:
             echo "configured=true" | tee -a "$GITHUB_OUTPUT"
           fi
 
+      - name: Build Slack message
+        if: steps.webhook.outputs.configured == 'true'
+        id: msg
+        run: |
+          PREFIX=""
+          [[ "$DRY_RUN" == "true" ]] && PREFIX="This is a dry-run, nothing actually happened: "
+
+          {
+            echo "message<<EOF"
+            echo "${PREFIX}We have released \`${VERSION}\` of \`NVIDIA ${PROJECT_NAME}\` 🚀✨🎉"
+            echo
+            echo "• <${GH_URL}|GitHub release>"
+            if [[ -n "$PYPI_NAME" ]]; then
+              echo "• <https://pypi.org/project/${PYPI_NAME}/${VERSION}/|PyPi release>"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         if: steps.webhook.outputs.configured == 'true'
         uses: actions/checkout@v6
@@ -360,13 +378,6 @@ jobs:
       - name: Send Slack alert
         if: steps.webhook.outputs.configured == 'true'
         uses: ./send-slack-alert/.github/actions/send-slack-alert
-        env:
-          MESSAGE: |
-            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
-
-            • <${{ env.GH_URL }}|GitHub release>
-            • <${{ env.PYPI_URL }}|PyPi release>
-
         with:
-          message: ${{ env.MESSAGE }}
+          message: ${{ steps.msg.outputs.message }}
           webhook: ${{ secrets.SLACK_WEBHOOK }}

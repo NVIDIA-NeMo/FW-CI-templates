@@ -253,7 +253,7 @@ jobs:
       (
         success() || !failure()
       )
-      && (inputs.publish-docs == true || inputs.validate-only == true)
+      && inputs.publish-docs == true
       && !cancelled()
     with:
       ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', inputs.release-version) }}

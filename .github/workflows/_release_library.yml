@@ -112,6 +112,14 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      skip-wheel-build:
+        required: false
+        description: |
+          Skip the entire wheel build phase. Use for repos whose wheel build
+          requires infrastructure not available in this orchestration (e.g.
+          CUDA-only dependencies). Bump and finalize still run.
+        type: boolean
+        default: false
       custom-container:
         required: false
         description: Custom container to use for the build
@@ -248,6 +256,7 @@ jobs:
         success() || !failure()
       )
       && !cancelled()
+      && inputs.skip-wheel-build == false
     with:
       no-publish: ${{ inputs.validate-only || inputs.dry-run }}
       suppress-failure-notify: ${{ inputs.validate-only }}

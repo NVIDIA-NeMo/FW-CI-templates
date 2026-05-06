@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.94.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.1...v0.94.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* Bump actions to address node 20 warning ([#468](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/468)) ([4bbdbe7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4bbdbe7f0b15f322172574cffb662da7dfe81d91))
+* improve approved-unmerged PR detection and add GraphQL retry ([#467](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/467)) ([76ecd74](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/76ecd74a19ef9f292dfe10dc5efbb1b31247f83a))
+
 ## [0.94.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.0...v0.94.1) (2026-04-28)
 
 

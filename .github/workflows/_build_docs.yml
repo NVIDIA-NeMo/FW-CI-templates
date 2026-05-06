@@ -45,6 +45,11 @@ on:
         required: false
         type: string
         default: ${{ github.sha }}
+      root-dir:
+        description: Sub-directory containing pyproject.toml (for monorepo consumers).
+        required: false
+        type: string
+        default: "."
 
 jobs:
   main:
@@ -63,6 +68,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
+        working-directory: ${{ inputs.root-dir }}
         env:
           NO_EXTRAS: ${{ inputs.no-extras }}
         run: |
@@ -83,6 +89,7 @@ jobs:
           fi
 
       - name: Sphinx build
+        working-directory: ${{ inputs.root-dir }}
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
@@ -99,10 +106,11 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: docs-html
-          path: ${{ inputs.docs-directory }}/_build/html
+          path: ${{ inputs.root-dir }}/${{ inputs.docs-directory }}/_build/html
           retention-days: 7
 
       - name: Sphinx linkcheck
+        working-directory: ${{ inputs.root-dir }}
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
@@ -121,10 +129,11 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: linkcheck-artifact
-          path: ${{ inputs.docs-directory }}/_build/linkcheck
+          path: ${{ inputs.root-dir }}/${{ inputs.docs-directory }}/_build/linkcheck
           retention-days: 7
 
       - name: Check for unknown broken links
+        working-directory: ${{ inputs.root-dir }}
         run: |
           FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
           NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json

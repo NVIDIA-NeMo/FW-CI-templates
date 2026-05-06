@@ -273,7 +273,7 @@ jobs:
 
   build-docs:
     needs: [create-gh-release]
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.94.1
+    uses: ./.github/workflows/_build_docs.yml
     if: |
       (
         success() || !failure()
@@ -282,6 +282,7 @@ jobs:
       && !cancelled()
     with:
       ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', inputs.release-version) }}
+      root-dir: ${{ inputs.root-dir }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

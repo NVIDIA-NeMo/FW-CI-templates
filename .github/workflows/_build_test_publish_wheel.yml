@@ -381,13 +381,9 @@ jobs:
   publish-wheel:
     needs: [test-wheel, validate-wheel]
     runs-on: ubuntu-latest
-    if: |
-      inputs.no-publish == false &&
-      (
-        inputs.skip-test-wheel == false || !cancelled()
-      )
+    if: inputs.skip-test-wheel == false || !cancelled()
     environment:
-      name: main
+      name: ${{ inputs.no-publish && 'public' || 'main' }}
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v7
@@ -399,9 +395,18 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          DRY_RUN: ${{ inputs.no-publish }}
         run: |
           python3 -m pip install --upgrade twine==6.0.1
-          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository pypi dist/*
+          ls -la dist/
+
+          if [[ "$DRY_RUN" == "false" ]]; then
+            [[ -z "$TWINE_USERNAME" ]] && { echo "::error::TWINE_USERNAME unset"; exit 1; }
+            [[ -z "$TWINE_PASSWORD" ]] && { echo "::error::TWINE_PASSWORD unset"; exit 1; }
+            python3 -m twine upload --verbose --skip-existing -u "$TWINE_USERNAME" -p "$TWINE_PASSWORD" --repository pypi dist/*
+          else
+            echo "[dry-run] would execute: python3 -m twine upload --verbose --skip-existing -u <user> -p <pass> --repository pypi dist/*"
+          fi
 
   notify:
     runs-on: ubuntu-latest

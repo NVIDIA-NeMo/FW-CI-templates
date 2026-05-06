@@ -71,7 +71,7 @@ on:
       gh-release-changelog-mode:
         required: false
         type: string
-        default: PR
+        default: HYBRID
       publish-docs:
         required: false
         type: boolean

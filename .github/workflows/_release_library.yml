@@ -99,9 +99,9 @@ on:
         default: ""
       gh-release-changelog-mode:
         required: false
-        description: Mode for changelog builder
+        description: Mode for changelog builder (PR / COMMIT / HYBRID).
         type: string
-        default: PR
+        default: HYBRID
       has-src-dir:
         required: false
         description: Whether the package has a src directory

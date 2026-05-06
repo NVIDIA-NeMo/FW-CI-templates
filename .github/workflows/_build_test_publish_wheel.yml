@@ -54,6 +54,11 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      skip-check-manifest:
+        required: false
+        description: Skip check-manifest validation. Use for repos that intentionally exclude dev tooling (`.claude/`, `docs/`, `docker/`, …) from the sdist without maintaining a `[tool.check-manifest] ignore` block.
+        type: boolean
+        default: false
       wheel-content-ignore:
         required: false
         description: Comma-separated check-wheel-contents codes to ignore (e.g. "W002,W004,W009"). W002+W004 are common no-ops; add W009 for repos that ship multiple top-level packages in one wheel.
@@ -368,7 +373,7 @@ jobs:
           check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
 
       - name: check-manifest
-        if: inputs.packaging == 'setuptools'
+        if: inputs.packaging == 'setuptools' && inputs.skip-check-manifest == false
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR

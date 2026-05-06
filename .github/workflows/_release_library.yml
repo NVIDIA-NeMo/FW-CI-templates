@@ -112,6 +112,11 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      skip-check-manifest:
+        required: false
+        description: Skip check-manifest validation (for repos that intentionally exclude dev tooling from sdist).
+        type: boolean
+        default: false
       wheel-content-ignore:
         required: false
         description: Comma-separated check-wheel-contents codes to ignore.
@@ -284,6 +289,7 @@ jobs:
       packaging: ${{ inputs.packaging }}
       has-src-dir: ${{ inputs.has-src-dir }}
       skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      skip-check-manifest: ${{ inputs.skip-check-manifest }}
       wheel-content-ignore: ${{ inputs.wheel-content-ignore }}
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}

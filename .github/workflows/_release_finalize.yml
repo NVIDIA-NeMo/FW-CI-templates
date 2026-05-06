@@ -99,6 +99,16 @@ on:
         description: Skip the publish step unless the workflow is running on a version tag (useful when calling release-docs from non-tag refs).
         type: boolean
         default: false
+      docs-root-dir:
+        required: false
+        description: Sub-directory containing the docs source's pyproject.toml. Defaults to root-dir; override for monorepos whose docs live at repo root.
+        type: string
+        default: ""
+      docs-requirements-file:
+        required: false
+        description: pip-installable requirements.txt used to install docs deps (instead of uv sync --only-group docs).
+        type: string
+        default: ""
       notify-emails:
         required: false
         type: string
@@ -282,7 +292,8 @@ jobs:
       && !cancelled()
     with:
       ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', inputs.release-version) }}
-      root-dir: ${{ inputs.root-dir }}
+      root-dir: ${{ inputs.docs-root-dir != '' && inputs.docs-root-dir || inputs.root-dir }}
+      requirements-file: ${{ inputs.docs-requirements-file }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

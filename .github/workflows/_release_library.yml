@@ -184,6 +184,16 @@ on:
         description: Skip the publish step unless the workflow is running on a version tag.
         type: boolean
         default: false
+      docs-root-dir:
+        required: false
+        description: Sub-directory of docs source pyproject.toml. Defaults to root-dir; override for monorepos with repo-root docs.
+        type: string
+        default: ""
+      docs-requirements-file:
+        required: false
+        description: pip-installable requirements.txt for docs install (instead of uv sync --only-group docs).
+        type: string
+        default: ""
       container-options:
         required: false
         description: Options to pass to the container
@@ -316,6 +326,8 @@ jobs:
       publish-as-latest: ${{ inputs.publish-as-latest }}
       update-version-picker: ${{ inputs.update-version-picker }}
       run-on-version-tag-only: ${{ inputs.run-on-version-tag-only }}
+      docs-root-dir: ${{ inputs.docs-root-dir }}
+      docs-requirements-file: ${{ inputs.docs-requirements-file }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}

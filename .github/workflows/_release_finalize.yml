@@ -109,6 +109,16 @@ on:
         description: pip-installable requirements.txt used to install docs deps (instead of uv sync --only-group docs).
         type: string
         default: ""
+      docs-directory:
+        required: false
+        description: Sphinx docs directory (where conf.py lives). Defaults to `docs`; override for repos like NeMo that keep conf.py under `docs/source/`.
+        type: string
+        default: "docs"
+      docs-fail-on-warning:
+        required: false
+        description: Fail the docs build on Sphinx warnings.
+        type: boolean
+        default: true
       notify-emails:
         required: false
         type: string
@@ -294,6 +304,8 @@ jobs:
       ref: ${{ (inputs.validate-only || inputs.dry-run) && inputs.release-ref || format('{0}v{1}', inputs.gh-release-tag-prefix || '', inputs.release-version) }}
       root-dir: ${{ inputs.docs-root-dir != '' && inputs.docs-root-dir || inputs.root-dir }}
       requirements-file: ${{ inputs.docs-requirements-file }}
+      docs-directory: ${{ inputs.docs-directory }}
+      fail-on-warning: ${{ inputs.docs-fail-on-warning }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

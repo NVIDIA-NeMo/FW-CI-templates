@@ -27,6 +27,7 @@ Requires the following environment variables:
 import argparse
 import csv
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import openai
@@ -73,33 +74,41 @@ question or request directed at the maintainers.
 Respond with ONLY "waiting-on-author" or "waiting-on-maintainers", nothing else."""
 
 
-def run_graphql_query(query: str, variables: dict, token: str) -> dict:
-    """Execute a GraphQL query against GitHub's API."""
+def run_graphql_query(query: str, variables: dict, token: str, max_retries: int = 5) -> dict:
+    """Execute a GraphQL query against GitHub's API with exponential backoff."""
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
-    response = requests.post(
-        GITHUB_GRAPHQL_URL,
-        json={"query": query, "variables": variables},
-        headers=headers,
-    )
+    for attempt in range(max_retries + 1):
+        response = requests.post(
+            GITHUB_GRAPHQL_URL,
+            json={"query": query, "variables": variables},
+            headers=headers,
+        )
 
-    if response.status_code != 200:
+        if response.status_code == 200:
+            result = response.json()
+
+            if "errors" in result:
+                print("GraphQL errors:")
+                for error in result["errors"]:
+                    print(f"  - {error.get('message', error)}")
+                raise RuntimeError("GraphQL query returned errors")
+
+            return result
+
+        # Retry on server errors (5xx) and rate limits (403, 429)
+        if response.status_code in (403, 429, 500, 502, 503, 504) and attempt < max_retries:
+            delay = 2 ** attempt  # 1s, 2s, 4s, 8s, 16s
+            print(f"  Retrying in {delay}s after HTTP {response.status_code} (attempt {attempt + 1}/{max_retries})...")
+            time.sleep(delay)
+            continue
+
         print(f"Error: GitHub API returned status code {response.status_code}")
         print(f"Response: {response.text}")
         raise RuntimeError("GraphQL query request failed")
-
-    result = response.json()
-
-    if "errors" in result:
-        print("GraphQL errors:")
-        for error in result["errors"]:
-            print(f"  - {error.get('message', error)}")
-        raise RuntimeError("GraphQL query returned errors")
-
-    return result
 
 
 def ensure_label_exists(org: str, repo: str, label_name: str, label_color: str, label_description: str, token: str) -> bool:
@@ -549,16 +558,34 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             target_branch = ""
             is_draft = False
             last_approval_date = ""
+            all_reviewers_approved = False
             if item_type == "PullRequest":
                 target_branch = content.get("baseRefName", "")
                 is_draft = content.get("isDraft", False)
 
-                # Find the latest approval date
+                # Track each non-bot reviewer's latest review state
+                reviewer_latest: dict[str, tuple[str, str]] = {}  # login -> (state, submittedAt)
                 for review in content.get("reviews", {}).get("nodes", []):
-                    if review.get("state") == "APPROVED":
-                        submitted = review.get("submittedAt", "")
-                        if submitted > last_approval_date:
-                            last_approval_date = submitted
+                    reviewer_obj = review.get("author", {}) or {}
+                    reviewer_login = reviewer_obj.get("login", "")
+                    reviewer_type = reviewer_obj.get("__typename", "")
+                    submitted = review.get("submittedAt", "")
+                    state = review.get("state", "")
+                    if not reviewer_login or not state or reviewer_type == "Bot":
+                        continue
+                    prev = reviewer_latest.get(reviewer_login)
+                    if prev is None or submitted > prev[1]:
+                        reviewer_latest[reviewer_login] = (state, submitted)
+
+                # Find the latest approval date
+                for login, (state, submitted) in reviewer_latest.items():
+                    if state == "APPROVED" and submitted > last_approval_date:
+                        last_approval_date = submitted
+
+                # Only treat as fully approved if every reviewer's latest state is APPROVED
+                all_reviewers_approved = bool(reviewer_latest) and all(
+                    state == "APPROVED" for state, _ in reviewer_latest.values()
+                )
 
             repo_name = content.get("repository", {}).get("name", "")
             issue_number = content.get("number")
@@ -600,8 +627,12 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 is_stale = comment_dt < datetime.now(timezone.utc) - timedelta(hours=48)
                 item_dict["needs_attention"] = classification == "waiting-on-maintainers" and is_stale
 
-                # Approved PRs not merged after 48 hours always need follow-up
-                if item_type == "PullRequest" and last_approval_date:
+                # Approved PRs not merged after 48 hours need follow-up,
+                # but only if ALL reviewers' latest reviews are approvals.
+                # If any reviewer's latest state is not APPROVED (e.g.
+                # changes requested, commented, dismissed), defer to the
+                # LLM classification instead.
+                if item_type == "PullRequest" and last_approval_date and all_reviewers_approved:
                     approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
                     approval_stale = approval_dt < datetime.now(timezone.utc) - timedelta(hours=48)
                     if approval_stale:

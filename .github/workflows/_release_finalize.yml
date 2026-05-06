@@ -119,6 +119,11 @@ on:
         description: Fail the docs build on Sphinx warnings.
         type: boolean
         default: true
+      docs-skip-linkcheck:
+        required: false
+        description: Skip Sphinx linkcheck. Use until the repo curates a `broken_links_false_positives.json`.
+        type: boolean
+        default: false
       notify-emails:
         required: false
         type: string
@@ -306,6 +311,7 @@ jobs:
       requirements-file: ${{ inputs.docs-requirements-file }}
       docs-directory: ${{ inputs.docs-directory }}
       fail-on-warning: ${{ inputs.docs-fail-on-warning }}
+      skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

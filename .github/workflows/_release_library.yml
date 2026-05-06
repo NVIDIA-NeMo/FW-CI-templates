@@ -209,6 +209,11 @@ on:
         description: Fail the docs build on Sphinx warnings.
         type: boolean
         default: true
+      docs-skip-linkcheck:
+        required: false
+        description: Skip Sphinx linkcheck.
+        type: boolean
+        default: false
       container-options:
         required: false
         description: Options to pass to the container
@@ -346,6 +351,7 @@ jobs:
       docs-requirements-file: ${{ inputs.docs-requirements-file }}
       docs-directory: ${{ inputs.docs-directory }}
       docs-fail-on-warning: ${{ inputs.docs-fail-on-warning }}
+      docs-skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}

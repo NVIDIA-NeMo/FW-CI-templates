@@ -169,6 +169,21 @@ on:
         description: Type of documentation project
         type: string
         default: single-docset
+      publish-as-latest:
+        required: false
+        description: Overwrite the "latest" docs alias when publishing on a version tag.
+        type: boolean
+        default: true
+      update-version-picker:
+        required: false
+        description: Refresh the in-page docs version-picker after publishing.
+        type: boolean
+        default: true
+      run-on-version-tag-only:
+        required: false
+        description: Skip the publish step unless the workflow is running on a version tag.
+        type: boolean
+        default: false
       container-options:
         required: false
         description: Options to pass to the container
@@ -298,6 +313,9 @@ jobs:
       publish-docs: ${{ inputs.publish-docs }}
       docs-target-path: ${{ inputs.docs-target-path }}
       docs-project-type: ${{ inputs.docs-project-type }}
+      publish-as-latest: ${{ inputs.publish-as-latest }}
+      update-version-picker: ${{ inputs.update-version-picker }}
+      run-on-version-tag-only: ${{ inputs.run-on-version-tag-only }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}

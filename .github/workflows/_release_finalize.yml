@@ -356,13 +356,14 @@ jobs:
         success() || !failure()
       )
       && !cancelled()
-    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+    environment: ${{ inputs.validate-only && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ inputs.release-version }}
       PROJECT_NAME: ${{ inputs.library-name }}
       VERSION: ${{ inputs.release-version }}
       PYPI_NAME: ${{ inputs.pypi-name }}
-      IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
+      IS_VALIDATE_ONLY: ${{ inputs.validate-only }}
+      IS_DRY_RUN: ${{ inputs.dry-run }}
     steps:
       - name: Detect webhook
         id: webhook
@@ -381,7 +382,7 @@ jobs:
         id: msg
         run: |
           PREFIX=""
-          [[ "$IS_INERT" == "true" ]] && PREFIX="This is a dry-run, nothing actually happened: "
+          [[ "$IS_DRY_RUN" == "true" ]] && PREFIX="This is a dry-run, nothing actually happened: "
 
           {
             echo "message<<EOF"
@@ -394,11 +395,11 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Render assembled Slack message to step summary (inert)
-        if: env.IS_INERT == 'true' && steps.webhook.outputs.configured == 'true'
+      - name: Render assembled Slack message to step summary (validate-only)
+        if: env.IS_VALIDATE_ONLY == 'true' && steps.webhook.outputs.configured == 'true'
         run: |
           {
-            echo "## Slack notify (inert)"
+            echo "## Slack notify (validate-only — not posted)"
             echo
             echo '```'
             echo "${{ steps.msg.outputs.message }}"
@@ -406,7 +407,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout
-        if: env.IS_INERT == 'false' && steps.webhook.outputs.configured == 'true'
+        if: env.IS_VALIDATE_ONLY == 'false' && steps.webhook.outputs.configured == 'true'
         uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
@@ -414,7 +415,7 @@ jobs:
           path: send-slack-alert
 
       - name: Send Slack alert
-        if: env.IS_INERT == 'false' && steps.webhook.outputs.configured == 'true'
+        if: env.IS_VALIDATE_ONLY == 'false' && steps.webhook.outputs.configured == 'true'
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         with:
           message: ${{ steps.msg.outputs.message }}

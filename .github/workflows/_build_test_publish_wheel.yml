@@ -106,8 +106,6 @@ on:
         required: false
       SLACK_WEBHOOK_ADMIN:
         required: false
-      SLACK_WEBHOOK:
-        required: false
       GH_TOKEN:
         required: false
     outputs:

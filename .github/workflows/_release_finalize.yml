@@ -139,8 +139,6 @@ on:
     secrets:
       BOT_KEY:
         required: true
-      SLACK_WEBHOOK:
-        required: false
       SLACK_WEBHOOK_ADMIN:
         required: false
       AWS_ASSUME_ROLE_ARN:

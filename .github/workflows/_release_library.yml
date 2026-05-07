@@ -241,8 +241,6 @@ on:
         required: false
       SLACK_WEBHOOK_ADMIN:
         required: false
-      SLACK_WEBHOOK:
-        required: false
       BOT_KEY:
         required: false
       AWS_ASSUME_ROLE_ARN:
@@ -317,7 +315,6 @@ jobs:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
       SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
   finalize:
     needs: [bump, build-test-publish-wheel]
@@ -357,7 +354,6 @@ jobs:
       app-id: ${{ inputs.app-id }}
     secrets:
       BOT_KEY: ${{ secrets.BOT_KEY }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
       AWS_ASSUME_ROLE_ARN: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

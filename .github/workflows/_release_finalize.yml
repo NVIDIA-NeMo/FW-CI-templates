@@ -374,7 +374,7 @@ jobs:
         success() || !failure()
       )
       && !cancelled()
-    environment: ${{ inputs.validate-only && 'public' || 'main' }}
+    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ inputs.release-version }}
       PROJECT_NAME: ${{ inputs.library-name }}

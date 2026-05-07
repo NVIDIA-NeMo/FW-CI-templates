@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.2...v1.0.0) (2026-05-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* `_build_test_publish_wheel.yml` no longer accepts the `dry-run` input. Callers that passed `dry-run: true` should remove the line. Callers that need to skip publishing should use `no-publish: true`.
+
+### Features
+
+* Major refactoring of the release-workflows ([#466](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/466)) ([e93676c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e93676c37b259fef73e738242d817b9276fb619c))
+
 ## [0.94.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.1...v0.94.2) (2026-05-06)
 
 

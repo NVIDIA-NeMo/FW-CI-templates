@@ -393,4 +393,11 @@ jobs:
         if: always() && inputs.validate-only == false && env.TMP_BRANCH != ''
         run: |
           cd ${{ github.run_id }}
-          git push -d origin ${{ env.TMP_BRANCH }} || true
+          if git push -d origin "${TMP_BRANCH}" 2>/tmp/branch-delete.err; then
+            echo "Deleted ${TMP_BRANCH}"
+          else
+            echo "::notice::Branch ${TMP_BRANCH} could not be deleted (likely a deploy-release/* protection rule). It is harmless and can be cleaned up manually if desired."
+            sed 's/^/  /' /tmp/branch-delete.err >&2 || true
+          fi
+        env:
+          TMP_BRANCH: ${{ env.TMP_BRANCH }}

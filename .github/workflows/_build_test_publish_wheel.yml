@@ -16,11 +16,6 @@ name: Build, test, and publish a PyPi wheel
 on:
   workflow_call:
     inputs:
-      dry-run:
-        required: false
-        description: Upload to PyPy Test instance
-        type: boolean
-        default: true
       python-package:
         type: string
         description: Name of Python package
@@ -36,12 +31,17 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: "Packaging tool (supported: setuptools, uv)"
         type: string
         default: setuptools
       no-publish:
         required: false
         description: Do not publish the wheel
+        type: boolean
+        default: false
+      suppress-failure-notify:
+        required: false
+        description: Suppress the failure Slack notification (used for PR rehearsals where failures should not page).
         type: boolean
         default: false
       has-src-dir:
@@ -54,6 +54,16 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      skip-check-manifest:
+        required: false
+        description: Skip check-manifest validation. Use for repos that intentionally exclude dev tooling (`.claude/`, `docs/`, `docker/`, …) from the sdist without maintaining a `[tool.check-manifest] ignore` block.
+        type: boolean
+        default: false
+      wheel-content-ignore:
+        required: false
+        description: Comma-separated check-wheel-contents codes to ignore (e.g. "W002,W004,W009"). W002+W004 are common no-ops; add W009 for repos that ship multiple top-level packages in one wheel.
+        type: string
+        default: "W002,W004"
       custom-container:
         required: false
         description: Custom container to use for the build
@@ -91,12 +101,10 @@ on:
         default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
-      TWINE_PASSWORD:
-        required: true
-      SLACK_WEBHOOK_ADMIN:
         required: false
-      SLACK_WEBHOOK:
+      TWINE_PASSWORD:
+        required: false
+      SLACK_WEBHOOK_ADMIN:
         required: false
       GH_TOKEN:
         required: false
@@ -123,7 +131,6 @@ jobs:
       name: ${{ steps.build.outputs.name }}
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
-      DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
       ROOTDIR: ${{ inputs.root-dir }}
       EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
@@ -200,18 +207,6 @@ jobs:
               fi
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
-          fi
-
-          # If this is a dry run, update the patch version to a random number to upload to test-pypi
-          if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
-              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" "$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-            else
-              RANDOM_DEV=$((RANDOM % 9000 + 1000))
-              pip install hatch
-              VERSION=$(hatch version)$RANDOM_DEV
-              hatch version $VERSION
-            fi
           fi
 
           # Build the wheel
@@ -339,16 +334,59 @@ jobs:
             exit 1
           fi
 
-  publish-wheel:
-    needs: test-wheel
+  validate-wheel:
+    needs: build-wheel
     runs-on: ubuntu-latest
-    if: |
-      inputs.no-publish == false &&
-      (
-        inputs.skip-test-wheel == false || !cancelled()
-      )
+    env:
+      PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.ref }}
+
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
+          path: dist/
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install validators
+        run: |
+          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest
+
+      - name: twine check
+        run: |
+          python3 -m twine check dist/*
+
+      - name: check-wheel-contents
+        run: |
+          check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
+
+      - name: check-manifest
+        if: inputs.packaging == 'setuptools' && inputs.skip-check-manifest == false
+        run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          if [[ ! -f MANIFEST.in ]]; then
+            echo "::notice::No MANIFEST.in found; skipping check-manifest."
+            exit 0
+          fi
+          check-manifest -v
+
+  publish-wheel:
+    needs: [test-wheel, validate-wheel]
+    runs-on: ubuntu-latest
+    if: inputs.skip-test-wheel == false || !cancelled()
     environment:
-      name: ${{ inputs.dry-run && 'public' || 'main' }}
+      name: ${{ inputs.no-publish && 'public' || 'main' }}
     steps:
       - name: Download wheel
         uses: actions/download-artifact@v7
@@ -356,22 +394,26 @@ jobs:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
-      - name: Validate wheel
-        run: |
-          python3 -m pip install --upgrade twine==6.0.1
-          python3 -m twine check dist/*
-
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-          REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
+          DRY_RUN: ${{ inputs.no-publish }}
         run: |
-          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+          python3 -m pip install --upgrade twine==6.0.1
+          ls -la dist/
+
+          if [[ "$DRY_RUN" == "false" ]]; then
+            [[ -z "$TWINE_USERNAME" ]] && { echo "::error::TWINE_USERNAME unset"; exit 1; }
+            [[ -z "$TWINE_PASSWORD" ]] && { echo "::error::TWINE_PASSWORD unset"; exit 1; }
+            python3 -m twine upload --verbose --skip-existing -u "$TWINE_USERNAME" -p "$TWINE_PASSWORD" --repository pypi dist/*
+          else
+            echo "[dry-run] would execute: python3 -m twine upload --verbose --skip-existing -u <user> -p <pass> --repository pypi dist/*"
+          fi
 
   notify:
     runs-on: ubuntu-latest
-    if: failure()
+    if: failure() && inputs.suppress-failure-notify == false
     environment: public
     needs: [publish-wheel]
     env:

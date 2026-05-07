@@ -281,8 +281,7 @@ jobs:
       has-src-dir: ${{ inputs.has-src-dir }}
       packaging: ${{ inputs.packaging }}
       root-dir: ${{ inputs.root-dir }}
-    secrets:
-      BOT_KEY: ${{ secrets.BOT_KEY }}
+    secrets: inherit
 
   build-test-publish-wheel:
     needs: bump
@@ -311,10 +310,7 @@ jobs:
       submodules: ${{ inputs.submodules }}
       container-options: ${{ inputs.container-options }}
       extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+    secrets: inherit
 
   finalize:
     needs: [bump, build-test-publish-wheel]
@@ -352,14 +348,4 @@ jobs:
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}
-    secrets:
-      BOT_KEY: ${{ secrets.BOT_KEY }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      AWS_ASSUME_ROLE_ARN: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AKAMAI_HOST: ${{ secrets.AKAMAI_HOST }}
-      AKAMAI_CLIENT_TOKEN: ${{ secrets.AKAMAI_CLIENT_TOKEN }}
-      AKAMAI_CLIENT_SECRET: ${{ secrets.AKAMAI_CLIENT_SECRET }}
-      AKAMAI_ACCESS_TOKEN: ${{ secrets.AKAMAI_ACCESS_TOKEN }}
-      S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+    secrets: inherit

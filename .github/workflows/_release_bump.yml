@@ -268,7 +268,7 @@ jobs:
             [[ -n "$f" ]] && git add "$f"
           done < /tmp/bumped-files.txt
 
-          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" || echo "No changes to commit"
+          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }} [skip ci]" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
@@ -296,6 +296,14 @@ jobs:
             });
 
             const sha = refData.object.sha;
+
+            const { data: commit } = await github.rest.git.getCommit({ owner, repo, commit_sha: sha });
+            const message = commit.message || '';
+            const skipMarkers = ['[skip ci]', '[ci skip]', '[no ci]', '[skip actions]', '[actions skip]'];
+            if (skipMarkers.some(m => message.includes(m))) {
+              console.log(`✅ Bump commit carries a skip-CI marker; no checks will register — short-circuiting.`);
+              return;
+            }
 
             console.log(`Polling status for commit SHA: ${sha}`);
 

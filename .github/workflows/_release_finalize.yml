@@ -413,12 +413,14 @@ jobs:
 
       - name: Render assembled Slack message to step summary (validate-only)
         if: env.IS_VALIDATE_ONLY == 'true' && steps.webhook.outputs.configured == 'true'
+        env:
+          MSG: ${{ steps.msg.outputs.message }}
         run: |
           {
             echo "## Slack notify (validate-only — not posted)"
             echo
             echo '```'
-            echo "${{ steps.msg.outputs.message }}"
+            printf '%s\n' "$MSG"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -124,6 +124,11 @@ on:
         description: Skip Sphinx linkcheck. Use until the repo curates a `broken_links_false_positives.json`.
         type: boolean
         default: false
+      docs-sync-all:
+        required: false
+        description: "Sync all dependency groups (not just docs) before building. Use when conf.py imports the package."
+        type: boolean
+        default: false
       notify-emails:
         required: false
         type: string
@@ -310,6 +315,7 @@ jobs:
       docs-directory: ${{ inputs.docs-directory }}
       fail-on-warning: ${{ inputs.docs-fail-on-warning }}
       skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
+      sync-all: ${{ inputs.docs-sync-all }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

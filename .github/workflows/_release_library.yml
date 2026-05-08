@@ -214,6 +214,11 @@ on:
         description: Skip Sphinx linkcheck.
         type: boolean
         default: false
+      docs-sync-all:
+        required: false
+        description: Sync all dependency groups (not just docs) before building.
+        type: boolean
+        default: false
       container-options:
         required: false
         description: Options to pass to the container
@@ -345,6 +350,7 @@ jobs:
       docs-directory: ${{ inputs.docs-directory }}
       docs-fail-on-warning: ${{ inputs.docs-fail-on-warning }}
       docs-skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
+      docs-sync-all: ${{ inputs.docs-sync-all }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}

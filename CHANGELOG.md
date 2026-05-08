@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.0.0...v1.1.0) (2026-05-08)
+
+
+### Features
+
+* plumb docs-sync-all input through release workflows ([#471](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/471)) ([daa481e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/daa481e8adb9f4745ebcfac4974e3816cff22818))
+
 ## [1.0.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.2...v1.0.0) (2026-05-07)
 
 

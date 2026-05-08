@@ -64,10 +64,10 @@ limitations under the License.
         </match:recursive-dirs>
       </xsl:when>
 
-      <!-- Final path segment: add revalidate directive -->
+      <!-- Final path segment: add remove directive -->
       <xsl:otherwise>
         <match:recursive-dirs value="{$dir}">
-          <revalidate>now</revalidate>
+          <remove>now</remove>
         </match:recursive-dirs>
       </xsl:otherwise>
     </xsl:choose>

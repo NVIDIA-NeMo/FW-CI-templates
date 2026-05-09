@@ -219,6 +219,11 @@ on:
         description: Sync all dependency groups (not just docs) before building.
         type: boolean
         default: false
+      docs-no-extras:
+        required: false
+        description: Space-separated `--no-extra <name>` flags to skip optional extras when syncing all groups (only used when docs-sync-all is true).
+        type: string
+        default: ""
       container-options:
         required: false
         description: Options to pass to the container
@@ -351,6 +356,7 @@ jobs:
       docs-fail-on-warning: ${{ inputs.docs-fail-on-warning }}
       docs-skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
       docs-sync-all: ${{ inputs.docs-sync-all }}
+      docs-no-extras: ${{ inputs.docs-no-extras }}
       notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
       app-id: ${{ inputs.app-id }}

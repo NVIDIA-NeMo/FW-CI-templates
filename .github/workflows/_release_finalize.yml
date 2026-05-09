@@ -129,6 +129,11 @@ on:
         description: "Sync all dependency groups (not just docs) before building. Use when conf.py imports the package."
         type: boolean
         default: false
+      docs-no-extras:
+        required: false
+        description: Space-separated `--no-extra <name>` flags to skip optional extras when syncing all groups (only used when docs-sync-all is true).
+        type: string
+        default: ""
       notify-emails:
         required: false
         type: string
@@ -316,6 +321,7 @@ jobs:
       fail-on-warning: ${{ inputs.docs-fail-on-warning }}
       skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
       sync-all: ${{ inputs.docs-sync-all }}
+      no-extras: ${{ inputs.docs-no-extras }}
 
   publish-docs:
     needs: [create-gh-release, build-docs]

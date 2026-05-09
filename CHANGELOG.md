@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.1.0...v1.2.0) (2026-05-09)
+
+
+### Features
+
+* **release:** forward docs-no-extras through release-library ([#473](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/473)) ([0680019](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/06800198b6e79e8ac5de7fb0e77a7d25bf43f9b4))
+
 ## [1.1.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.0.0...v1.1.0) (2026-05-08)
 
 

@@ -45,6 +45,8 @@ WAITING_ON_CUSTOMER_LABEL = "waiting-on-customer"
 WAITING_ON_CUSTOMER_COLOR = "c2e0c6"
 WAITING_ON_CUSTOMER_DESCRIPTION = "Waiting on the original author to respond"
 
+SKIPPED_REPOS = {"Megatron-Bridge"}
+
 CLASSIFICATION_SYSTEM_PROMPT = """\
 You are classifying GitHub issues and pull requests. Based on the conversation \
 context provided, determine whether the item is currently waiting on the \
@@ -473,6 +475,10 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             if item_type not in ("Issue", "PullRequest"):
                 continue
 
+            repo_name = content.get("repository", {}).get("name", "")
+            if repo_name in SKIPPED_REPOS:
+                continue
+
             # Check if item already has managed labels
             labels = content.get("labels", {}).get("nodes", [])
             label_names = [label.get("name", "") for label in labels]
@@ -587,7 +593,6 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                     state == "APPROVED" for state, _ in reviewer_latest.values()
                 )
 
-            repo_name = content.get("repository", {}).get("name", "")
             issue_number = content.get("number")
             repo_org = get_repo_org(repo_name, org)
             url = f"https://github.com/{repo_org}/{repo_name}/issues/{issue_number}"

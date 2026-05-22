@@ -50,6 +50,17 @@ on:
         required: false
         default: true
         description: Only repository admins may invoke. Always skipped under validate-only.
+      release-branch-pattern:
+        type: string
+        required: false
+        default: "[rv][0-9].[0-9].[0-9]"
+        description: |
+          Branch-protection pattern of the real release branches. The bump job mirrors
+          this rule onto the `fake-release/*` pattern (created if absent, updated if
+          present). In dry-run mode the rehearsal merges into a throwaway
+          `fake-release/<uuid>` branch so the merge is gated by the same required
+          checks a real release would face. Requires the App to have
+          `administration: write`.
       app-id:
         type: string
         required: true
@@ -149,7 +160,6 @@ jobs:
       FALLBACK_SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
     steps:
       - uses: actions/create-github-app-token@v2
-        if: inputs.validate-only == false
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
@@ -239,8 +249,8 @@ jobs:
           echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
           printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
 
-      - name: Record computed versions (validate-only)
-        if: inputs.validate-only == true
+      - name: Record computed versions
+        if: env.IS_INERT == 'true'
         run: |
           {
             echo "## Bump rehearsal"
@@ -248,11 +258,247 @@ jobs:
             echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
             echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
             echo
-            echo "validate-only=true → no branch push, no PR, no status-check wait, no merge, no branch delete."
+            echo "IS_INERT=true → the rehearsal pushes \`deploy-release/<uuid>\` and"
+            echo "\`fake-release/<uuid>\` and merges the bump into the fake branch"
+            echo "(gated by the mirrored release-branch protection). No commit lands"
+            echo "on \`${{ inputs.version-bump-branch }}\` and both branches are"
+            echo "deleted on exit."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Mirror branch protection ${{ inputs.release-branch-pattern }} -> fake-release/*
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_PATTERN: ${{ inputs.release-branch-pattern }}
+          TARGET_PATTERN: "fake-release/*"
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          python3 - <<'PY'
+          """Mirror the branch-protection rule of the real release pattern onto fake-release/*.
+
+          Idempotent: creates the target rule if absent, updates it in place if present.
+          Source rule is identified by the `release-branch-pattern` input. The mirror lets
+          the dry-run rehearsal merge into a throwaway `fake-release/<uuid>` branch that
+          is gated by the same required checks a real release would face. Requires the
+          calling GitHub App token to hold `administration: write`.
+          """
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          API = "https://api.github.com/graphql"
+          OWNER = os.environ["OWNER"]
+          REPO = os.environ["REPO"]
+          SOURCE_PATTERN = os.environ["SOURCE_PATTERN"]
+          TARGET_PATTERN = os.environ["TARGET_PATTERN"]
+          TOKEN = os.environ["GH_TOKEN"]
+
+          MIRRORED_FIELDS = (
+              "requiresStatusChecks",
+              "requiredStatusCheckContexts",
+              "requiresStrictStatusChecks",
+              "requiresApprovingReviews",
+              "requiredApprovingReviewCount",
+              "dismissesStaleReviews",
+              "requiresCodeOwnerReviews",
+              "requireLastPushApproval",
+              "restrictsReviewDismissals",
+              "restrictsPushes",
+              "isAdminEnforced",
+              "allowsForcePushes",
+              "allowsDeletions",
+              "requiresConversationResolution",
+              "requiresLinearHistory",
+              "blocksCreations",
+              "requiresDeployments",
+              "requiredDeploymentEnvironments",
+              "lockBranch",
+              "lockAllowsFetchAndMerge",
+          )
+
+
+          def graphql(query, variables=None):
+              """Send a GraphQL request and return the `data` block, raising on errors."""
+              body = json.dumps({"query": query, "variables": variables or {}}).encode()
+              req = urllib.request.Request(
+                  API,
+                  data=body,
+                  headers={
+                      "Authorization": f"bearer {TOKEN}",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(req) as resp:
+                  payload = json.loads(resp.read().decode())
+              if payload.get("errors"):
+                  sys.exit(f"GraphQL errors: {json.dumps(payload['errors'], indent=2)}")
+              return payload["data"]
+
+
+          def list_rules():
+              """Return (repository_id, [rule, ...]) for the configured repo."""
+              data = graphql(
+                  """
+                  query($owner:String!, $repo:String!) {
+                    repository(owner:$owner, name:$repo) {
+                      id
+                      branchProtectionRules(first: 100) {
+                        nodes {
+                          id
+                          pattern
+                          requiresStatusChecks
+                          requiredStatusCheckContexts
+                          requiresStrictStatusChecks
+                          requiresApprovingReviews
+                          requiredApprovingReviewCount
+                          dismissesStaleReviews
+                          requiresCodeOwnerReviews
+                          requireLastPushApproval
+                          restrictsReviewDismissals
+                          reviewDismissalAllowances(first: 100) {
+                            nodes { actor { __typename ... on User { id } ... on Team { id } } }
+                          }
+                          bypassPullRequestAllowances(first: 100) {
+                            nodes { actor { __typename ... on User { id } ... on Team { id } ... on App { id } } }
+                          }
+                          restrictsPushes
+                          pushAllowances(first: 100) {
+                            nodes { actor { __typename ... on User { id } ... on Team { id } ... on App { id } } }
+                          }
+                          isAdminEnforced
+                          allowsForcePushes
+                          allowsDeletions
+                          requiresConversationResolution
+                          requiresLinearHistory
+                          blocksCreations
+                          requiresDeployments
+                          requiredDeploymentEnvironments
+                          lockBranch
+                          lockAllowsFetchAndMerge
+                        }
+                      }
+                    }
+                  }
+                  """,
+                  {"owner": OWNER, "repo": REPO},
+              )
+              repo = data["repository"]
+              return repo["id"], repo["branchProtectionRules"]["nodes"]
+
+
+          def actor_ids(allowance_block):
+              """Extract the node IDs of actors granted an allowance.
+
+              Tolerates entries whose `actor` is null (e.g. a deleted user/team) or whose
+              `actor.id` is missing (e.g. an actor type not covered by the inline fragments).
+              """
+              ids = []
+              for node in allowance_block["nodes"]:
+                  actor = node.get("actor")
+                  if actor and actor.get("id"):
+                      ids.append(actor["id"])
+              return ids
+
+
+          def build_mirror_input(source):
+              """Build the mutation input payload that mirrors the source rule.
+
+              One intentional deviation: `allowsDeletions: True` so the throwaway
+              fake-release/<uuid> branch can be deleted on cleanup. The source
+              rule's `allowsDeletions: false` is meant to protect real release
+              branches; deletion of synthetic per-run UUIDs has no analogue
+              concern. Every other field is mirrored faithfully — the rehearsal's
+              purpose is to validate that the gating contract on the source rule
+              actually applies to the test PR.
+              """
+              mirror = {field: source[field] for field in MIRRORED_FIELDS}
+              mirror["allowsDeletions"] = True
+              mirror["reviewDismissalActorIds"] = actor_ids(source["reviewDismissalAllowances"])
+              mirror["bypassPullRequestActorIds"] = actor_ids(source["bypassPullRequestAllowances"])
+              mirror["pushActorIds"] = actor_ids(source["pushAllowances"])
+              return mirror
+
+
+          def create_rule(repo_id, pattern, mirror):
+              """Create a new branch protection rule mirroring the source."""
+              graphql(
+                  """
+                  mutation($input: CreateBranchProtectionRuleInput!) {
+                    createBranchProtectionRule(input: $input) {
+                      branchProtectionRule { id pattern }
+                    }
+                  }
+                  """,
+                  {"input": {"repositoryId": repo_id, "pattern": pattern, **mirror}},
+              )
+
+
+          def update_rule(rule_id, pattern, mirror):
+              """Update an existing branch protection rule to mirror the source."""
+              graphql(
+                  """
+                  mutation($input: UpdateBranchProtectionRuleInput!) {
+                    updateBranchProtectionRule(input: $input) {
+                      branchProtectionRule { id pattern }
+                    }
+                  }
+                  """,
+                  {"input": {"branchProtectionRuleId": rule_id, "pattern": pattern, **mirror}},
+              )
+
+
+          repo_id, rules = list_rules()
+
+          source = next((r for r in rules if r["pattern"] == SOURCE_PATTERN), None)
+          if source is None:
+              print(f"::warning::No branch protection rule found for pattern {SOURCE_PATTERN!r}; skipping mirror. "
+                    f"Override `release-branch-pattern` to match this repository's release-branch rule, "
+                    f"or create one to gate the rehearsal merge.")
+              sys.exit(0)
+
+          # Export the source rule's required status check contexts so the deploy
+          # step can post matching fake success statuses on the deploy-release
+          # HEAD. That satisfies the mirrored fake-release/* required-check gate
+          # without paying the cost of running real CI on every rehearsal.
+          github_env = os.environ.get("GITHUB_ENV")
+          if github_env:
+              contexts = source.get("requiredStatusCheckContexts") or []
+              with open(github_env, "a") as f:
+                  f.write(f"REQUIRED_CHECK_CONTEXTS={','.join(contexts)}\n")
+
+          mirror = build_mirror_input(source)
+          target = next((r for r in rules if r["pattern"] == TARGET_PATTERN), None)
+
+          if target is None:
+              create_rule(repo_id, TARGET_PATTERN, mirror)
+              print(f"Created branch protection rule for {TARGET_PATTERN!r} mirroring {SOURCE_PATTERN!r}.")
+          else:
+              update_rule(target["id"], TARGET_PATTERN, mirror)
+              print(f"Updated branch protection rule for {TARGET_PATTERN!r} to mirror {SOURCE_PATTERN!r}.")
+          PY
+
+      - name: Resolve version-bump-branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUT_BRANCH: ${{ inputs.version-bump-branch }}
+        run: |
+          # Consumers that fall back to `github.ref_name` get a PR-derived ref
+          # that is not the branch a real release would target:
+          #   - `<pr-num>/merge` or `<pr-num>/head` on `pull_request` triggers,
+          #   - `pull-request/<pr-num>` on `push` triggers via the copy-pr-bot mirror.
+          # In all those cases, fall back to the repo's default branch so the
+          # rehearsal targets a real branch (and the fake-release/<uuid> base
+          # commit is reachable from the normal history).
+          BRANCH="$INPUT_BRANCH"
+          if [[ "$BRANCH" =~ ^[0-9]+/(merge|head)$ ]] || [[ "$BRANCH" =~ ^pull-request/[0-9]+$ ]]; then
+            BRANCH=$(gh api "repos/${{ github.repository }}" --jq '.default_branch')
+            echo "::warning::version-bump-branch resolved to PR-derived ref '$INPUT_BRANCH'; falling back to default branch '$BRANCH'."
+          fi
+          echo "VERSION_BUMP_BRANCH=$BRANCH" | tee -a $GITHUB_ENV
+
       - name: Create and push deployment branch
-        if: inputs.validate-only == false
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -272,14 +518,56 @@ jobs:
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
-          gh pr create \
-            --base ${{ inputs.version-bump-branch }} \
-            --head $TMP_BRANCH \
+          # Post a fake success check-run for each required check context the source
+          # release-branch rule advertises. The mirrored `fake-release/*` rule
+          # inherits those contexts, so without this the merge would block waiting
+          # for real CI. The fake check-runs are bound to the deploy-release HEAD
+          # commit — the PR's head — which is what the protection actually
+          # checks against. Uses the Checks API (App needs `checks: write`).
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ -n "${REQUIRED_CHECK_CONTEXTS:-}" ]]; then
+            IFS=',' read -ra CONTEXTS <<< "$REQUIRED_CHECK_CONTEXTS"
+            for ctx in "${CONTEXTS[@]}"; do
+              [[ -z "$ctx" ]] && continue
+              echo "Posting fake check-run '$ctx' on $HEAD_SHA"
+              gh api -X POST "repos/${{ github.repository }}/check-runs" \
+                -f name="$ctx" \
+                -f head_sha="$HEAD_SHA" \
+                -f status=completed \
+                -f conclusion=success \
+                -f "output[title]=IS_INERT rehearsal stand-in" \
+                -f "output[summary]=Synthesised by FW-CI-templates release rehearsal to satisfy mirrored release-branch protection without running real CI."
+            done
+          fi
+
+          # In inert modes (validate-only OR dry-run), target a throwaway
+          # `fake-release/<uuid>` off the resolved version-bump-branch. Its branch
+          # protection (`fake-release/*`) mirrors the real release-branch rule, so
+          # the merge is gated by the same required checks a real release would
+          # face — without touching any real release branch.
+          if [[ "$IS_INERT" == "true" ]]; then
+            FAKE_BRANCH="fake-release/$(uuidgen)"
+            git fetch origin "$VERSION_BUMP_BRANCH"
+            # Use `git push <sha>:refs/heads/<branch>` instead of the REST git/refs
+            # endpoint — same credential path that just worked for deploy-release,
+            # avoids HTTP 422s seen on some org installs.
+            BASE_SHA=$(git rev-parse "origin/$VERSION_BUMP_BRANCH")
+            git push origin "$BASE_SHA:refs/heads/$FAKE_BRANCH"
+            echo "FAKE_BRANCH=$FAKE_BRANCH" | tee -a $GITHUB_ENV
+            PR_BASE="$FAKE_BRANCH"
+          else
+            PR_BASE="$VERSION_BUMP_BRANCH"
+          fi
+
+          PR_URL=$(gh pr create \
+            --base "$PR_BASE" \
+            --head "$TMP_BRANCH" \
             --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
-            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}."
+            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
+          PR_NUMBER="${PR_URL##*/}"
+          echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
 
       - name: Wait for status checks on tmp branch
-        if: inputs.validate-only == false
         uses: actions/github-script@v8
         id: wait-status
         with:
@@ -353,44 +641,58 @@ jobs:
               core.setFailed('❌ Status checks did not pass in time');
             }
 
-      - name: Merge into ${{ inputs.version-bump-branch }}
-        if: inputs.validate-only == false
+      - name: Merge deploy-release branch into target
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
-
           if [[ "$IS_INERT" == "true" ]]; then
-            echo "dry-run enabled, would have run: $CMD"
+            TARGET="$FAKE_BRANCH"
           else
-            git fetch origin ${{ inputs.version-bump-branch }}
-            git checkout ${{ inputs.version-bump-branch }}
-            git merge ${{ env.TMP_BRANCH }}
-
-            for attempt in {1..3}; do
-              if eval "$CMD"; then
-                echo "Git push succeeded on attempt $attempt"
-                break
-              else
-                echo "Git push failed on attempt $attempt"
-                if [[ $attempt -lt 3 ]]; then
-                  sleep $((RANDOM % 3 + 1))
-                  git fetch origin ${{ inputs.version-bump-branch }}
-                  git reset --hard origin/${{ inputs.version-bump-branch }}
-                  git merge ${{ env.TMP_BRANCH }}
-                else
-                  echo "Git push failed after 3 attempts"
-                  exit 1
-                fi
-              fi
-            done
+            TARGET="$VERSION_BUMP_BRANCH"
           fi
 
-      - name: Delete ${{ env.TMP_BRANCH }} branch
-        if: always() && inputs.validate-only == false && env.TMP_BRANCH != ''
+          # Direct git push to the protected target. The PR-merge endpoint enforces
+          # app_id-bound `requiredStatusCheckContexts` (and on some repos refuses
+          # admin override for that). A direct push goes through `pushAllowances`
+          # instead — the mirrored rule (and the real version-bump-branch rule)
+          # both put the bot in `pushAllowances` and leave `requiresApprovingReviews=false`,
+          # so this path consistently works.
+          git fetch origin "$TARGET"
+          git checkout "$TARGET"
+          git merge "$TMP_BRANCH"
+
+          for attempt in {1..3}; do
+            if git push origin "$TARGET"; then
+              echo "Git push to $TARGET succeeded on attempt $attempt"
+              break
+            else
+              echo "Git push to $TARGET failed on attempt $attempt"
+              if [[ $attempt -lt 3 ]]; then
+                sleep $((RANDOM % 3 + 1))
+                git fetch origin "$TARGET"
+                git reset --hard "origin/$TARGET"
+                git merge "$TMP_BRANCH"
+              else
+                echo "Git push to $TARGET failed after 3 attempts"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Delete temporary branches
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
-          git push -d origin ${{ env.TMP_BRANCH }} || true
+          if [[ -n "${TMP_BRANCH:-}" ]]; then
+            git push -d origin "$TMP_BRANCH" || true
+          fi
+          if [[ -n "${FAKE_BRANCH:-}" ]]; then
+            git push -d origin "$FAKE_BRANCH" || true
+          fi

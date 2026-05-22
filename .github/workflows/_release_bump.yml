@@ -58,13 +58,14 @@ on:
           Branch-protection pattern of the real release branches. The bump job mirrors
           this rule onto the `fake-release/*` pattern (created if absent, updated if
           present). In dry-run mode the rehearsal merges into a throwaway
-          `fake-release/<uuid>` branch so the merge is gated by the same required
-          checks a real release would face. Requires the App to have
+          `fake-release/<uuid>` branch that carries the same protection rule as a real
+          release branch — the bot pushes through it via admin bypass
+          (`isAdminEnforced=false` on the source rule). Requires the App to have
           `administration: write`.
       app-id:
         type: string
         required: true
-        description: GitHub App ID used to mint the bot token for git push, PR creation, and status-check polling.
+        description: GitHub App ID used to mint the bot token for git push and PR creation.
       library-name:
         type: string
         required: true
@@ -259,9 +260,10 @@ jobs:
             echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
             echo
             echo "IS_INERT=true → the rehearsal pushes \`deploy-release/<uuid>\` and"
-            echo "\`fake-release/<uuid>\` and merges the bump into the fake branch"
-            echo "(gated by the mirrored release-branch protection). No commit lands"
-            echo "on \`${{ inputs.version-bump-branch }}\` and both branches are"
+            echo "\`fake-release/<uuid>\` and merges the bump into the fake branch."
+            echo "The fake branch inherits the source release-branch rule via the"
+            echo "mirror step; the bot pushes through it via admin bypass. No commit"
+            echo "lands on \`${{ inputs.version-bump-branch }}\` and both branches are"
             echo "deleted on exit."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -277,10 +279,12 @@ jobs:
           """Mirror the branch-protection rule of the real release pattern onto fake-release/*.
 
           Idempotent: creates the target rule if absent, updates it in place if present.
-          Source rule is identified by the `release-branch-pattern` input. The mirror lets
-          the dry-run rehearsal merge into a throwaway `fake-release/<uuid>` branch that
-          is gated by the same required checks a real release would face. Requires the
-          calling GitHub App token to hold `administration: write`.
+          Source rule is identified by the `release-branch-pattern` input. The mirror gives
+          the throwaway `fake-release/<uuid>` branch the same protection posture as a real
+          release branch — including `isAdminEnforced=false`, which is what lets the bot
+          push the bump commit through as an admin. Fails fast if the source rule has
+          admin enforcement on. Requires the calling GitHub App token to hold
+          `administration: write`.
           """
           import json
           import os
@@ -409,9 +413,8 @@ jobs:
               fake-release/<uuid> branch can be deleted on cleanup. The source
               rule's `allowsDeletions: false` is meant to protect real release
               branches; deletion of synthetic per-run UUIDs has no analogue
-              concern. Every other field is mirrored faithfully — the rehearsal's
-              purpose is to validate that the gating contract on the source rule
-              actually applies to the test PR.
+              concern. Every other field is mirrored faithfully so the rehearsal
+              branch carries the same protection posture as a real release branch.
               """
               mirror = {field: source[field] for field in MIRRORED_FIELDS}
               mirror["allowsDeletions"] = True
@@ -458,15 +461,12 @@ jobs:
                     f"or create one to gate the rehearsal merge.")
               sys.exit(0)
 
-          # Export the source rule's required status check contexts so the deploy
-          # step can post matching fake success statuses on the deploy-release
-          # HEAD. That satisfies the mirrored fake-release/* required-check gate
-          # without paying the cost of running real CI on every rehearsal.
-          github_env = os.environ.get("GITHUB_ENV")
-          if github_env:
-              contexts = source.get("requiredStatusCheckContexts") or []
-              with open(github_env, "a") as f:
-                  f.write(f"REQUIRED_CHECK_CONTEXTS={','.join(contexts)}\n")
+          if source.get("isAdminEnforced"):
+              sys.exit(
+                  f"::error::Source rule {SOURCE_PATTERN!r} has isAdminEnforced=true. "
+                  f"The rehearsal pushes through admin bypass; set isAdminEnforced=false "
+                  f"on the source rule and re-run."
+              )
 
           mirror = build_mirror_input(source)
           target = next((r for r in rules if r["pattern"] == TARGET_PATTERN), None)
@@ -518,28 +518,6 @@ jobs:
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
-          # Post a fake success check-run for each required check context the source
-          # release-branch rule advertises. The mirrored `fake-release/*` rule
-          # inherits those contexts, so without this the merge would block waiting
-          # for real CI. The fake check-runs are bound to the deploy-release HEAD
-          # commit — the PR's head — which is what the protection actually
-          # checks against. Uses the Checks API (App needs `checks: write`).
-          HEAD_SHA=$(git rev-parse HEAD)
-          if [[ -n "${REQUIRED_CHECK_CONTEXTS:-}" ]]; then
-            IFS=',' read -ra CONTEXTS <<< "$REQUIRED_CHECK_CONTEXTS"
-            for ctx in "${CONTEXTS[@]}"; do
-              [[ -z "$ctx" ]] && continue
-              echo "Posting fake check-run '$ctx' on $HEAD_SHA"
-              gh api -X POST "repos/${{ github.repository }}/check-runs" \
-                -f name="$ctx" \
-                -f head_sha="$HEAD_SHA" \
-                -f status=completed \
-                -f conclusion=success \
-                -f "output[title]=IS_INERT rehearsal stand-in" \
-                -f "output[summary]=Synthesised by FW-CI-templates release rehearsal to satisfy mirrored release-branch protection without running real CI."
-            done
-          fi
-
           # In inert modes (validate-only OR dry-run), target a throwaway
           # `fake-release/<uuid>` off the resolved version-bump-branch. Its branch
           # protection (`fake-release/*`) mirrors the real release-branch rule, so
@@ -567,80 +545,6 @@ jobs:
           PR_NUMBER="${PR_URL##*/}"
           echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
 
-      - name: Wait for status checks on tmp branch
-        uses: actions/github-script@v8
-        id: wait-status
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const branch = process.env.TMP_BRANCH;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            const { data: refData } = await github.rest.git.getRef({
-              owner,
-              repo,
-              ref: `heads/${branch}`,
-            });
-
-            const sha = refData.object.sha;
-
-            const { data: commit } = await github.rest.git.getCommit({ owner, repo, commit_sha: sha });
-            const message = commit.message || '';
-            const skipMarkers = ['[skip ci]', '[ci skip]', '[no ci]', '[skip actions]', '[actions skip]'];
-            if (skipMarkers.some(m => message.includes(m))) {
-              console.log(`✅ Bump commit carries a skip-CI marker; no checks will register — short-circuiting.`);
-              return;
-            }
-
-            console.log(`Polling status for commit SHA: ${sha}`);
-
-            let checksPassed = false;
-            let maxAttempts = 3000;
-            let attempt = 0;
-            const delay = ms => new Promise(res => setTimeout(res, ms));
-
-            while (!checksPassed && attempt < maxAttempts) {
-              attempt++;
-
-              const { data: status } = await github.rest.repos.getCombinedStatusForRef({
-                owner,
-                repo,
-                ref: sha,
-              });
-
-              const { data: checks } = await github.rest.checks.listForRef({
-                owner,
-                repo,
-                ref: sha,
-              });
-
-              const allStatuses = status.statuses;
-              const allChecks = checks.check_runs;
-
-              if (allStatuses.length === 0 && allChecks.length === 0) {
-                console.log(`Attempt ${attempt}: No checks or statuses yet. Waiting...`);
-                await delay(10000);
-                continue;
-              }
-
-              const statusesOk = allStatuses.every(s => s.state === 'success');
-              const checksOk = allChecks.every(c => c.status === 'completed');
-
-              if (statusesOk && checksOk) {
-                console.log('✅ All checks passed.');
-                checksPassed = true;
-                break
-              }
-
-              console.log(`Attempt ${attempt}: Checks not complete yet. Waiting...`);
-              await delay(10000);
-            }
-
-            if (!checksPassed) {
-              core.setFailed('❌ Status checks did not pass in time');
-            }
-
       - name: Merge deploy-release branch into target
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -656,12 +560,11 @@ jobs:
             TARGET="$VERSION_BUMP_BRANCH"
           fi
 
-          # Direct git push to the protected target. The PR-merge endpoint enforces
-          # app_id-bound `requiredStatusCheckContexts` (and on some repos refuses
-          # admin override for that). A direct push goes through `pushAllowances`
-          # instead — the mirrored rule (and the real version-bump-branch rule)
-          # both put the bot in `pushAllowances` and leave `requiresApprovingReviews=false`,
-          # so this path consistently works.
+          # Direct git push to the protected target. The source rule has
+          # `isAdminEnforced=false`, so the bot bypasses required checks and
+          # approving-review counts as a repo admin. The mirror step copies that
+          # bypass posture onto `fake-release/*`, so the same push path works for
+          # both real releases and the rehearsal.
           git fetch origin "$TARGET"
           git checkout "$TARGET"
           git merge "$TMP_BRANCH"

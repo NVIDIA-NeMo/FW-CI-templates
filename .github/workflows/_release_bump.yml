@@ -29,12 +29,12 @@ on:
         type: boolean
         required: false
         default: false
-        description: Compute the bump but do not push the deploy branch, open the PR, wait, merge, or delete. Used by per-PR rehearsals.
+        description: Inert mode for per-PR rehearsals. Compute the bump and assert release preconditions; do not push, open a PR, or merge.
       dry-run:
         type: boolean
         required: false
         default: false
-        description: Compute the bump and exercise the deploy-branch+PR cycle but echo the merge step instead of pushing to the version-bump branch.
+        description: Inert mode for workflow_dispatch rehearsals. Same precondition checks as validate-only; no side effects on the repo.
       version-bump-branch:
         type: string
         required: false
@@ -55,13 +55,10 @@ on:
         required: false
         default: "[rv][0-9].[0-9].[0-9]"
         description: |
-          Branch-protection pattern of the real release branches. The bump job mirrors
-          this rule onto the `fake-release/*` pattern (created if absent, updated if
-          present). In dry-run mode the rehearsal merges into a throwaway
-          `fake-release/<uuid>` branch that carries the same protection rule as a real
-          release branch — the bot pushes through it via admin bypass
-          (`isAdminEnforced=false` on the source rule). Requires the App to have
-          `administration: write`.
+          Branch-protection pattern of the real release branches. In inert mode
+          (validate-only or dry-run) the workflow asserts a rule for this pattern
+          exists with `isAdminEnforced=false`. Real releases push through that rule
+          via admin bypass, so this precondition is what makes the push succeed.
       app-id:
         type: string
         required: true
@@ -259,227 +256,129 @@ jobs:
             echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
             echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
             echo
-            echo "IS_INERT=true → the rehearsal pushes \`deploy-release/<uuid>\` and"
-            echo "\`fake-release/<uuid>\` and merges the bump into the fake branch."
-            echo "The fake branch inherits the source release-branch rule via the"
-            echo "mirror step; the bot pushes through it via admin bypass. No commit"
-            echo "lands on \`${{ inputs.version-bump-branch }}\` and both branches are"
-            echo "deleted on exit."
+            echo "IS_INERT=true → preconditions are asserted (App permissions +"
+            echo "source rule \`isAdminEnforced=false\`). No commit is pushed, no PR"
+            echo "is opened, and no branch is created on this repo."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Mirror branch protection ${{ inputs.release-branch-pattern }} -> fake-release/*
+      - name: Validate release config
+        if: env.IS_INERT == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SOURCE_PATTERN: ${{ inputs.release-branch-pattern }}
-          TARGET_PATTERN: "fake-release/*"
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
         run: |
           python3 - <<'PY'
-          """Mirror the branch-protection rule of the real release pattern onto fake-release/*.
+          """Assert the preconditions a real release relies on, without side effects.
 
-          Idempotent: creates the target rule if absent, updates it in place if present.
-          Source rule is identified by the `release-branch-pattern` input. The mirror gives
-          the throwaway `fake-release/<uuid>` branch the same protection posture as a real
-          release branch — including `isAdminEnforced=false`, which is what lets the bot
-          push the bump commit through as an admin. Fails fast if the source rule has
-          admin enforcement on. Requires the calling GitHub App token to hold
-          `administration: write`.
+          Two reads, no writes:
+            1. `GET /repos/{owner}/{repo}/installation` — assert the App installation
+               on this repo holds `contents: write`, `pull_requests: write`, and
+               `administration: read`. Proves the token is valid and the permissions
+               that real releases will need are still granted.
+            2. `branchProtectionRules` GraphQL query — assert a rule matching
+               `release-branch-pattern` exists with `isAdminEnforced=false`. Real
+               releases push the bump commit through that rule via admin bypass,
+               so this is the precondition that makes the push succeed.
           """
           import json
           import os
           import sys
           import urllib.request
 
-          API = "https://api.github.com/graphql"
           OWNER = os.environ["OWNER"]
           REPO = os.environ["REPO"]
           SOURCE_PATTERN = os.environ["SOURCE_PATTERN"]
-          TARGET_PATTERN = os.environ["TARGET_PATTERN"]
           TOKEN = os.environ["GH_TOKEN"]
 
-          MIRRORED_FIELDS = (
-              "requiresStatusChecks",
-              "requiredStatusCheckContexts",
-              "requiresStrictStatusChecks",
-              "requiresApprovingReviews",
-              "requiredApprovingReviewCount",
-              "dismissesStaleReviews",
-              "requiresCodeOwnerReviews",
-              "requireLastPushApproval",
-              "restrictsReviewDismissals",
-              "restrictsPushes",
-              "isAdminEnforced",
-              "allowsForcePushes",
-              "allowsDeletions",
-              "requiresConversationResolution",
-              "requiresLinearHistory",
-              "blocksCreations",
-              "requiresDeployments",
-              "requiredDeploymentEnvironments",
-              "lockBranch",
-              "lockAllowsFetchAndMerge",
-          )
+          EXPECTED_PERMS = {
+              "contents": "write",
+              "pull_requests": "write",
+              "administration": "read",
+          }
 
 
-          def graphql(query, variables=None):
-              """Send a GraphQL request and return the `data` block, raising on errors."""
-              body = json.dumps({"query": query, "variables": variables or {}}).encode()
+          def api_request(url, method="GET", body=None):
+              """Send an API request and return the parsed JSON body."""
+              data = json.dumps(body).encode() if body is not None else None
               req = urllib.request.Request(
-                  API,
-                  data=body,
+                  url,
+                  data=data,
                   headers={
                       "Authorization": f"bearer {TOKEN}",
+                      "Accept": "application/vnd.github+json",
                       "Content-Type": "application/json",
                   },
-                  method="POST",
+                  method=method,
               )
               with urllib.request.urlopen(req) as resp:
-                  payload = json.loads(resp.read().decode())
-              if payload.get("errors"):
-                  sys.exit(f"GraphQL errors: {json.dumps(payload['errors'], indent=2)}")
-              return payload["data"]
+                  return json.loads(resp.read().decode())
 
 
-          def list_rules():
-              """Return (repository_id, [rule, ...]) for the configured repo."""
-              data = graphql(
-                  """
-                  query($owner:String!, $repo:String!) {
-                    repository(owner:$owner, name:$repo) {
-                      id
-                      branchProtectionRules(first: 100) {
-                        nodes {
-                          id
-                          pattern
-                          requiresStatusChecks
-                          requiredStatusCheckContexts
-                          requiresStrictStatusChecks
-                          requiresApprovingReviews
-                          requiredApprovingReviewCount
-                          dismissesStaleReviews
-                          requiresCodeOwnerReviews
-                          requireLastPushApproval
-                          restrictsReviewDismissals
-                          reviewDismissalAllowances(first: 100) {
-                            nodes { actor { __typename ... on User { id } ... on Team { id } } }
-                          }
-                          bypassPullRequestAllowances(first: 100) {
-                            nodes { actor { __typename ... on User { id } ... on Team { id } ... on App { id } } }
-                          }
-                          restrictsPushes
-                          pushAllowances(first: 100) {
-                            nodes { actor { __typename ... on User { id } ... on Team { id } ... on App { id } } }
-                          }
-                          isAdminEnforced
-                          allowsForcePushes
-                          allowsDeletions
-                          requiresConversationResolution
-                          requiresLinearHistory
-                          blocksCreations
-                          requiresDeployments
-                          requiredDeploymentEnvironments
-                          lockBranch
-                          lockAllowsFetchAndMerge
-                        }
-                      }
+          def check_installation_permissions():
+              """Assert the App installation has the permissions a real release needs."""
+              installation = api_request(
+                  f"https://api.github.com/repos/{OWNER}/{REPO}/installation"
+              )
+              perms = installation.get("permissions", {})
+              missing = []
+              for name, required in EXPECTED_PERMS.items():
+                  level = perms.get(name)
+                  if level is None:
+                      missing.append(f"{name}={required} (not granted)")
+                  elif required == "write" and level != "write":
+                      missing.append(f"{name}=write (currently {level})")
+                  elif required == "read" and level not in ("read", "write"):
+                      missing.append(f"{name}=read (currently {level})")
+              if missing:
+                  sys.exit(
+                      "::error::App installation is missing required permissions: "
+                      + ", ".join(missing)
+                  )
+              print(f"App permissions OK: {perms}")
+
+
+          def check_source_rule_admin_bypass():
+              """Assert the source release-branch rule exists with admin enforcement off."""
+              query = """
+                query($owner:String!, $repo:String!) {
+                  repository(owner:$owner, name:$repo) {
+                    branchProtectionRules(first: 100) {
+                      nodes { pattern isAdminEnforced }
                     }
                   }
-                  """,
-                  {"owner": OWNER, "repo": REPO},
-              )
-              repo = data["repository"]
-              return repo["id"], repo["branchProtectionRules"]["nodes"]
-
-
-          def actor_ids(allowance_block):
-              """Extract the node IDs of actors granted an allowance.
-
-              Tolerates entries whose `actor` is null (e.g. a deleted user/team) or whose
-              `actor.id` is missing (e.g. an actor type not covered by the inline fragments).
+                }
               """
-              ids = []
-              for node in allowance_block["nodes"]:
-                  actor = node.get("actor")
-                  if actor and actor.get("id"):
-                      ids.append(actor["id"])
-              return ids
-
-
-          def build_mirror_input(source):
-              """Build the mutation input payload that mirrors the source rule.
-
-              One intentional deviation: `allowsDeletions: True` so the throwaway
-              fake-release/<uuid> branch can be deleted on cleanup. The source
-              rule's `allowsDeletions: false` is meant to protect real release
-              branches; deletion of synthetic per-run UUIDs has no analogue
-              concern. Every other field is mirrored faithfully so the rehearsal
-              branch carries the same protection posture as a real release branch.
-              """
-              mirror = {field: source[field] for field in MIRRORED_FIELDS}
-              mirror["allowsDeletions"] = True
-              mirror["reviewDismissalActorIds"] = actor_ids(source["reviewDismissalAllowances"])
-              mirror["bypassPullRequestActorIds"] = actor_ids(source["bypassPullRequestAllowances"])
-              mirror["pushActorIds"] = actor_ids(source["pushAllowances"])
-              return mirror
-
-
-          def create_rule(repo_id, pattern, mirror):
-              """Create a new branch protection rule mirroring the source."""
-              graphql(
-                  """
-                  mutation($input: CreateBranchProtectionRuleInput!) {
-                    createBranchProtectionRule(input: $input) {
-                      branchProtectionRule { id pattern }
-                    }
-                  }
-                  """,
-                  {"input": {"repositoryId": repo_id, "pattern": pattern, **mirror}},
+              body = {"query": query, "variables": {"owner": OWNER, "repo": REPO}}
+              data = api_request(
+                  "https://api.github.com/graphql", method="POST", body=body
               )
+              if data.get("errors"):
+                  sys.exit(f"::error::GraphQL errors: {json.dumps(data['errors'])}")
+              rules = data["data"]["repository"]["branchProtectionRules"]["nodes"]
+              source = next((r for r in rules if r["pattern"] == SOURCE_PATTERN), None)
+              if source is None:
+                  sys.exit(
+                      f"::error::No branch protection rule found for pattern "
+                      f"{SOURCE_PATTERN!r}. Create one or override "
+                      f"`release-branch-pattern` to match this repo."
+                  )
+              if source["isAdminEnforced"]:
+                  sys.exit(
+                      f"::error::Source rule {SOURCE_PATTERN!r} has "
+                      f"isAdminEnforced=true. Real releases push through admin "
+                      f"bypass; set isAdminEnforced=false on the source rule."
+                  )
+              print(f"Source rule {SOURCE_PATTERN!r} OK: isAdminEnforced=false")
 
 
-          def update_rule(rule_id, pattern, mirror):
-              """Update an existing branch protection rule to mirror the source."""
-              graphql(
-                  """
-                  mutation($input: UpdateBranchProtectionRuleInput!) {
-                    updateBranchProtectionRule(input: $input) {
-                      branchProtectionRule { id pattern }
-                    }
-                  }
-                  """,
-                  {"input": {"branchProtectionRuleId": rule_id, "pattern": pattern, **mirror}},
-              )
-
-
-          repo_id, rules = list_rules()
-
-          source = next((r for r in rules if r["pattern"] == SOURCE_PATTERN), None)
-          if source is None:
-              print(f"::warning::No branch protection rule found for pattern {SOURCE_PATTERN!r}; skipping mirror. "
-                    f"Override `release-branch-pattern` to match this repository's release-branch rule, "
-                    f"or create one to gate the rehearsal merge.")
-              sys.exit(0)
-
-          if source.get("isAdminEnforced"):
-              sys.exit(
-                  f"::error::Source rule {SOURCE_PATTERN!r} has isAdminEnforced=true. "
-                  f"The rehearsal pushes through admin bypass; set isAdminEnforced=false "
-                  f"on the source rule and re-run."
-              )
-
-          mirror = build_mirror_input(source)
-          target = next((r for r in rules if r["pattern"] == TARGET_PATTERN), None)
-
-          if target is None:
-              create_rule(repo_id, TARGET_PATTERN, mirror)
-              print(f"Created branch protection rule for {TARGET_PATTERN!r} mirroring {SOURCE_PATTERN!r}.")
-          else:
-              update_rule(target["id"], TARGET_PATTERN, mirror)
-              print(f"Updated branch protection rule for {TARGET_PATTERN!r} to mirror {SOURCE_PATTERN!r}.")
+          check_installation_permissions()
+          check_source_rule_admin_bypass()
           PY
 
       - name: Resolve version-bump-branch
+        if: env.IS_INERT == 'false'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           INPUT_BRANCH: ${{ inputs.version-bump-branch }}
@@ -488,9 +387,7 @@ jobs:
           # that is not the branch a real release would target:
           #   - `<pr-num>/merge` or `<pr-num>/head` on `pull_request` triggers,
           #   - `pull-request/<pr-num>` on `push` triggers via the copy-pr-bot mirror.
-          # In all those cases, fall back to the repo's default branch so the
-          # rehearsal targets a real branch (and the fake-release/<uuid> base
-          # commit is reachable from the normal history).
+          # In all those cases, fall back to the repo's default branch.
           BRANCH="$INPUT_BRANCH"
           if [[ "$BRANCH" =~ ^[0-9]+/(merge|head)$ ]] || [[ "$BRANCH" =~ ^pull-request/[0-9]+$ ]]; then
             BRANCH=$(gh api "repos/${{ github.repository }}" --jq '.default_branch')
@@ -499,6 +396,7 @@ jobs:
           echo "VERSION_BUMP_BRANCH=$BRANCH" | tee -a $GITHUB_ENV
 
       - name: Create and push deployment branch
+        if: env.IS_INERT == 'false'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -518,27 +416,8 @@ jobs:
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
-          # In inert modes (validate-only OR dry-run), target a throwaway
-          # `fake-release/<uuid>` off the resolved version-bump-branch. Its branch
-          # protection (`fake-release/*`) mirrors the real release-branch rule, so
-          # the merge is gated by the same required checks a real release would
-          # face — without touching any real release branch.
-          if [[ "$IS_INERT" == "true" ]]; then
-            FAKE_BRANCH="fake-release/$(uuidgen)"
-            git fetch origin "$VERSION_BUMP_BRANCH"
-            # Use `git push <sha>:refs/heads/<branch>` instead of the REST git/refs
-            # endpoint — same credential path that just worked for deploy-release,
-            # avoids HTTP 422s seen on some org installs.
-            BASE_SHA=$(git rev-parse "origin/$VERSION_BUMP_BRANCH")
-            git push origin "$BASE_SHA:refs/heads/$FAKE_BRANCH"
-            echo "FAKE_BRANCH=$FAKE_BRANCH" | tee -a $GITHUB_ENV
-            PR_BASE="$FAKE_BRANCH"
-          else
-            PR_BASE="$VERSION_BUMP_BRANCH"
-          fi
-
           PR_URL=$(gh pr create \
-            --base "$PR_BASE" \
+            --base "$VERSION_BUMP_BRANCH" \
             --head "$TMP_BRANCH" \
             --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
@@ -546,6 +425,7 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
 
       - name: Merge deploy-release branch into target
+        if: env.IS_INERT == 'false'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -554,48 +434,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if [[ "$IS_INERT" == "true" ]]; then
-            TARGET="$FAKE_BRANCH"
-          else
-            TARGET="$VERSION_BUMP_BRANCH"
-          fi
-
-          # Direct git push to the protected target. The source rule has
-          # `isAdminEnforced=false`, so the bot bypasses required checks and
-          # approving-review counts as a repo admin. The mirror step copies that
-          # bypass posture onto `fake-release/*`, so the same push path works for
-          # both real releases and the rehearsal.
-          git fetch origin "$TARGET"
-          git checkout "$TARGET"
+          # Direct git push to the protected version-bump-branch. The source rule
+          # has `isAdminEnforced=false` (asserted in inert mode by `Validate
+          # release config`), so the bot bypasses required checks and approving-
+          # review counts as a repo admin.
+          git fetch origin "$VERSION_BUMP_BRANCH"
+          git checkout "$VERSION_BUMP_BRANCH"
           git merge "$TMP_BRANCH"
 
           for attempt in {1..3}; do
-            if git push origin "$TARGET"; then
-              echo "Git push to $TARGET succeeded on attempt $attempt"
+            if git push origin "$VERSION_BUMP_BRANCH"; then
+              echo "Git push to $VERSION_BUMP_BRANCH succeeded on attempt $attempt"
               break
             else
-              echo "Git push to $TARGET failed on attempt $attempt"
+              echo "Git push to $VERSION_BUMP_BRANCH failed on attempt $attempt"
               if [[ $attempt -lt 3 ]]; then
                 sleep $((RANDOM % 3 + 1))
-                git fetch origin "$TARGET"
-                git reset --hard "origin/$TARGET"
+                git fetch origin "$VERSION_BUMP_BRANCH"
+                git reset --hard "origin/$VERSION_BUMP_BRANCH"
                 git merge "$TMP_BRANCH"
               else
-                echo "Git push to $TARGET failed after 3 attempts"
+                echo "Git push to $VERSION_BUMP_BRANCH failed after 3 attempts"
                 exit 1
               fi
             fi
           done
 
-      - name: Delete temporary branches
-        if: always()
+      - name: Delete temporary branch
+        if: always() && env.IS_INERT == 'false'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
           if [[ -n "${TMP_BRANCH:-}" ]]; then
             git push -d origin "$TMP_BRANCH" || true
-          fi
-          if [[ -n "${FAKE_BRANCH:-}" ]]; then
-            git push -d origin "$FAKE_BRANCH" || true
           fi

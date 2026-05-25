@@ -334,15 +334,13 @@ jobs:
 
           SOURCE=$(echo "$RESPONSE" | jq -c --arg p "$SOURCE_PATTERN" '.data.repository.branchProtectionRules.nodes[] | select(.pattern == $p)')
           if [[ -z "$SOURCE" ]]; then
-            echo "::error::No branch protection rule found for pattern '$SOURCE_PATTERN'. Create one or override release-branch-pattern."
-            exit 1
-          fi
-
-          if [[ "$(echo "$SOURCE" | jq -r '.isAdminEnforced')" == "true" ]]; then
+            echo "::warning::No branch protection rule found for pattern '$SOURCE_PATTERN'. Real releases won't be gated by a release-branch rule; skipping the admin-bypass check. Override release-branch-pattern if this repo has its own convention."
+          elif [[ "$(echo "$SOURCE" | jq -r '.isAdminEnforced')" == "true" ]]; then
             echo "::error::Source rule '$SOURCE_PATTERN' has isAdminEnforced=true. Real releases push through admin bypass; set isAdminEnforced=false."
             exit 1
+          else
+            echo "Source rule '$SOURCE_PATTERN' OK: isAdminEnforced=false"
           fi
-          echo "Source rule '$SOURCE_PATTERN' OK: isAdminEnforced=false"
 
       - name: Resolve version-bump-branch
         if: env.IS_INERT == 'false'

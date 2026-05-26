@@ -234,6 +234,14 @@ on:
         description: Only allow repository admins to run this workflow
         type: boolean
         default: true
+      release-branch-pattern:
+        required: false
+        description: |
+          Branch-protection pattern of the real release branches. The bump job mirrors
+          this rule onto `deploy-release/*` so the rehearsal PR is gated by the same
+          required checks as a real release. Requires the App to have `administration: write`.
+        type: string
+        default: "[rv][0-9].[0-9].[0-9]"
       extra-no-build-isolation-packages:
         required: false
         description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
@@ -284,6 +292,7 @@ jobs:
       version-bump-branch: ${{ inputs.version-bump-branch }}
       skip-version-bump: ${{ inputs.skip-version-bump }}
       restrict-to-admins: ${{ inputs.restrict-to-admins }}
+      release-branch-pattern: ${{ inputs.release-branch-pattern }}
       app-id: ${{ inputs.app-id }}
       library-name: ${{ inputs.library-name }}
       bump-targets: ${{ inputs.bump-targets }}

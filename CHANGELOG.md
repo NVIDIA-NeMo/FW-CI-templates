@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.3.0...v1.4.0) (2026-05-26)
+
+
+### Features
+
+* mirror release-branch protection onto fake-release/* ([#480](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/480)) ([01a3e3f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/01a3e3f0c325fa357326f8f1905a52aac19d0ded))
+
 ## [1.2.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.1.0...v1.2.0) (2026-05-09)
 
 

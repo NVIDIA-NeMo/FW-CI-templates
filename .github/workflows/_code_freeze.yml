@@ -141,6 +141,7 @@ jobs:
           fetch-tags: true
           ref: main
           token: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          persist-credentials: false
 
       - name: Bump version
         id: bump-version

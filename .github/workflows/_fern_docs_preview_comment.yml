@@ -66,6 +66,22 @@ jobs:
       - name: Install Fern CLI
         run: npm install -g fern-api
 
+      - name: Detect Fern libraries field
+        id: libraries
+        run: |
+          if [ -f fern/docs.yml ] && yq -e '.libraries' fern/docs.yml >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate library reference MDX (autodocs)
+        if: steps.libraries.outputs.present == 'true'
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: fern docs md generate
+
       - name: Generate preview URL
         id: generate-docs
         env:

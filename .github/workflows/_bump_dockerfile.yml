@@ -71,7 +71,7 @@ jobs:
           sed -i 's/^ARG ${{ inputs.build-arg }}=.*$/ARG ${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}/' ${{ inputs.dockerfile }}
 
       - name: Create Bump PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         id: create-pull-request
         env:
           title: 'chore(beep boop 🤖): Bump `${{ inputs.build-arg }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'

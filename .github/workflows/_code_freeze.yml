@@ -179,7 +179,7 @@ jobs:
           echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
 
       - name: Create Version Bump PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         id: create-pull-request
         if: ${{ inputs.dry-run != true }}
         with:

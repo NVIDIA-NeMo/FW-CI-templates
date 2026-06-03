@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.2...v1.4.3) (2026-06-03)
+
+
+### Bug Fixes
+
+* catch direct URL dependencies in validate-wheel before publish ([#491](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/491)) ([5e3aa91](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5e3aa912eab1f7273a4992ed6d5d52b3698bbb56))
+
 ## [1.4.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.1...v1.4.2) (2026-06-03)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.3...v1.5.0) (2026-06-03)
+
+
+### Features
+
+* Use app token for community bot ([#493](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/493)) ([3ca4f19](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3ca4f19b8e909b5b3e18f55b08d19f73d16a9b05))
+
 ## [1.4.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.2...v1.4.3) (2026-06-03)
 
 

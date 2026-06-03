@@ -105,6 +105,8 @@ jobs:
           echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
 
       - name: Add community-request label for community users
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -152,6 +154,8 @@ jobs:
           fi
 
       - name: Remove community-request label for maintainers
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'true'

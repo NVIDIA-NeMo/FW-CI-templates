@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.1...v1.4.2) (2026-06-03)
+
+
+### Bug Fixes
+
+* make code-freeze next-version pre-release/dev tags configurable ([#487](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/487)) ([c6b8345](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6b8345c9f3b3930082bf54d92af6ebc134c017c))
+
 ## [1.4.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.0...v1.4.1) (2026-06-03)
 
 

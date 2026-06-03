@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.0...v1.4.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* bump peter-evans/create-pull-request from v6 to v8 ([#484](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/484)) ([c6e96e8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6e96e892f476686d41c45f45935b6a88eaa9ad9))
+
 ## [1.4.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.3.0...v1.4.0) (2026-05-26)
 
 

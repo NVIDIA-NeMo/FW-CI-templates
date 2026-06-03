@@ -360,11 +360,67 @@ jobs:
 
       - name: Install validators
         run: |
-          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest
+          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest packaging pkginfo
 
       - name: twine check
         run: |
           python3 -m twine check dist/*
+
+      - name: Check for direct URL dependencies
+        run: |
+          python3 - <<'PY'
+          """Fail if any built distribution declares a PEP 508 direct URL dependency.
+
+          PyPI rejects uploads whose metadata carries a ``Requires-Dist`` direct
+          reference (e.g. ``pkg @ git+https://...``). ``twine check`` does not catch
+          these, so the failure otherwise only surfaces at ``twine upload`` time.
+          """
+
+          import glob
+          import sys
+
+          from packaging.requirements import InvalidRequirement, Requirement
+          from pkginfo import SDist, Wheel
+
+
+          def direct_url_requirements(dist_path):
+              """Return the direct URL requirement strings declared by a distribution.
+
+              Args:
+                  dist_path: Path to a built wheel (``.whl``) or sdist (``.tar.gz``).
+
+              Returns:
+                  The ``Requires-Dist`` specifiers that carry a PEP 508 direct URL.
+              """
+              metadata = Wheel(dist_path) if dist_path.endswith(".whl") else SDist(dist_path)
+              offenders = []
+              for spec in metadata.requires_dist or []:
+                  try:
+                      requirement = Requirement(spec)
+                  except InvalidRequirement:
+                      continue
+                  if requirement.url:
+                      offenders.append(spec)
+              return offenders
+
+
+          def main():
+              """Scan ``dist/`` and exit non-zero if any direct URL dependency is found."""
+              distributions = sorted(glob.glob("dist/*.whl") + glob.glob("dist/*.tar.gz"))
+              found = False
+              for dist_path in distributions:
+                  for spec in direct_url_requirements(dist_path):
+                      found = True
+                      print(f"::error file={dist_path}::PyPI rejects direct URL dependencies: {spec}")
+              if found:
+                  print("Direct URL dependencies are not allowed on PyPI; replace them with a published release.")
+                  sys.exit(1)
+              print("No direct URL dependencies found.")
+
+
+          if __name__ == "__main__":
+              main()
+          PY
 
       - name: check-wheel-contents
         run: |

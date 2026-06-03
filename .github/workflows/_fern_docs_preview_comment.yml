@@ -33,6 +33,15 @@ on:
         required: false
         type: string
         default: fern-preview
+      container-image:
+        description: |
+          Optional container image to run the job in, such as
+          ghcr.io/nvidia/docs-builder-ci:<semver>. Leave empty to run
+          directly on the runner, which installs Node.js and fern-api
+          before each run.
+        required: false
+        type: string
+        default: ''
     secrets:
       DOCS_FERN_TOKEN:
         required: true
@@ -40,6 +49,7 @@ on:
 jobs:
   preview:
     runs-on: ubuntu-latest
+    container: ${{ inputs.container-image != '' && inputs.container-image || null }}
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       pull-requests: write
@@ -59,11 +69,13 @@ jobs:
           echo "head_ref=$(cat preview-metadata/head_ref)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
+        if: ${{ inputs.container-image == '' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
 
       - name: Install Fern CLI
+        if: ${{ inputs.container-image == '' }}
         run: npm install -g fern-api
 
       - name: Detect Fern libraries field
@@ -97,6 +109,13 @@ jobs:
             exit 1
           fi
           echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## :herb: Fern docs preview"
+            echo ""
+            echo "[Open preview]($URL)"
+            echo ""
+            echo "<$URL>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build page links for changed MDX files
         id: page-links
@@ -125,6 +144,12 @@ jobs:
 
           if [ -n "$PAGE_LINKS" ]; then
             { echo "page_links<<EOF"; echo "$PAGE_LINKS"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+            {
+              echo ""
+              echo "### Changed pages"
+              echo ""
+              echo "$PAGE_LINKS"
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "page_links=" >> "$GITHUB_OUTPUT"
           fi

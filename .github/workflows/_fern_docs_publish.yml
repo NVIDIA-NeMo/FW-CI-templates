@@ -31,6 +31,15 @@ on:
         required: false
         type: string
         default: fern
+      container-image:
+        description: |
+          Optional container image to run the job in, such as
+          ghcr.io/nvidia/docs-builder-ci:<semver>. Leave empty to run
+          directly on the runner, which installs Node.js and fern-api
+          before each run.
+        required: false
+        type: string
+        default: ''
     secrets:
       DOCS_FERN_TOKEN:
         required: true
@@ -41,16 +50,19 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    container: ${{ inputs.container-image != '' && inputs.container-image || null }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Node.js
+        if: ${{ inputs.container-image == '' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
 
       - name: Install Fern CLI
+        if: ${{ inputs.container-image == '' }}
         run: npm install -g fern-api
 
       - name: Detect Fern libraries field

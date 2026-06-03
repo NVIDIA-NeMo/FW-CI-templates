@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.0...v1.5.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* Add GITHUB_TOKEN to all community bot steps ([#495](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/495)) ([0211d55](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0211d5507fef149a83de50b2cf5723b595ee06b2))
+
 ## [1.5.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.3...v1.5.0) (2026-06-03)
 
 

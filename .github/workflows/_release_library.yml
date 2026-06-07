@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021, NVIDIA CORPORATION.
+# Copyright (c) 2020-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,18 +35,36 @@ on:
         default: "3.10"
       library-name:
         type: string
-        description: Name of Nemo library
+        description: Human-readable library name (used in PR titles, GH release title, Slack notify)
       dry-run:
         type: boolean
         required: true
         description: Do not publish a wheel and GitHub release.
+      validate-only:
+        type: boolean
+        required: false
+        default: false
+        description: Run all release steps in compute-only mode — no pushes, no PRs, no PyPI, no GH release, no docs publish. Used by per-PR rehearsals.
       version-bump-branch:
         type: string
-        required: true
+        required: false
+        default: main
         description: Branch to target for version bump
+      skip-version-bump:
+        type: boolean
+        required: false
+        default: false
+        description: Skip the version bump commit and PR (for dynamic versioning setups where the version is derived from git tags)
+      bump-targets:
+        type: string
+        required: false
+        default: ""
+        description: |
+          JSON array of bump targets, each `{"python-package": "...", "src-dir": "..."}`.
+          Empty falls back to a single target derived from python-package + has-src-dir.
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: "Packaging tool (supported: setuptools, uv)"
         type: string
         default: setuptools
       create-gh-release:
@@ -59,6 +77,31 @@ on:
         description: This string will be preprended "as-is" to the version tag
         type: string
         default: ""
+      gh-release-use-changelog-builder:
+        required: false
+        description: Use release-changelog-builder-action to dynamically build changelog
+        type: boolean
+        default: false
+      gh-release-changelog-config:
+        required: false
+        description: Path to changelog builder configuration file
+        type: string
+        default: ".github/workflows/config/changelog-config.json"
+      gh-release-changelog-included-paths:
+        required: false
+        description: Paths to include in the changelog
+        type: string
+        default: ""
+      gh-release-from-tag:
+        required: false
+        description: Starting tag for changelog builder (leave empty for auto-detect)
+        type: string
+        default: ""
+      gh-release-changelog-mode:
+        required: false
+        description: Mode for changelog builder (PR / COMMIT / HYBRID).
+        type: string
+        default: HYBRID
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -67,6 +110,24 @@ on:
       skip-test-wheel:
         required: false
         description: Skip the test wheel step
+        type: boolean
+        default: false
+      skip-check-manifest:
+        required: false
+        description: Skip check-manifest validation (for repos that intentionally exclude dev tooling from sdist).
+        type: boolean
+        default: false
+      wheel-content-ignore:
+        required: false
+        description: Comma-separated check-wheel-contents codes to ignore.
+        type: string
+        default: "W002,W004"
+      skip-wheel-build:
+        required: false
+        description: |
+          Skip the entire wheel build phase. Use for repos whose wheel build
+          requires infrastructure not available in this orchestration (e.g.
+          CUDA-only dependencies). Bump and finalize still run.
         type: boolean
         default: false
       custom-container:
@@ -86,7 +147,7 @@ on:
         default: false
       app-id:
         required: true
-        description: GitHub App ID
+        description: GitHub App ID for minting the bot token used by bump-next-version.
         type: string
       root-dir:
         required: false
@@ -97,28 +158,129 @@ on:
         required: false
         description: Whether to checkout submodules
         type: string
-        default: ''
+        default: ""
+      publish-docs:
+        required: false
+        description: Publish documentation to S3 after release
+        type: boolean
+        default: true
+      docs-target-path:
+        required: false
+        description: Target path within S3 bucket for documentation
+        type: string
+        default: ""
+      docs-project-type:
+        required: false
+        description: Type of documentation project
+        type: string
+        default: single-docset
+      publish-as-latest:
+        required: false
+        description: Overwrite the "latest" docs alias when publishing on a version tag.
+        type: boolean
+        default: true
+      update-version-picker:
+        required: false
+        description: Refresh the in-page docs version-picker after publishing.
+        type: boolean
+        default: true
+      run-on-version-tag-only:
+        required: false
+        description: Skip the publish step unless the workflow is running on a version tag.
+        type: boolean
+        default: false
+      docs-root-dir:
+        required: false
+        description: Sub-directory of docs source pyproject.toml. Defaults to root-dir; override for monorepos with repo-root docs.
+        type: string
+        default: ""
+      docs-requirements-file:
+        required: false
+        description: pip-installable requirements.txt for docs install (instead of uv sync --only-group docs).
+        type: string
+        default: ""
+      docs-directory:
+        required: false
+        description: Sphinx docs directory (where conf.py lives). Defaults to `docs`.
+        type: string
+        default: "docs"
+      docs-fail-on-warning:
+        required: false
+        description: Fail the docs build on Sphinx warnings.
+        type: boolean
+        default: true
+      docs-skip-linkcheck:
+        required: false
+        description: Skip Sphinx linkcheck.
+        type: boolean
+        default: false
+      docs-sync-all:
+        required: false
+        description: Sync all dependency groups (not just docs) before building.
+        type: boolean
+        default: false
+      docs-no-extras:
+        required: false
+        description: Space-separated `--no-extra <name>` flags to skip optional extras when syncing all groups (only used when docs-sync-all is true).
+        type: string
+        default: ""
+      container-options:
+        required: false
+        description: Options to pass to the container
+        type: string
+        default: " "
+      restrict-to-admins:
+        required: false
+        description: Only allow repository admins to run this workflow
+        type: boolean
+        default: true
+      release-branch-pattern:
+        required: false
+        description: |
+          Branch-protection pattern of the real release branches. The bump job mirrors
+          this rule onto `deploy-release/*` so the rehearsal PR is gated by the same
+          required checks as a real release. Requires the App to have `administration: write`.
+        type: string
+        default: "[rv][0-9].[0-9].[0-9]"
+      extra-no-build-isolation-packages:
+        required: false
+        description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
+        type: string
+        default: ""
+      notify-emails:
+        required: false
+        description: Comma-separated extra email addresses for docs publish notifications.
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
-      TWINE_PASSWORD:
-        required: true
-      SLACK_WEBHOOK_ADMIN:
-        required: true
-      SLACK_WEBHOOK:
-        required: true
-      PAT:
-        required: true
-      SSH_KEY:
         required: false
-      SSH_PWD:
+      TWINE_PASSWORD:
+        required: false
+      SLACK_WEBHOOK_ADMIN:
         required: false
       BOT_KEY:
-        required: true
+        required: false
+      AWS_ASSUME_ROLE_ARN:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AKAMAI_HOST:
+        required: false
+      AKAMAI_CLIENT_TOKEN:
+        required: false
+      AKAMAI_CLIENT_SECRET:
+        required: false
+      AKAMAI_ACCESS_TOKEN:
+        required: false
+      S3_BUCKET_NAME:
+        required: false
 
 permissions:
-  contents: write # To read repository content
-  pull-requests: write # To create PR(s)
+  contents: write
+  pull-requests: write
 
 jobs:
   validate-inputs:
@@ -131,382 +293,91 @@ jobs:
             exit 1
           fi
 
-  build-test-publish-wheel-dry-run:
-    name: Build test publish wheel (dry run)
+  bump:
     needs: validate-inputs
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.5
-    if: inputs.dry-run == false
+    uses: ./.github/workflows/_release_bump.yml
     with:
-      dry-run: true
+      release-ref: ${{ inputs.release-ref }}
+      validate-only: ${{ inputs.validate-only }}
+      dry-run: ${{ inputs.dry-run }}
+      version-bump-branch: ${{ inputs.version-bump-branch }}
+      skip-version-bump: ${{ inputs.skip-version-bump }}
+      restrict-to-admins: ${{ inputs.restrict-to-admins }}
+      release-branch-pattern: ${{ inputs.release-branch-pattern }}
+      app-id: ${{ inputs.app-id }}
+      library-name: ${{ inputs.library-name }}
+      bump-targets: ${{ inputs.bump-targets }}
+      python-package: ${{ inputs.python-package }}
+      has-src-dir: ${{ inputs.has-src-dir }}
+      packaging: ${{ inputs.packaging }}
+      root-dir: ${{ inputs.root-dir }}
+    secrets: inherit
+
+  build-test-publish-wheel:
+    needs: bump
+    uses: ./.github/workflows/_build_test_publish_wheel.yml
+    if: |
+      (
+        success() || !failure()
+      )
+      && !cancelled()
+      && inputs.skip-wheel-build == false
+    with:
+      no-publish: ${{ inputs.validate-only || inputs.dry-run }}
+      suppress-failure-notify: ${{ inputs.validate-only }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
       ref: ${{ inputs.release-ref }}
       packaging: ${{ inputs.packaging }}
       has-src-dir: ${{ inputs.has-src-dir }}
       skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      skip-check-manifest: ${{ inputs.skip-check-manifest }}
+      wheel-content-ignore: ${{ inputs.wheel-content-ignore }}
       custom-container: ${{ inputs.custom-container }}
       runner: ${{ inputs.runner }}
       no-build-isolation: ${{ inputs.no-build-isolation }}
       root-dir: ${{ inputs.root-dir }}
       submodules: ${{ inputs.submodules }}
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      container-options: ${{ inputs.container-options }}
+      extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
+    secrets: inherit
 
-  bump-next-version:
-    runs-on: ubuntu-latest
-    environment: main # ${{ inputs.dry-run == true && 'public' || 'main' }}
-    needs: build-test-publish-wheel-dry-run
-    if: |
-      (
-        success() || !failure()
-      )
-      && !cancelled()
-    env:
-      IS_DRY_RUN: ${{ inputs.dry-run }}
-      PYPROJECT_NAME: ${{ inputs.python-package }}
-      SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
-    steps:
-      - uses: actions/create-github-app-token@v2
-        id: app-token
-        with:
-          app-id: ${{ inputs.app-id }}
-          private-key: ${{ secrets.BOT_KEY }}
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: ${{ github.run_id }}
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 0
-          fetch-tags: true
-          ref: ${{ inputs.release-ref }}
-
-      - name: Install GPG
-        run: sudo apt-get install -y gnupg2
-
-      - name: Import GPG key (for signing)
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
-        id: gpg-action
-        with:
-          gpg_private_key: ${{ secrets.SSH_KEY }}
-          passphrase: ${{ secrets.SSH_PWD }}
-          git_user_signingkey: true
-          git_commit_gpgsign: true
-          workdir: ${{ github.run_id }}
-
-      - name: Bump version
-        id: bump-version
-        run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
-
-          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-
-          MAJOR=$(cat $PACKAGE_INFO_FILE | awk '/^MAJOR = /' | awk -F"= " '{print $2}')
-          MINOR=$(cat $PACKAGE_INFO_FILE | awk '/^MINOR = /' | awk -F"= " '{print $2}')
-          PATCH=$(cat $PACKAGE_INFO_FILE | awk '/^PATCH = /' | awk -F"= " '{print $2}')
-          PRERELEASE=$(cat $PACKAGE_INFO_FILE | awk '/^PRE_RELEASE = /' | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
-
-          if [[ "$PRERELEASE" != "" ]]; then
-            if [[ "$PRERELEASE" == *rc* ]]; then
-              NEXT_PATCH=$PATCH
-              NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
-            elif [[ "$PRERELEASE" == *a* ]]; then
-              NEXT_PATCH=$PATCH
-              NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
-            else
-              echo "Unknown pre-release: $PRERELEASE"
-              exit 1
-            fi
-          else
-            NEXT_PATCH=$((${PATCH} + 1))
-            NEXT_PRERELEASE=$PRERELEASE
-          fi
-
-          sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
-
-          echo "version=$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE" | tee -a "$GITHUB_OUTPUT"
-
-      - name: Create and push deployment branch
-        env:
-          PYPROJECT_NAME: ${{ inputs.python-package }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
-
-          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-
-          TMP_BRANCH="deploy-release/$(uuidgen)"
-          git checkout -b "$TMP_BRANCH"
-          git add $PACKAGE_INFO_FILE
-          git commit -sS -m "beep boop 🤖: Bumping ${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}" || echo "No changes to commit"
-          git push -u origin "$TMP_BRANCH"
-          echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
-
-          # Create PR to collect app based status checks that run on PRs only
-          # (like DCO check)
-          gh pr create \
-            --base ${{ inputs.version-bump-branch }} \
-            --head $TMP_BRANCH \
-            --title "beep boop 🤖: Bumping ${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}" \
-            --body "This is an automated PR to bump ${{ inputs.library-name }}:${PYPROJECT_NAME} to v${{ steps.bump-version.outputs.version }}."
-
-      - name: Wait for status checks on tmp branch
-        uses: actions/github-script@v7
-        id: wait-status
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const branch = process.env.TMP_BRANCH;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            // Get latest commit SHA of branch
-            const { data: refData } = await github.rest.git.getRef({
-              owner,
-              repo,
-              ref: `heads/${branch}`,  // note: no 'refs/' prefix here
-            });
-
-            const sha = refData.object.sha;
-
-            console.log(`Polling status for commit SHA: ${sha}`);
-
-            let checksPassed = false;
-            let maxAttempts = 30;
-            let attempt = 0;
-            const delay = ms => new Promise(res => setTimeout(res, ms));
-
-            while (!checksPassed && attempt < maxAttempts) {
-              attempt++;
-
-              // Use commit SHA instead of branch ref
-              const { data: status } = await github.rest.repos.getCombinedStatusForRef({
-                owner,
-                repo,
-                ref: sha,
-              });
-
-              const { data: checks } = await github.rest.checks.listForRef({
-                owner,
-                repo,
-                ref: sha,
-              });
-
-              const allStatuses = status.statuses;
-              const allChecks = checks.check_runs;
-
-              if (allStatuses.length === 0 && allChecks.length === 0) {
-                console.log(`Attempt ${attempt}: No checks or statuses yet. Waiting...`);
-                await delay(10000);
-                continue;
-              }
-
-              const statusesOk = allStatuses.every(s => s.state === 'success');
-              const checksOk = allChecks.every(c => c.status === 'completed');
-
-              if (statusesOk && checksOk) {
-                console.log('✅ All checks passed.');
-                checksPassed = true;
-                break
-              }
-
-              console.log(`Attempt ${attempt}: Checks not complete yet. Waiting...`);
-              await delay(10000);
-            }
-
-            if (!checksPassed) {
-              core.setFailed('❌ Status checks did not pass in time');
-            }
-
-      - name: Merge into ${{ inputs.version-bump-branch }}
-        run: |
-          cd ${{ github.run_id }}
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          CMD=$(echo -E 'git push origin ${{ inputs.version-bump-branch }}')
-
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            echo "dry-run enabled, would have run: $CMD"
-          else
-            # Here we account for potential race conditions from multiple concurrent releases.
-            # Those can be legit (operating on different packages within the monorepo, for example)
-            # but the pushes would be still rejected purely because of git's inability to
-            # push non-fast-forward updates to the branch. In this case we would need to let
-            # a retry.
-            git fetch origin ${{ inputs.version-bump-branch }}
-            git checkout ${{ inputs.version-bump-branch }}
-            git merge ${{ env.TMP_BRANCH }}
-
-            for attempt in {1..3}; do
-              if eval "$CMD"; then
-                echo "Git push succeeded on attempt $attempt"
-                break
-              else
-                echo "Git push failed on attempt $attempt"
-                if [[ $attempt -lt 3 ]]; then
-                  sleep $((RANDOM % 3 + 1))
-                  # We refetch, reset and re-merge. Note resetting because the local
-                  # branch is "contaminated" with previous merge attempt.
-                  git fetch origin ${{ inputs.version-bump-branch }}
-                  git reset --hard origin/${{ inputs.version-bump-branch }}
-                  git merge ${{ env.TMP_BRANCH }}
-                else
-                  echo "Git push failed after 3 attempts"
-                  exit 1
-                fi
-              fi
-            done
-          fi
-
-      - name: Delete ${{ env.TMP_BRANCH }} branch
-        if: always()
-        run: |
-          cd ${{ github.run_id }}
-          git push -d origin ${{ env.TMP_BRANCH }}
-
-  build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.66.5
-    needs: bump-next-version
+  finalize:
+    needs: [bump, build-test-publish-wheel]
+    uses: ./.github/workflows/_release_finalize.yml
     if: |
       (
         success() || !failure()
       )
       && !cancelled()
     with:
+      release-ref: ${{ inputs.release-ref }}
+      release-version: ${{ needs.bump.outputs.release-version || needs.build-test-publish-wheel.outputs.version }}
+      library-name: ${{ inputs.library-name }}
+      pypi-name: ${{ needs.build-test-publish-wheel.outputs.pypi-name }}
+      validate-only: ${{ inputs.validate-only }}
       dry-run: ${{ inputs.dry-run }}
-      python-package: ${{ inputs.python-package }}
-      python-version: ${{ inputs.python-version }}
-      ref: ${{ inputs.release-ref }}
-      packaging: ${{ inputs.packaging }}
-      has-src-dir: ${{ inputs.has-src-dir }}
-      skip-test-wheel: ${{ inputs.skip-test-wheel }}
-      custom-container: ${{ inputs.custom-container }}
-      runner: ${{ inputs.runner }}
-      no-build-isolation: ${{ inputs.no-build-isolation }}
+      create-gh-release: ${{ inputs.create-gh-release }}
+      gh-release-tag-prefix: ${{ inputs.gh-release-tag-prefix }}
+      gh-release-use-changelog-builder: ${{ inputs.gh-release-use-changelog-builder }}
+      gh-release-changelog-config: ${{ inputs.gh-release-changelog-config }}
+      gh-release-changelog-included-paths: ${{ inputs.gh-release-changelog-included-paths }}
+      gh-release-from-tag: ${{ inputs.gh-release-from-tag }}
+      gh-release-changelog-mode: ${{ inputs.gh-release-changelog-mode }}
+      publish-docs: ${{ inputs.publish-docs }}
+      docs-target-path: ${{ inputs.docs-target-path }}
+      docs-project-type: ${{ inputs.docs-project-type }}
+      publish-as-latest: ${{ inputs.publish-as-latest }}
+      update-version-picker: ${{ inputs.update-version-picker }}
+      run-on-version-tag-only: ${{ inputs.run-on-version-tag-only }}
+      docs-root-dir: ${{ inputs.docs-root-dir }}
+      docs-requirements-file: ${{ inputs.docs-requirements-file }}
+      docs-directory: ${{ inputs.docs-directory }}
+      docs-fail-on-warning: ${{ inputs.docs-fail-on-warning }}
+      docs-skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
+      docs-sync-all: ${{ inputs.docs-sync-all }}
+      docs-no-extras: ${{ inputs.docs-no-extras }}
+      notify-emails: ${{ inputs.notify-emails }}
       root-dir: ${{ inputs.root-dir }}
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-
-  create-gh-release:
-    needs: [build-test-publish-wheel]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    if: |
-      (
-        success() || !failure()
-      )
-      && inputs.create-gh-release == true
-      && !cancelled()
-    outputs:
-      is-release-candidate: ${{ steps.version-number.outputs.is-release-candidate }}
-    env:
-      REPOSITORY: ${{ github.repository }}
-      PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
-      TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.release-ref }}
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Create release
-        id: version-number
-        env:
-          SHA: ${{ inputs.release-ref }}
-          GH_TOKEN: ${{ secrets.PAT }}
-          IS_DRY_RUN: ${{ inputs.dry-run }}
-        run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
-
-          IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
-          IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
-          IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
-          NAME="NVIDIA $PROJECT_NAME ${VERSION}"
-
-          if [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
-            DATE=$(date +"%Y-%m-%d")
-            CHANGELOG="Prerelease: $NAME ($DATE)"
-          else
-            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
-            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
-          fi
-
-          echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
-
-          PAYLOAD=$(jq -nc \
-                      --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
-                      --arg CI_COMMIT_BRANCH "$SHA" \
-                      --arg NAME "$NAME" \
-                      --arg BODY "$CHANGELOG" \
-                      --argjson PRERELEASE "$IS_PRERELEASE" \
-                      '{
-                        "tag_name": $TAG_NAME,
-                        "target_commitish": $CI_COMMIT_BRANCH,
-                        "name": $NAME,
-                        "body": $BODY,
-                        "draft": false,
-                        "prerelease": $PRERELEASE,
-                        "generate_release_notes": false
-                      }'
-                  )
-          echo -E "$PAYLOAD" > payload.txt
-
-          CMD=$(echo -E 'curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer '"$GH_TOKEN"'" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/'"$REPOSITORY"'/releases \
-            -d @payload.txt
-          ')
-
-          if [[ "$IS_DRY_RUN" == "true" ]]; then
-            echo -E "$CMD"
-          else
-            eval "$CMD"
-          fi
-
-  notify:
-    needs: [build-test-publish-wheel, create-gh-release]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
-    env:
-      GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ needs.build-test-publish-wheel.outputs.version }}
-      PYPI_URL: https://${{ inputs.dry-run == true && 'test.' || '' }}pypi.org/project/${{ needs.build-test-publish-wheel.outputs.pypi-name }}/${{ needs.build-test-publish-wheel.outputs.version }}/
-      PROJECT_NAME: ${{ inputs.library-name }}
-      VERSION: ${{ needs.build-test-publish-wheel.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
-
-      - name: Send Slack alert
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
-        env:
-          MESSAGE: |
-            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have released `${{ env.VERSION }}` of `NVIDIA ${{ env.PROJECT_NAME }}` 🚀✨🎉
-
-            • <${{ env.GH_URL }}|GitHub release>
-            • <${{ env.PYPI_URL }}|PyPi release>
-
-        with:
-          message: ${{ env.MESSAGE }}
-          webhook: ${{ secrets.SLACK_WEBHOOK }}
+      app-id: ${{ inputs.app-id }}
+    secrets: inherit

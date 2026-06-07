@@ -35,11 +35,26 @@ on:
         required: false
         type: boolean
         default: false
+      no-extras:
+        description: "Whether to skip installing extras when sync-all is true"
+        required: false
+        type: string
+        default: ""
       ref:
         description: Ref (SHA or branch name) to build the docs for
         required: false
         type: string
         default: ${{ github.sha }}
+      root-dir:
+        description: Sub-directory containing pyproject.toml (for monorepo consumers).
+        required: false
+        type: string
+        default: "."
+      skip-linkcheck:
+        description: Skip the Sphinx linkcheck + broken-link validation. Use for repos that haven't curated a `broken_links_false_positives.json` yet.
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   main:
@@ -48,27 +63,38 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: "recursive"
           ref: ${{ inputs.ref }}
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.1.0
 
       - name: Install dependencies
+        working-directory: ${{ inputs.root-dir }}
+        env:
+          NO_EXTRAS: ${{ inputs.no-extras }}
         run: |
           uv venv
           if [ "${{ inputs.sync-all }}" = "true" ]; then
-            uv sync --all-extras --all-groups
+            # Validate: only allow repeated --no-extra <name> flags
+            if [ -n "$NO_EXTRAS" ]; then
+              if ! echo "$NO_EXTRAS" | grep -qP '^(--no-extra\s+[a-zA-Z0-9._-]+\s*)+$'; then
+                echo "::error::Invalid no-extras value: '$NO_EXTRAS'. Expected format: '--no-extra name1 --no-extra name2'"
+                exit 1
+              fi
+            fi
+            uv sync --all-extras --all-groups $NO_EXTRAS
           elif [ -f "${{ inputs.requirements-file }}" ]; then
-            uv pip install -r ${{ inputs.requirements-file }}
+            uv pip install -r "${{ inputs.requirements-file }}"
           else
             uv sync --only-group docs
           fi
 
       - name: Sphinx build
+        working-directory: ${{ inputs.root-dir }}
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
@@ -82,26 +108,40 @@ jobs:
           fi
 
       - name: Upload docs as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docs-html
-          path: ${{ inputs.docs-directory }}/_build/html
+          path: ${{ inputs.root-dir }}/${{ inputs.docs-directory }}/_build/html
           retention-days: 7
 
       - name: Sphinx linkcheck
+        if: inputs.skip-linkcheck == false
+        working-directory: ${{ inputs.root-dir }}
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
-          sphinx-build --builder linkcheck . _build/linkcheck || true
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            sphinx-build --builder linkcheck . _build/linkcheck && break || true
+            if [ $attempt -lt $MAX_RETRIES ]; then
+              echo "Linkcheck attempt ${attempt}/${MAX_RETRIES} produced broken links, retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            fi
+          done
 
       - name: Upload linkcheck output
-        uses: actions/upload-artifact@v4
+        if: inputs.skip-linkcheck == false
+        uses: actions/upload-artifact@v6
         with:
           name: linkcheck-artifact
-          path: ${{ inputs.docs-directory }}/_build/linkcheck
+          path: ${{ inputs.root-dir }}/${{ inputs.docs-directory }}/_build/linkcheck
           retention-days: 7
 
       - name: Check for unknown broken links
+        if: inputs.skip-linkcheck == false
+        working-directory: ${{ inputs.root-dir }}
         run: |
           FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
           NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json

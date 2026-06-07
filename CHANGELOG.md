@@ -1,5 +1,343 @@
 # Changelog
 
+## [1.5.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.0...v1.5.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* Add GITHUB_TOKEN to all community bot steps ([#495](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/495)) ([0211d55](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0211d5507fef149a83de50b2cf5723b595ee06b2))
+
+## [1.5.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.3...v1.5.0) (2026-06-03)
+
+
+### Features
+
+* Use app token for community bot ([#493](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/493)) ([3ca4f19](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3ca4f19b8e909b5b3e18f55b08d19f73d16a9b05))
+
+## [1.4.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.2...v1.4.3) (2026-06-03)
+
+
+### Bug Fixes
+
+* catch direct URL dependencies in validate-wheel before publish ([#491](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/491)) ([5e3aa91](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5e3aa912eab1f7273a4992ed6d5d52b3698bbb56))
+
+## [1.4.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.1...v1.4.2) (2026-06-03)
+
+
+### Bug Fixes
+
+* make code-freeze next-version pre-release/dev tags configurable ([#487](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/487)) ([c6b8345](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6b8345c9f3b3930082bf54d92af6ebc134c017c))
+
+## [1.4.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.0...v1.4.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* bump peter-evans/create-pull-request from v6 to v8 ([#484](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/484)) ([c6e96e8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c6e96e892f476686d41c45f45935b6a88eaa9ad9))
+
+## [1.4.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.3.0...v1.4.0) (2026-05-26)
+
+
+### Features
+
+* mirror release-branch protection onto fake-release/* ([#480](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/480)) ([01a3e3f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/01a3e3f0c325fa357326f8f1905a52aac19d0ded))
+
+## [1.2.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.1.0...v1.2.0) (2026-05-09)
+
+
+### Features
+
+* **release:** forward docs-no-extras through release-library ([#473](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/473)) ([0680019](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/06800198b6e79e8ac5de7fb0e77a7d25bf43f9b4))
+
+## [1.1.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.0.0...v1.1.0) (2026-05-08)
+
+
+### Features
+
+* plumb docs-sync-all input through release workflows ([#471](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/471)) ([daa481e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/daa481e8adb9f4745ebcfac4974e3816cff22818))
+
+## [1.0.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.2...v1.0.0) (2026-05-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* `_build_test_publish_wheel.yml` no longer accepts the `dry-run` input. Callers that passed `dry-run: true` should remove the line. Callers that need to skip publishing should use `no-publish: true`.
+
+### Features
+
+* Major refactoring of the release-workflows ([#466](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/466)) ([e93676c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e93676c37b259fef73e738242d817b9276fb619c))
+
+## [0.94.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.1...v0.94.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* Bump actions to address node 20 warning ([#468](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/468)) ([4bbdbe7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4bbdbe7f0b15f322172574cffb662da7dfe81d91))
+* improve approved-unmerged PR detection and add GraphQL retry ([#467](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/467)) ([76ecd74](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/76ecd74a19ef9f292dfe10dc5efbb1b31247f83a))
+
+## [0.94.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.94.0...v0.94.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* bump _build_test_publish_wheel.yml to v0.88.1 in _release_library.yml ([#464](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/464)) ([e2db37d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e2db37d379822988147452aa2dc10d0ae491ff62))
+
+## [0.94.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.93.0...v0.94.0) (2026-04-21)
+
+
+### Features
+
+* Replace needs-follow-up label with waiting-on-maintainers ([#460](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/460)) ([797c2ab](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/797c2abf7b3edfb35af573159b3e993870265eb7))
+* Use LLM for identifying follow-up issues ([#457](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/457)) ([e1995c1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e1995c1b5afc1fc50140aefec426b531b5163c13))
+
+## [0.93.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.92.0...v0.93.0) (2026-04-16)
+
+
+### Features
+
+* Bump workflow ([#455](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/455)) ([47578e0](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/47578e094bc078f151a368ae836320e89aa828bb))
+
+## [0.92.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.91.0...v0.92.0) (2026-04-16)
+
+
+### Features
+
+* Add extra-no-build-isolation-packages input ([#453](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/453)) ([72d1163](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/72d1163d731f5a9f55939d8c2685a30c2d7018c1))
+
+## [0.91.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.90.0...v0.91.0) (2026-04-15)
+
+
+### Features
+
+* add reusable _sync_skills workflow and CLAUDE.md ([#448](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/448)) ([eea9f2f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eea9f2fc8c88d2c3e0ea90b6e6d1cb1607595591))
+
+
+### Bug Fixes
+
+* Revert waiting-for-customer label ([#451](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/451)) ([4fdba94](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4fdba94afc980f46181655723e52335f8479bad5))
+
+## [0.90.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.89.0...v0.90.0) (2026-04-14)
+
+
+### Features
+
+* add waiting-for-customer label management ([#449](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/449)) ([fcdf2f7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/fcdf2f79c8b95dded7c836c9ff56be84a68300b7))
+
+## [0.89.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.88.1...v0.89.0) (2026-04-14)
+
+
+### Features
+
+* add waiting-for-customer label management to follow-up issues script ([#446](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/446)) ([ccdc488](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ccdc488d77b567a57efd8982bfd5622923922521))
+
+## [0.88.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.88.0...v0.88.1) (2026-04-09)
+
+
+### Bug Fixes
+
+* set NO_VCS_VERSION=1 in wheel build step ([#443](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/443)) ([881f284](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/881f284a83494776b71ff24a679fd9626785d5a8))
+
+## [0.88.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.87.0...v0.88.0) (2026-04-03)
+
+
+### Features
+
+* add thumbs-up reaction to triggering comment in claude review workflow ([#431](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/431)) ([a7f9c31](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a7f9c314cf705f7db8390730d129464430fe3909))
+
+## [0.87.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.1...v0.87.0) (2026-04-01)
+
+
+### Features
+
+* add extra-no-build-isolation-packages input to wheel build workflow ([#440](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/440)) ([833caa8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/833caa8c2a9ef69f01b2487a3c12c7c592f7b007))
+
+## [0.86.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.86.0...v0.86.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* Install `poetry-dynamic-versioning` ([#438](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/438)) ([ddfaa9a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ddfaa9a7ea4ceeded9919b964fae43f7dcd15ba6))
+
+## [0.86.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.85.0...v0.86.0) (2026-03-31)
+
+
+### Features
+
+* auto-create cherry-pick label after release branch push ([#436](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/436)) ([2bd5c67](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2bd5c67d4b6e9f72d5a0096e046c916ae14e82ac))
+
+## [0.85.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.84.0...v0.85.0) (2026-03-31)
+
+
+### Features
+
+* add `release-branch-prefix` input to code freeze workflow ([#434](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/434)) ([511da59](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/511da5981eb502c4b4f9372b7ea08e6fe16ca61e))
+
+## [0.84.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.83.0...v0.84.0) (2026-03-31)
+
+
+### Features
+
+* Dummy commit to trigger release ([#432](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/432)) ([7fdc76a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/7fdc76a8a47cbdb71ea3d06e8be9e5bc8149d7be))
+
+## [0.82.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.81.1...v0.82.0) (2026-03-25)
+
+
+### Features
+
+* Allow no-extras arg for building docs with uv ([#429](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/429)) ([46f49e2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/46f49e27cf92073fa65ceb1dc2a3c743d5e44846))
+
+
+### Bug Fixes
+
+* re-apply needs-follow-up label when commits pushed after review feedback ([#409](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/409)) ([bbd132c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/bbd132cb792acd95b694555ea03d5569b111af66))
+
+## [0.81.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.81.0...v0.81.1) (2026-03-20)
+
+
+### Bug Fixes
+
+* Bump build workflow ([#424](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/424)) ([e02be30](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e02be3088fb0428f0e0b39874a860415837d5ec4))
+
+## [0.81.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.3...v0.81.0) (2026-03-20)
+
+
+### Features
+
+* add hatch support to release_library version bump step ([#422](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/422)) ([6422718](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/642271887bedaa5c613264564fa587981a740a37))
+
+## [0.80.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.2...v0.80.3) (2026-03-20)
+
+
+### Bug Fixes
+
+* Increase max wait attempts ([#420](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/420)) ([87fd928](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/87fd928ed453b0e9ac9f980e795a43dddaecd8a1))
+
+## [0.80.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.1...v0.80.2) (2026-03-20)
+
+
+### Bug Fixes
+
+* add retry with exponential backoff to sphinx linkcheck ([#417](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/417)) ([842ef1e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/842ef1eecee8488a22ffc658e9e4f34072c59372))
+
+## [0.80.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.80.0...v0.80.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* sso_users_filename input type in preflight ([#415](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/415)) ([42aac07](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/42aac07759b9c2c367ae76760786ca9e6949dd2a))
+
+## [0.80.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.1...v0.80.0) (2026-03-19)
+
+
+### Features
+
+* Allow passing sso_users_filename to preflight ([#413](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/413)) ([539aac2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/539aac21f1105aa0840f7279c20b131a17af8271))
+
+## [0.79.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.79.0...v0.79.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* Set boostrap-sha ([#411](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/411)) ([3a95d55](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3a95d55176bd0a0a2e5e1ad5e4432d3964091c2b))
+
+## [0.79.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.1...v0.79.0) (2026-03-13)
+
+
+### Features
+
+* Add claude_review template ([#405](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/405)) ([f1fd34f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f1fd34fe81e14d3849e75c69f7a48cb0cd1603bc))
+
+## [0.78.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.78.0...v0.78.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* Exclude draft PRs from needing follow-up ([#403](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/403)) ([a33342b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a33342be3773097b62cca35013d2a9d8be1494ba))
+
+## [0.78.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.1...v0.78.0) (2026-03-05)
+
+
+### Features
+
+* Allow custom registry in the build containers job ([#401](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/401)) ([0e905a8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0e905a882aa329b768807ae3ca35cd8e12a6e009))
+
+## [0.77.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.77.0...v0.77.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* Version mgmt for Hatch ([#399](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/399)) ([6d177cb](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6d177cbd892f074094b2657664f625831e382db7))
+
+## [0.77.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.2...v0.77.0) (2026-02-26)
+
+
+### Features
+
+* Expose container-options ([#396](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/396)) ([3f8a8e1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3f8a8e18c0059d9324facffc94f8370d4ad7398f))
+
+## [0.76.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.1...v0.76.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* Pass submodule to second build job ([#394](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/394)) ([4bd325a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4bd325a1254265bf6564cb72c66dc1c380201e81))
+
+## [0.76.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.76.0...v0.76.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* Docs release secrets ([#392](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/392)) ([d1c2786](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d1c27867b842944998ff663454fd5303c7eaff85))
+
+## [0.76.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.75.0...v0.76.0) (2026-02-26)
+
+
+### Features
+
+* Bump build-workflow II ([#390](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/390)) ([7e420af](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/7e420af702097f3ad55f02c668441350743846c1))
+
+## [0.75.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.74.0...v0.75.0) (2026-02-25)
+
+
+### Features
+
+* Bump build-workflow ([#388](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/388)) ([5951130](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5951130590ed016044fc5ff14c76acd475c5a479))
+
+## [0.74.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.2...v0.74.0) (2026-02-23)
+
+
+### Features
+
+* Allow option to update or not update docs version picker ([#385](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/385)) ([2e45605](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2e456054225b8989d0924e9ff86fbd98613c6428))
+
+## [0.73.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.1...v0.73.2) (2026-02-19)
+
+
+### Bug Fixes
+
+* SSO for non-PR events ([#383](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/383)) ([d525868](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/d525868a00a234b3c09b01ccf449118cb8852845))
+
+## [0.73.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.73.0...v0.73.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* Exempt svcnvidia-nemo-ci ([#381](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/381)) ([a9ddd15](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a9ddd1550a5325ca87f018a475097f3a249eb072))
+
+## [0.73.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.72.0...v0.73.0) (2026-02-18)
+
+
+### Features
+
+* Allow docs and changelog to be published in a Github release ([#377](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/377)) ([e733dd8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e733dd8d70da4746260f66241ceeb20eba6b83d8))
+
+## [0.72.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.71.0...v0.72.0) (2026-02-15)
+
+
+### Features
+
+* Minor change to docs publishing to force release ([#375](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/375)) ([492f819](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/492f819658534a83669bceb8fa67ccbbe98a5b09))
+
 ## [0.71.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v0.70.2...v0.71.0) (2026-02-06)
 
 

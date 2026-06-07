@@ -35,7 +35,7 @@ jobs:
           mv .github/actions/publish-docs/README.html _build/html/index.html
 
       - name: upload docs as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docs-html-${{ github.run_id }}
           path: _build/html

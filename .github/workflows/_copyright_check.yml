@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: step-security/changed-files@v45.0.1
+        uses: step-security/changed-files@v47.0.5
         with:
           sha: ${{ steps.get-sha.outputs.sha }}
           base_sha: ${{ steps.get-sha.outputs.base_sha }}
@@ -65,7 +65,7 @@ jobs:
           separator: ' '
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         if: steps.changed-files.outputs.any_changed == 'true'
         with:
           repository: NVIDIA-NeMo/FW-CI-templates

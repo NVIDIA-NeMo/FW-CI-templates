@@ -1,0 +1,458 @@
+# Copyright (c) 2026 NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Test Approval Queue
+
+# Example caller:
+# name: Approve Test Queue
+#
+# on:
+#   schedule:
+#     - cron: "*/5 * * * *"
+#   workflow_dispatch:
+#
+# jobs:
+#   approve-test-queue:
+#     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_test_approval_queue.yml@main
+#     with:
+#       workflow_name: CICD NeMo
+#     secrets:
+#       PAT: ${{ secrets.PAT }}
+#       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+#       SLACK_CI_CHANNEL_WEBHOOK: ${{ secrets.SLACK_CI_CHANNEL_WEBHOOK }}
+#       SLACK_TEAM_GROUP_ID: ${{ secrets.SLACK_TEAM_GROUP_ID }}
+
+on:
+  workflow_call:
+    inputs:
+      target_repository:
+        description: "Repository whose workflow runs should be approved, in owner/repo format. Defaults to the caller repository."
+        required: false
+        default: ""
+        type: string
+      workflow_name:
+        description: "Exact GitHub Actions workflow name to manage."
+        required: true
+        type: string
+      approval_environment:
+        description: "Environment used by this approval-manager job."
+        required: false
+        default: main
+        type: string
+      target_deployment_environment:
+        description: "Pending deployment environment to approve for managed workflow runs."
+        required: false
+        default: test
+        type: string
+      queue_branches_json:
+        description: "JSON array of branch queue names. Use 'others' as a catchall for non-excluded branches."
+        required: false
+        default: '["main", "others"]'
+        type: string
+      contributor_types_json:
+        description: "JSON array of contributor queue names."
+        required: false
+        default: '["internal", "external"]'
+        type: string
+      primary_branch:
+        description: "Primary branch name. Always excluded from the 'others' queue."
+        required: false
+        default: main
+        type: string
+      excluded_other_branches:
+        description: "Comma-separated base branches excluded from the 'others' queue."
+        required: false
+        default: "main,dev"
+        type: string
+      max_concurrency_internal:
+        description: "Maximum queued plus in-progress managed workflow runs for internal contributors per branch queue."
+        required: false
+        default: 3
+        type: number
+      max_concurrency_external:
+        description: "Maximum queued plus in-progress managed workflow runs for external contributors per branch queue."
+        required: false
+        default: 3
+        type: number
+      github_audits_repo:
+        description: "Repository containing the NVIDIA SSO users release asset."
+        required: false
+        default: NVIDIA-GitHub-Management/github-audits
+        type: string
+      github_audits_version:
+        description: "Release tag containing the NVIDIA SSO users asset."
+        required: false
+        default: v0.1.0
+        type: string
+      sso_users_filename:
+        description: "Filename of the SSO users JSON release asset."
+        required: false
+        default: users_sso.json
+        type: string
+      internal_org_roles:
+        description: "Comma-separated org roles treated as internal contributors."
+        required: false
+        default: "NVIDIA:Member,NVIDIA-NeMo:Member"
+        type: string
+      approve_comment:
+        description: "Comment attached to approved pending deployments."
+        required: false
+        default: "Automatically approved by queue manager"
+        type: string
+      notify_on_failure:
+        description: "Whether to send a Slack notification when queue approval fails."
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      PAT:
+        description: "GitHub token with access to read workflow runs and approve pending deployments."
+        required: true
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: "GitHub token with access to download the NVIDIA SSO users release asset."
+        required: true
+      SLACK_CI_CHANNEL_WEBHOOK:
+        description: "Optional Slack webhook for failure notifications."
+        required: false
+      SLACK_TEAM_GROUP_ID:
+        description: "Optional Slack subteam ID to mention on failure."
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-approval-queue-${{ inputs.target_repository || github.repository }}-${{ inputs.workflow_name }}
+  cancel-in-progress: false
+
+jobs:
+  approve-queue:
+    name: Approve queue (${{ matrix.branch }}, ${{ matrix.contributor_type }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.approval_environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(inputs.queue_branches_json) }}
+        contributor_type: ${{ fromJSON(inputs.contributor_types_json) }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests
+
+      - name: Download SSO users list
+        env:
+          GH_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          GITHUB_AUDITS_REPO: ${{ inputs.github_audits_repo }}
+          GITHUB_AUDITS_VERSION: ${{ inputs.github_audits_version }}
+          SSO_USERS_FILENAME: ${{ inputs.sso_users_filename }}
+        run: |
+          gh release download "$GITHUB_AUDITS_VERSION" \
+            --repo "$GITHUB_AUDITS_REPO" \
+            --pattern "$SSO_USERS_FILENAME" \
+            --output "$SSO_USERS_FILENAME"
+          jq -e 'type == "object"' "$SSO_USERS_FILENAME" > /dev/null
+
+      - name: Approve waiting deployments
+        env:
+          APPROVAL_TOKEN: ${{ secrets.PAT }}
+          APPROVE_COMMENT: ${{ inputs.approve_comment }}
+          CONTRIBUTOR_TYPE: ${{ matrix.contributor_type }}
+          EXCLUDED_OTHER_BRANCHES: ${{ inputs.excluded_other_branches }}
+          INTERNAL_ORG_ROLES: ${{ inputs.internal_org_roles }}
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MAX_CONCURRENCY_EXTERNAL: ${{ inputs.max_concurrency_external }}
+          MAX_CONCURRENCY_INTERNAL: ${{ inputs.max_concurrency_internal }}
+          PRIMARY_BRANCH: ${{ inputs.primary_branch }}
+          SSO_USERS_FILE: ${{ inputs.sso_users_filename }}
+          TARGET_DEPLOYMENT_ENVIRONMENT: ${{ inputs.target_deployment_environment }}
+          TARGET_REPOSITORY: ${{ inputs.target_repository }}
+          WORKFLOW_NAME: ${{ inputs.workflow_name }}
+          PYTHONUNBUFFERED: 1
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import sys
+          import time
+
+          import requests
+
+          REPO = os.environ.get("TARGET_REPOSITORY") or os.environ["GITHUB_REPOSITORY"]
+          API_BASE = f"https://api.github.com/repos/{REPO}"
+          WORKFLOW_NAME = os.environ["WORKFLOW_NAME"]
+          TARGET_BRANCH = os.environ["MATRIX_BRANCH"]
+          TARGET_DEPLOYMENT_ENVIRONMENT = os.environ["TARGET_DEPLOYMENT_ENVIRONMENT"]
+          CONTRIBUTOR_TYPE = os.environ["CONTRIBUTOR_TYPE"]
+          APPROVAL_TOKEN = os.environ["APPROVAL_TOKEN"]
+          APPROVE_COMMENT = os.environ["APPROVE_COMMENT"]
+          PRIMARY_BRANCH = os.environ["PRIMARY_BRANCH"]
+
+          max_concurrency_by_type = {
+              "internal": int(os.environ["MAX_CONCURRENCY_INTERNAL"]),
+              "external": int(os.environ["MAX_CONCURRENCY_EXTERNAL"]),
+          }
+          if CONTRIBUTOR_TYPE not in max_concurrency_by_type:
+              print(f"Unsupported contributor type: {CONTRIBUTOR_TYPE}")
+              sys.exit(1)
+          MAX_CONCURRENCY = max_concurrency_by_type[CONTRIBUTOR_TYPE]
+
+          def csv_set(name):
+              return {item.strip() for item in os.environ.get(name, "").split(",") if item.strip()}
+
+          internal_org_roles = csv_set("INTERNAL_ORG_ROLES")
+          excluded_other_branches = csv_set("EXCLUDED_OTHER_BRANCHES")
+          excluded_other_branches.add(PRIMARY_BRANCH)
+
+          with open(os.environ["SSO_USERS_FILE"], encoding="utf-8") as sso_file:
+              sso_users = json.load(sso_file)
+
+          session = requests.Session()
+          session.headers.update(
+              {
+                  "Authorization": f"Bearer {APPROVAL_TOKEN}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              }
+          )
+
+          def make_request(endpoint, method="GET", data=None, max_retries=5):
+              """Make a GitHub API request with retry on transient failures."""
+              url = f"{API_BASE}/{endpoint.lstrip('/')}"
+              for attempt in range(max_retries):
+                  try:
+                      if method == "GET":
+                          response = session.get(url, timeout=30)
+                      elif method == "POST":
+                          response = session.post(url, json=data, timeout=30)
+                      else:
+                          raise ValueError(f"Unsupported HTTP method: {method}")
+
+                      if response.status_code == 429 or (
+                          response.status_code == 403
+                          and response.headers.get("X-RateLimit-Remaining") == "0"
+                      ):
+                          retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
+                          print(
+                              f"Rate limited on {endpoint}, retrying in {retry_after}s "
+                              f"(attempt {attempt + 1}/{max_retries})"
+                          )
+                          time.sleep(retry_after)
+                          continue
+
+                      if response.status_code >= 500:
+                          delay = 2 ** attempt
+                          print(
+                              f"Server error {response.status_code} on {endpoint}, retrying in {delay}s "
+                              f"(attempt {attempt + 1}/{max_retries})"
+                          )
+                          time.sleep(delay)
+                          continue
+
+                      response.raise_for_status()
+                      if response.text:
+                          return response.json()
+                      return {}
+                  except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as error:
+                      delay = 2 ** attempt
+                      print(
+                          f"Transient error on {endpoint}: {error}, retrying in {delay}s "
+                          f"(attempt {attempt + 1}/{max_retries})"
+                      )
+                      time.sleep(delay)
+                  except requests.exceptions.RequestException as error:
+                      print(f"Error making request to {endpoint}: {error}")
+                      if error.response is not None:
+                          print(f"Response: {error.response.text}")
+                      return None
+
+              print(f"Max retries ({max_retries}) exceeded for {endpoint}")
+              return None
+
+          pr_info_cache = {}
+
+          def get_pr_info(workflow_run):
+              head_branch = workflow_run.get("head_branch") or ""
+              match = re.fullmatch(r"pull-request/(\d+)", head_branch)
+              if not match:
+                  return None, None
+
+              pr_number = int(match.group(1))
+              if pr_number not in pr_info_cache:
+                  pr_info = make_request(f"pulls/{pr_number}")
+                  if not pr_info:
+                      print(f"Failed to fetch PR #{pr_number}")
+                      pr_info_cache[pr_number] = None
+                  else:
+                      pr_info_cache[pr_number] = pr_info
+
+              return pr_number, pr_info_cache[pr_number]
+
+          def is_internal_contributor(pr_info):
+              login = pr_info.get("user", {}).get("login", "")
+              org_roles = set(sso_users.get(login, {}).get("org_roles", []))
+              return bool(org_roles.intersection(internal_org_roles))
+
+          def branch_matches(base_branch):
+              if TARGET_BRANCH == "others":
+                  return base_branch not in excluded_other_branches
+              return base_branch == TARGET_BRANCH
+
+          def matches_queue(workflow_run):
+              pr_number, pr_info = get_pr_info(workflow_run)
+              if not pr_info:
+                  return False, pr_number, None, None
+
+              base_branch = pr_info.get("base", {}).get("ref")
+              if not base_branch or not branch_matches(base_branch):
+                  return False, pr_number, base_branch, None
+
+              is_internal = is_internal_contributor(pr_info)
+              contributor_matches = (CONTRIBUTOR_TYPE == "internal") == is_internal
+              return contributor_matches, pr_number, base_branch, is_internal
+
+          def list_workflow_runs(status):
+              response = make_request(f"actions/runs?status={status}&per_page=100")
+              if response is None:
+                  print(f"Failed to fetch {status} workflow runs after retries")
+                  sys.exit(1)
+              return response.get("workflow_runs", [])
+
+          def filter_runs(runs, label):
+              managed_runs = [run for run in runs if run.get("name") == WORKFLOW_NAME]
+              print(f"{label}: {len(runs)} total, {len(managed_runs)} named {WORKFLOW_NAME}")
+
+              matched_runs = []
+              for run in managed_runs:
+                  matched, pr_number, base_branch, is_internal = matches_queue(run)
+                  actor = (run.get("triggering_actor") or run.get("actor") or {}).get("login", "unknown")
+                  print(
+                      f"  run={run['id']} pr={pr_number or 'n/a'} base={base_branch or 'n/a'} "
+                      f"head_branch={run.get('head_branch')} actor={actor} internal={is_internal} "
+                      f"matched={matched}"
+                  )
+                  if matched:
+                      matched_runs.append(run)
+
+              return matched_runs
+
+          print(f"\n=== Queue cell: branch={TARGET_BRANCH}, contributor_type={CONTRIBUTOR_TYPE} ===")
+          print(f"Repository: {REPO}")
+          print(f"Workflow name: {WORKFLOW_NAME}")
+          print(f"Target deployment environment: {TARGET_DEPLOYMENT_ENVIRONMENT}")
+          print(f"Excluded branches for 'others': {sorted(excluded_other_branches)}")
+
+          queued_workflow_runs = filter_runs(list_workflow_runs("queued"), "queued")
+          in_progress_workflow_runs = filter_runs(list_workflow_runs("in_progress"), "in_progress")
+
+          queued_workflows = len(queued_workflow_runs)
+          in_progress_workflows = len(in_progress_workflow_runs)
+          total_workflows = queued_workflows + in_progress_workflows
+
+          print(f"Current queued workflows: {queued_workflows}")
+          print(f"Current running workflows: {in_progress_workflows}")
+          print(f"Total active workflows: {total_workflows}")
+          print(f"Max concurrency: {MAX_CONCURRENCY}")
+
+          if total_workflows >= MAX_CONCURRENCY:
+              print("Maximum concurrency reached, no new approvals will be made")
+              sys.exit(0)
+
+          pending_workflows = filter_runs(list_workflow_runs("waiting"), "waiting")
+          pending_workflows = sorted(pending_workflows, key=lambda workflow: workflow["created_at"])
+
+          print(f"Processing {len(pending_workflows)} pending workflows...")
+          for workflow in pending_workflows:
+              if total_workflows >= MAX_CONCURRENCY:
+                  print("Maximum concurrency reached, stopping approvals")
+                  break
+
+              workflow_id = workflow["id"]
+              workflow_name = workflow["display_title"]
+              print(f"Approving workflow {workflow_name} with run ID: {workflow_id}")
+
+              deployment_url = f"actions/runs/{workflow_id}/pending_deployments"
+              deployments = make_request(deployment_url)
+              if deployments is None:
+                  print(f"Failed to fetch pending deployments for run {workflow_id}")
+                  sys.exit(1)
+
+              if not deployments:
+                  print(f"No pending deployments found for waiting run {workflow_id}; skipping")
+                  continue
+
+              matching_deployments = [
+                  deployment
+                  for deployment in deployments
+                  if deployment.get("environment", {}).get("name") == TARGET_DEPLOYMENT_ENVIRONMENT
+              ]
+              if not matching_deployments:
+                  environments = [
+                      deployment.get("environment", {}).get("name", "unknown")
+                      for deployment in deployments
+                  ]
+                  print(
+                      f"No pending deployment for environment {TARGET_DEPLOYMENT_ENVIRONMENT!r} "
+                      f"found for waiting run {workflow_id}; available environments: {environments}"
+                  )
+                  continue
+
+              deployment = matching_deployments[0]
+              environment_id = deployment["environment"]["id"]
+              status_data = {
+                  "environment_ids": [environment_id],
+                  "state": "approved",
+                  "comment": APPROVE_COMMENT,
+              }
+              result = make_request(deployment_url, method="POST", data=status_data)
+
+              if result is not None:
+                  total_workflows += 1
+              else:
+                  print(f"Failed to approve deployment {deployment['id']}")
+                  sys.exit(1)
+
+  notify:
+    if: ${{ failure() && inputs.notify_on_failure }}
+    runs-on: ubuntu-latest
+    needs: [approve-queue]
+    steps:
+      - name: Notify
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_CI_CHANNEL_WEBHOOK }}
+          SLACK_TEAM_GROUP_ID: ${{ secrets.SLACK_TEAM_GROUP_ID }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK" ]]; then
+            echo "Slack webhook is not configured; skipping notification."
+            exit 0
+          fi
+
+          ADMIN_MENTION=""
+          if [[ -n "$SLACK_TEAM_GROUP_ID" ]]; then
+            ADMIN_MENTION="cc <!subteam^${SLACK_TEAM_GROUP_ID}>"
+          fi
+
+          curl -X POST \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\":robot_joy: <https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|Test-queue-approval-bot workflow> failed. Please review manually.\n\n${ADMIN_MENTION}\"}" \
+            "$SLACK_WEBHOOK"

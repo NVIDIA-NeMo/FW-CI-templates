@@ -11,48 +11,48 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: 'Check NVIDIA SSO Membership'
-description: 'Check if a GitHub username exists in the NVIDIA SSO users list from github-audits'
+name: "Check NVIDIA SSO Membership"
+description: "Check if a GitHub username exists in the NVIDIA SSO users list from github-audits"
 
 inputs:
   username:
-    description: 'GitHub username to check'
+    description: "GitHub username to check"
     required: true
   github_audits_repo:
-    description: 'Repository containing SSO users file'
+    description: "Repository containing SSO users file"
     required: false
-    default: 'NVIDIA-GitHub-Management/github-audits'
+    default: "NVIDIA-GitHub-Management/github-audits"
   github_audits_version:
-    description: 'Release version tag'
+    description: "Release version tag"
     required: false
-    default: 'v0.1.0'
+    default: "v0.1.0"
   sso_users_filename:
-    description: 'Filename of SSO users JSON'
+    description: "Filename of SSO users JSON"
     required: false
-    default: 'users_sso.json'
+    default: "users_sso.json"
   github_token:
-    description: 'GitHub token with access to github-audits repo'
+    description: "GitHub token with access to github-audits repo"
     required: true
 
 outputs:
   is_member:
-    description: 'Boolean - true if user is in NVIDIA SSO list, false otherwise'
+    description: "Boolean - true if user is in NVIDIA SSO list, false otherwise"
     value: ${{ steps.check-membership.outputs.is_member }}
   is_org_member:
-    description: 'Boolean - true if user has NVIDIA or NVIDIA-NeMo in org_roles'
+    description: "Boolean - true if user has NVIDIA or NVIDIA-NeMo in org_roles"
     value: ${{ steps.check-membership.outputs.is_org_member }}
   user_orgs:
-    description: 'Comma-separated list of orgs user is member of'
+    description: "Comma-separated list of orgs user is member of"
     value: ${{ steps.check-membership.outputs.user_orgs }}
   sso_file_available:
-    description: 'Boolean - true if SSO file was successfully downloaded'
+    description: "Boolean - true if SSO file was successfully downloaded"
     value: ${{ steps.download-sso.outputs.sso_file_available }}
   user_count:
-    description: 'Number of users in the SSO file (0 if download failed)'
+    description: "Number of users in the SSO file (0 if download failed)"
     value: ${{ steps.download-sso.outputs.user_count }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Download NVIDIA SSO users from github-audits
       id: download-sso
@@ -101,6 +101,15 @@ runs:
         USERNAME="${{ inputs.username }}"
         SSO_FILE="${{ inputs.sso_users_filename }}"
 
+        # Check if username is svcnvidia-nemo-ci
+        if [ "$USERNAME" == "svcnvidia-nemo-ci" ]; then
+          echo "svcnvidia-nemo-ci is a trusted bot"
+          echo "is_member=true" >> $GITHUB_OUTPUT
+          echo "is_org_member=true" >> $GITHUB_OUTPUT
+          echo "user_orgs=NVIDIA,NVIDIA-NeMo" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
         echo "Checking if $USERNAME is in NVIDIA SSO users list..."
 
         # Check if SSO file is available
@@ -147,5 +156,5 @@ runs:
         fi
 
 branding:
-  icon: 'shield'
-  color: 'green'
+  icon: "shield"
+  color: "green"

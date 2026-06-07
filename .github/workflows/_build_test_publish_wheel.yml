@@ -16,11 +16,6 @@ name: Build, test, and publish a PyPi wheel
 on:
   workflow_call:
     inputs:
-      dry-run:
-        required: false
-        description: Upload to PyPy Test instance
-        type: boolean
-        default: true
       python-package:
         type: string
         description: Name of Python package
@@ -36,12 +31,17 @@ on:
         default: ${{ github.sha }}
       packaging:
         required: false
-        description: "Packaging tool (supported: setuptools, hatch, uv)"
+        description: "Packaging tool (supported: setuptools, uv)"
         type: string
         default: setuptools
       no-publish:
         required: false
         description: Do not publish the wheel
+        type: boolean
+        default: false
+      suppress-failure-notify:
+        required: false
+        description: Suppress the failure Slack notification (used for PR rehearsals where failures should not page).
         type: boolean
         default: false
       has-src-dir:
@@ -54,6 +54,16 @@ on:
         description: Skip the test wheel step
         type: boolean
         default: false
+      skip-check-manifest:
+        required: false
+        description: Skip check-manifest validation. Use for repos that intentionally exclude dev tooling (`.claude/`, `docs/`, `docker/`, …) from the sdist without maintaining a `[tool.check-manifest] ignore` block.
+        type: boolean
+        default: false
+      wheel-content-ignore:
+        required: false
+        description: Comma-separated check-wheel-contents codes to ignore (e.g. "W002,W004,W009"). W002+W004 are common no-ops; add W009 for repos that ship multiple top-level packages in one wheel.
+        type: string
+        default: "W002,W004"
       custom-container:
         required: false
         description: Custom container to use for the build
@@ -84,14 +94,17 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      extra-no-build-isolation-packages:
+        required: false
+        description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
+        type: string
+        default: ""
     secrets:
       TWINE_USERNAME:
-        required: true
-      TWINE_PASSWORD:
-        required: true
-      SLACK_WEBHOOK_ADMIN:
         required: false
-      SLACK_WEBHOOK:
+      TWINE_PASSWORD:
+        required: false
+      SLACK_WEBHOOK_ADMIN:
         required: false
       GH_TOKEN:
         required: false
@@ -118,12 +131,12 @@ jobs:
       name: ${{ steps.build.outputs.name }}
     env:
       PYPROJECT_NAME: ${{ inputs.python-package }}
-      DRY_RUN: ${{ inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
       ROOTDIR: ${{ inputs.root-dir }}
+      EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
@@ -148,7 +161,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
@@ -159,6 +172,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
           NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
+          NO_VCS_VERSION: "1"
         run: |
           cd ${{ github.run_id }}
           cd $ROOTDIR
@@ -178,27 +192,21 @@ jobs:
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               uv pip install torch
-              uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry
+              uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
+              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
+                uv pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
+              fi
             fi
             uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
           else
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
               pip install torch
-              pip install --upgrade setuptools pybind11 wheel_stub packaging
+              pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
+              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
+                pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
+              fi
             fi
             pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
-          fi
-
-          # If this is a dry run, update the patch version to a random number to upload to test-pypi
-          if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
-              sed -i "/^PATCH/c\PATCH = $((RANDOM % 9000 + 1000))" "$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-            else
-              RANDOM_DEV=$((RANDOM % 9000 + 1000))
-              pip install hatch
-              VERSION=$(hatch version | sed -E "s/(dev)[0-9]*/\1$RANDOM_DEV/")
-              hatch version $VERSION
-            fi
           fi
 
           # Build the wheel
@@ -237,7 +245,7 @@ jobs:
           echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ steps.build.outputs.DIST_DIR }}
@@ -254,13 +262,13 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/${{ github.run_id }}/
@@ -284,7 +292,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
@@ -326,39 +334,142 @@ jobs:
             exit 1
           fi
 
-  publish-wheel:
-    needs: test-wheel
+  validate-wheel:
+    needs: build-wheel
     runs-on: ubuntu-latest
-    if: |
-      inputs.no-publish == false &&
-      (
-        inputs.skip-test-wheel == false || !cancelled()
-      )
-    environment:
-      name: ${{ inputs.dry-run && 'public' || 'main' }}
+    env:
+      PACKAGING: ${{ inputs.packaging }}
+      ROOTDIR: ${{ inputs.root-dir }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          ref: ${{ inputs.ref }}
+
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
-      - name: Validate wheel
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install validators
         run: |
-          python3 -m pip install --upgrade twine==6.0.1
+          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest packaging pkginfo
+
+      - name: twine check
+        run: |
           python3 -m twine check dist/*
+
+      - name: Check for direct URL dependencies
+        run: |
+          python3 - <<'PY'
+          """Fail if any built distribution declares a PEP 508 direct URL dependency.
+
+          PyPI rejects uploads whose metadata carries a ``Requires-Dist`` direct
+          reference (e.g. ``pkg @ git+https://...``). ``twine check`` does not catch
+          these, so the failure otherwise only surfaces at ``twine upload`` time.
+          """
+
+          import glob
+          import sys
+
+          from packaging.requirements import InvalidRequirement, Requirement
+          from pkginfo import SDist, Wheel
+
+
+          def direct_url_requirements(dist_path):
+              """Return the direct URL requirement strings declared by a distribution.
+
+              Args:
+                  dist_path: Path to a built wheel (``.whl``) or sdist (``.tar.gz``).
+
+              Returns:
+                  The ``Requires-Dist`` specifiers that carry a PEP 508 direct URL.
+              """
+              metadata = Wheel(dist_path) if dist_path.endswith(".whl") else SDist(dist_path)
+              offenders = []
+              for spec in metadata.requires_dist or []:
+                  try:
+                      requirement = Requirement(spec)
+                  except InvalidRequirement:
+                      continue
+                  if requirement.url:
+                      offenders.append(spec)
+              return offenders
+
+
+          def main():
+              """Scan ``dist/`` and exit non-zero if any direct URL dependency is found."""
+              distributions = sorted(glob.glob("dist/*.whl") + glob.glob("dist/*.tar.gz"))
+              found = False
+              for dist_path in distributions:
+                  for spec in direct_url_requirements(dist_path):
+                      found = True
+                      print(f"::error file={dist_path}::PyPI rejects direct URL dependencies: {spec}")
+              if found:
+                  print("Direct URL dependencies are not allowed on PyPI; replace them with a published release.")
+                  sys.exit(1)
+              print("No direct URL dependencies found.")
+
+
+          if __name__ == "__main__":
+              main()
+          PY
+
+      - name: check-wheel-contents
+        run: |
+          check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
+
+      - name: check-manifest
+        if: inputs.packaging == 'setuptools' && inputs.skip-check-manifest == false
+        run: |
+          cd ${{ github.run_id }}
+          cd $ROOTDIR
+          if [[ ! -f MANIFEST.in ]]; then
+            echo "::notice::No MANIFEST.in found; skipping check-manifest."
+            exit 0
+          fi
+          check-manifest -v
+
+  publish-wheel:
+    needs: [test-wheel, validate-wheel]
+    runs-on: ubuntu-latest
+    if: inputs.skip-test-wheel == false || !cancelled()
+    environment:
+      name: ${{ inputs.no-publish && 'public' || 'main' }}
+    steps:
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
+          path: dist/
 
       - name: Release wheel
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-          REPOSITORY: ${{ inputs.dry-run && 'testpypi' || 'pypi' }}
+          DRY_RUN: ${{ inputs.no-publish }}
         run: |
-          python3 -m twine upload --verbose --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD --repository $REPOSITORY dist/*
+          python3 -m pip install --upgrade twine==6.0.1
+          ls -la dist/
+
+          if [[ "$DRY_RUN" == "false" ]]; then
+            [[ -z "$TWINE_USERNAME" ]] && { echo "::error::TWINE_USERNAME unset"; exit 1; }
+            [[ -z "$TWINE_PASSWORD" ]] && { echo "::error::TWINE_PASSWORD unset"; exit 1; }
+            python3 -m twine upload --verbose --skip-existing -u "$TWINE_USERNAME" -p "$TWINE_PASSWORD" --repository pypi dist/*
+          else
+            echo "[dry-run] would execute: python3 -m twine upload --verbose --skip-existing -u <user> -p <pass> --repository pypi dist/*"
+          fi
 
   notify:
     runs-on: ubuntu-latest
-    if: failure()
+    if: failure() && inputs.suppress-failure-notify == false
     environment: public
     needs: [publish-wheel]
     env:
@@ -369,7 +480,7 @@ jobs:
       COMMIT_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0

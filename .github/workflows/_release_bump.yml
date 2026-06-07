@@ -1,0 +1,436 @@
+# Copyright (c) 2020-2026, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "Release: bump version(s)"
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+on:
+  workflow_call:
+    inputs:
+      release-ref:
+        required: true
+        description: Ref (SHA or branch) to release
+        type: string
+      validate-only:
+        type: boolean
+        required: false
+        default: false
+        description: Inert mode for per-PR rehearsals. Compute the bump and assert release preconditions; do not push, open a PR, or merge.
+      dry-run:
+        type: boolean
+        required: false
+        default: false
+        description: Inert mode for workflow_dispatch rehearsals. Same precondition checks as validate-only; no side effects on the repo.
+      version-bump-branch:
+        type: string
+        required: false
+        default: main
+        description: Branch to merge the bump commit into.
+      skip-version-bump:
+        type: boolean
+        required: false
+        default: false
+        description: Skip the bump entirely (for dynamic versioning).
+      restrict-to-admins:
+        type: boolean
+        required: false
+        default: true
+        description: Only repository admins may invoke. Always skipped under validate-only.
+      release-branch-pattern:
+        type: string
+        required: false
+        default: "[rv][0-9].[0-9].[0-9]"
+        description: |
+          Branch-protection pattern of the real release branches. In inert mode
+          (validate-only or dry-run) the workflow asserts a rule for this pattern
+          exists with `isAdminEnforced=false`. Real releases push through that rule
+          via admin bypass, so this precondition is what makes the push succeed.
+      app-id:
+        type: string
+        required: true
+        description: GitHub App ID used to mint the bot token for git push and PR creation.
+      library-name:
+        type: string
+        required: true
+        description: Human-readable library name used in the bump PR title.
+      bump-targets:
+        type: string
+        required: false
+        default: ""
+        description: |
+          JSON array of bump targets, each `{"python-package": "...", "src-dir": "..."}`.
+          Empty falls back to a single target derived from python-package + has-src-dir.
+          The first target's current version becomes the release-version output.
+      python-package:
+        type: string
+        required: false
+        default: ""
+        description: Single-target back-compat — ignored when bump-targets is non-empty.
+      has-src-dir:
+        type: boolean
+        required: false
+        default: false
+        description: Single-target back-compat — ignored when bump-targets is non-empty.
+      packaging:
+        type: string
+        required: false
+        default: setuptools
+        description: "Packaging tool (supported: setuptools, uv)."
+      root-dir:
+        type: string
+        required: false
+        default: "./"
+        description: Sub-directory containing the package source(s).
+    secrets:
+      BOT_KEY:
+        required: true
+    outputs:
+      release-version:
+        description: The version being released (current version of the first bump target, before the bump).
+        value: ${{ jobs.bump-next-version.outputs.release-version }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-admin-permission:
+    runs-on: ubuntu-latest
+    if: inputs.restrict-to-admins == true
+    env:
+      VALIDATE_ONLY: ${{ inputs.validate-only }}
+    steps:
+      - name: Check if user has admin permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: permissionLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+
+            const permission = permissionLevel.permission;
+            const validateOnly = process.env.VALIDATE_ONLY === 'true';
+            console.log(`User ${context.actor} has permission: ${permission}`);
+
+            if (permission !== 'admin') {
+              const msg = `User ${context.actor} does not have admin permission (has: ${permission}). Only admins can release.`;
+              if (validateOnly) {
+                core.notice(`[validate-only] ${msg} — would block real release.`);
+              } else {
+                core.setFailed(msg);
+              }
+            }
+
+  bump-next-version:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.validate-only && 'public' || 'main' }}
+    needs: [check-admin-permission]
+    if: |
+      !inputs.skip-version-bump
+      && (
+        success() || !failure()
+      )
+      && !cancelled()
+    outputs:
+      release-version: ${{ steps.bump.outputs.release-version }}
+      next-version: ${{ steps.bump.outputs.next-version }}
+    env:
+      IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
+      PACKAGING: ${{ inputs.packaging }}
+      BUMP_TARGETS: ${{ inputs.bump-targets }}
+      FALLBACK_PYPROJECT_NAME: ${{ inputs.python-package }}
+      FALLBACK_SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: ${{ github.run_id }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.release-ref }}
+
+      - name: Bump version(s)
+        id: bump
+        run: |
+          cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
+
+          # Resolve bump targets. JSON array if provided, else single fallback.
+          if [[ -n "$BUMP_TARGETS" ]]; then
+            TARGETS_JSON="$BUMP_TARGETS"
+          else
+            TARGETS_JSON=$(jq -nc \
+              --arg pkg "$FALLBACK_PYPROJECT_NAME" \
+              --arg src "$FALLBACK_SRC_DIR" \
+              '[{"python-package": $pkg, "src-dir": $src}]')
+          fi
+
+          echo "Resolved targets: $TARGETS_JSON"
+
+          RELEASE_VERSION=""
+          NEXT_VERSION=""
+          BUMPED_FILES=()
+
+          while IFS= read -r TGT; do
+            PYPROJECT_NAME=$(echo "$TGT" | jq -r '."python-package"')
+            SRC_DIR=$(echo "$TGT" | jq -r '."src-dir"')
+            PACKAGE_INFO_FILE="${SRC_DIR}${PYPROJECT_NAME//.//}/package_info.py"
+
+            echo "Bumping $PYPROJECT_NAME at $PACKAGE_INFO_FILE"
+
+            if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
+              MAJOR=$(awk '/^MAJOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              MINOR=$(awk '/^MINOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              PATCH=$(awk '/^PATCH = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
+              PRERELEASE=$(awk '/^PRE_RELEASE = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+
+              CURRENT_VERSION="$MAJOR.$MINOR.$PATCH$PRERELEASE"
+
+              if [[ "$PRERELEASE" != "" ]]; then
+                if [[ "$PRERELEASE" == *rc* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=rc$((${PRERELEASE#rc} + 1))
+                elif [[ "$PRERELEASE" == *a* ]]; then
+                  NEXT_PATCH=$PATCH
+                  NEXT_PRERELEASE=a$((${PRERELEASE#a} + 1))
+                else
+                  echo "Unknown pre-release: $PRERELEASE"
+                  exit 1
+                fi
+              else
+                NEXT_PATCH=$((${PATCH} + 1))
+                NEXT_PRERELEASE=$PRERELEASE
+              fi
+
+              sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
+              sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
+              BUMPED_FILES+=("$PACKAGE_INFO_FILE")
+
+              TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
+            else
+              echo "Unsupported packaging: $PACKAGING"
+              exit 1
+            fi
+
+            echo "  $PYPROJECT_NAME: $CURRENT_VERSION -> $TARGET_NEXT"
+
+            if [[ -z "$RELEASE_VERSION" ]]; then
+              RELEASE_VERSION="$CURRENT_VERSION"
+              NEXT_VERSION="$TARGET_NEXT"
+            fi
+          done < <(echo "$TARGETS_JSON" | jq -c '.[]')
+
+          echo "release-version=$RELEASE_VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
+
+      - name: Record computed versions
+        if: env.IS_INERT == 'true'
+        run: |
+          {
+            echo "## Bump rehearsal"
+            echo
+            echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
+            echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
+            echo
+            echo "IS_INERT=true → preconditions are asserted (App permissions +"
+            echo "source rule \`isAdminEnforced=false\`). No commit is pushed, no PR"
+            echo "is opened, and no branch is created on this repo."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate release config
+        if: env.IS_INERT == 'true'
+        env:
+          APP_ID: ${{ inputs.app-id }}
+          BOT_KEY: ${{ secrets.BOT_KEY }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE_PATTERN: ${{ inputs.release-branch-pattern }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          # Assert the preconditions a real release relies on, without side effects.
+          #
+          # Two reads, no writes:
+          #   1. GET /repos/{owner}/{repo}/installation — needs a JWT signed by
+          #      the App's private key (the installation token is not enough for
+          #      this endpoint). Asserts contents:write, pull_requests:write,
+          #      administration:read are still granted to the installation.
+          #   2. branchProtectionRules GraphQL — uses the installation token.
+          #      Asserts a rule for `release-branch-pattern` exists with
+          #      isAdminEnforced=false. Real releases push through that rule
+          #      via admin bypass.
+
+          # Mint a 5-minute App JWT from BOT_KEY using openssl.
+          PEM_FILE=$(mktemp)
+          trap 'rm -f "$PEM_FILE"' EXIT
+          printf '%s' "$BOT_KEY" > "$PEM_FILE"
+
+          b64url() { openssl base64 -A | tr -d '=' | tr '/+' '_-'; }
+          NOW=$(date +%s)
+          HEADER=$(printf '{"typ":"JWT","alg":"RS256"}' | b64url)
+          PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 300))" "$APP_ID" | b64url)
+          SIG=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -binary -sign "$PEM_FILE" | b64url)
+          JWT="${HEADER}.${PAYLOAD}.${SIG}"
+
+          # 1. App installation permissions on this repo.
+          PERMS=$(curl --silent --show-error --fail \
+            -H "Authorization: Bearer $JWT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$OWNER/$REPO/installation" \
+            | jq -c '.permissions')
+
+          CONTENTS=$(echo "$PERMS" | jq -r '.contents // "missing"')
+          PR_PERM=$(echo "$PERMS" | jq -r '.pull_requests // "missing"')
+          ADMIN_PERM=$(echo "$PERMS" | jq -r '.administration // "missing"')
+
+          MISSING=""
+          [[ "$CONTENTS"   == "write" ]] || MISSING="$MISSING contents=write(actual=$CONTENTS)"
+          [[ "$PR_PERM"    == "write" ]] || MISSING="$MISSING pull_requests=write(actual=$PR_PERM)"
+          [[ "$ADMIN_PERM" == "read" || "$ADMIN_PERM" == "write" ]] || MISSING="$MISSING administration=read(actual=$ADMIN_PERM)"
+
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::App installation is missing required permissions:$MISSING"
+            exit 1
+          fi
+          echo "App installation permissions OK: $PERMS"
+
+          # 2. Source release-branch rule has admin enforcement off.
+          QUERY='query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) { branchProtectionRules(first: 100) { nodes { pattern isAdminEnforced } } } }'
+          BODY=$(jq -nc --arg q "$QUERY" --arg owner "$OWNER" --arg repo "$REPO" '{query: $q, variables: {owner: $owner, repo: $repo}}')
+          RESPONSE=$(curl --silent --show-error --fail \
+            -H "Authorization: bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -X POST -d "$BODY" \
+            "https://api.github.com/graphql")
+
+          if [[ "$(echo "$RESPONSE" | jq 'has("errors")')" == "true" ]]; then
+            echo "::error::GraphQL errors: $(echo "$RESPONSE" | jq -c '.errors')"
+            exit 1
+          fi
+
+          SOURCE=$(echo "$RESPONSE" | jq -c --arg p "$SOURCE_PATTERN" '.data.repository.branchProtectionRules.nodes[] | select(.pattern == $p)')
+          if [[ -z "$SOURCE" ]]; then
+            echo "::warning::No branch protection rule found for pattern '$SOURCE_PATTERN'. Real releases won't be gated by a release-branch rule; skipping the admin-bypass check. Override release-branch-pattern if this repo has its own convention."
+          elif [[ "$(echo "$SOURCE" | jq -r '.isAdminEnforced')" == "true" ]]; then
+            echo "::error::Source rule '$SOURCE_PATTERN' has isAdminEnforced=true. Real releases push through admin bypass; set isAdminEnforced=false."
+            exit 1
+          else
+            echo "Source rule '$SOURCE_PATTERN' OK: isAdminEnforced=false"
+          fi
+
+      - name: Resolve version-bump-branch
+        if: env.IS_INERT == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          INPUT_BRANCH: ${{ inputs.version-bump-branch }}
+        run: |
+          # Consumers that fall back to `github.ref_name` get a PR-derived ref
+          # that is not the branch a real release would target:
+          #   - `<pr-num>/merge` or `<pr-num>/head` on `pull_request` triggers,
+          #   - `pull-request/<pr-num>` on `push` triggers via the copy-pr-bot mirror.
+          # In all those cases, fall back to the repo's default branch.
+          BRANCH="$INPUT_BRANCH"
+          if [[ "$BRANCH" =~ ^[0-9]+/(merge|head)$ ]] || [[ "$BRANCH" =~ ^pull-request/[0-9]+$ ]]; then
+            BRANCH=$(gh api "repos/${{ github.repository }}" --jq '.default_branch')
+            echo "::warning::version-bump-branch resolved to PR-derived ref '$INPUT_BRANCH'; falling back to default branch '$BRANCH'."
+          fi
+          echo "VERSION_BUMP_BRANCH=$BRANCH" | tee -a $GITHUB_ENV
+
+      - name: Create and push deployment branch
+        if: env.IS_INERT == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          cd ${{ github.run_id }}
+          cd ${{ inputs.root-dir }}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          TMP_BRANCH="deploy-release/$(uuidgen)"
+          git checkout -b "$TMP_BRANCH"
+          while IFS= read -r f; do
+            [[ -n "$f" ]] && git add "$f"
+          done < /tmp/bumped-files.txt
+
+          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }} [skip ci]" || echo "No changes to commit"
+          git push -u origin "$TMP_BRANCH"
+          echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
+
+          PR_URL=$(gh pr create \
+            --base "$VERSION_BUMP_BRANCH" \
+            --head "$TMP_BRANCH" \
+            --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
+            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
+          PR_NUMBER="${PR_URL##*/}"
+          echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
+
+      - name: Merge deploy-release branch into target
+        if: env.IS_INERT == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          cd ${{ github.run_id }}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Direct git push to the protected version-bump-branch. The source rule
+          # has `isAdminEnforced=false` (asserted in inert mode by `Validate
+          # release config`), so the bot bypasses required checks and approving-
+          # review counts as a repo admin.
+          git fetch origin "$VERSION_BUMP_BRANCH"
+          git checkout "$VERSION_BUMP_BRANCH"
+          git merge "$TMP_BRANCH"
+
+          for attempt in {1..3}; do
+            if git push origin "$VERSION_BUMP_BRANCH"; then
+              echo "Git push to $VERSION_BUMP_BRANCH succeeded on attempt $attempt"
+              break
+            else
+              echo "Git push to $VERSION_BUMP_BRANCH failed on attempt $attempt"
+              if [[ $attempt -lt 3 ]]; then
+                sleep $((RANDOM % 3 + 1))
+                git fetch origin "$VERSION_BUMP_BRANCH"
+                git reset --hard "origin/$VERSION_BUMP_BRANCH"
+                git merge "$TMP_BRANCH"
+              else
+                echo "Git push to $VERSION_BUMP_BRANCH failed after 3 attempts"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Delete temporary branch
+        if: always() && env.IS_INERT == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          cd ${{ github.run_id }}
+          if [[ -n "${TMP_BRANCH:-}" ]]; then
+            git push -d origin "$TMP_BRANCH" || true
+          fi

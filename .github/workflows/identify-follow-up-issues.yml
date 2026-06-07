@@ -15,16 +15,17 @@
 name: Identify Follow Up Issues
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
   identify-follow-up-issues:
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'NVIDIA-NeMo'  # Do not run on forked repositories.
     environment: main
     steps:
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Identify Follow Up Issues
         uses: ./.github/actions/identify-follow-up-issues
@@ -32,3 +33,6 @@ jobs:
           github_token: ${{ secrets.PAT }}
           project_id: ${{ vars.COMMUNITY_PROJECT_ID }}
           org: ${{ vars.COMMUNITY_PROJECT_ORG }}
+          openai_base_url: ${{ secrets.ISSUES_OPENAI_BASE_URL }}
+          openai_api_key: ${{ secrets.ISSUES_OPENAI_API_KEY }}
+          llm_model: ${{ vars.ISSUES_LLM_MODEL }}

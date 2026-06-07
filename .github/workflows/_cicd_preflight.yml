@@ -34,10 +34,25 @@ on:
         required: false
         default: ""
         type: string
+      default_registry:
+        description: "The default registry to use"
+        required: false
+        default: ""
+        type: string
+      non_nvidia_registry:
+        description: "The registry to use for non-NVIDIA users"
+        required: false
+        default: ""
+        type: string
       workflow_ref:
         description: "The ref to use for the workflow"
         required: false
         default: main
+        type: string
+      sso_users_filename:
+        description: "Filename of SSO users JSON"
+        required: false
+        default: "users_sso.json"
         type: string
     outputs:
       is_ci_workload:
@@ -67,6 +82,9 @@ on:
       test_data_path:
         description: "The test data path to use"
         value: ${{ jobs.pre-flight.outputs.test_data_path }}
+      registry:
+        description: "The registry to use"
+        value: ${{ jobs.pre-flight.outputs.registry }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT:
         required: false
@@ -82,13 +100,14 @@ jobs:
       is_member: ${{ steps.check-sso.outputs.is_member || 'false' }}
       runner_prefix: ${{ steps.select_runner.outputs.runner_prefix || '' }}
       test_data_path: ${{ steps.select_runner.outputs.test_data_path || '' }}
+      registry: ${{ steps.select_runner.outputs.registry || '' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
       HAS_LABEL: ${{ github.event.label.name == 'Run CICD' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -110,7 +129,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: step-security/changed-files@v45.0.1
+        uses: step-security/changed-files@v47.0.5
         with:
           base_sha: ${{ steps.base-ref.outputs.base }}
           files_yaml: |
@@ -183,7 +202,7 @@ jobs:
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: ${{ inputs.workflow_ref }}
@@ -194,8 +213,9 @@ jobs:
         uses: ./ci-templates/.github/actions/check-nvidia-sso
         if: ${{ inputs.default_runner_prefix != '' }}
         with:
-          username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login }}
+          username: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').user.login || github.actor }}
           github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          sso_users_filename: ${{ inputs.sso_users_filename }}
 
       - name: Select runner and test data path
         id: select_runner
@@ -208,7 +228,9 @@ jobs:
           if [[ "$IS_MEMBER" == "true" || "$IS_CI_WORKLOAD" == "true" ]]; then
             echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
             echo "test_data_path=${{ inputs.default_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+            echo "registry=${{ inputs.default_registry }}" | tee -a "$GITHUB_OUTPUT"
           else
             echo "runner_prefix=${{ inputs.non_nvidia_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
             echo "test_data_path=${{ inputs.non_nvidia_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
+            echo "registry=${{ inputs.non_nvidia_registry }}" | tee -a "$GITHUB_OUTPUT"
           fi

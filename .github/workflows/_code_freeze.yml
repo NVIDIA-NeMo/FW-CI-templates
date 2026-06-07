@@ -47,6 +47,21 @@ on:
         description: "Packaging tool (supported: setuptools, hatch)"
         type: string
         default: setuptools
+      release-branch-prefix:
+        required: false
+        description: "Prefix for the release branch name (e.g. 'core_' results in 'core_rX.Y.Z')"
+        type: string
+        default: ""
+      next-pre-release:
+        required: false
+        description: "Pre-release tag for the next dev version bumped on main (e.g. 'rc0'); pass an empty string for clean semver"
+        type: string
+        default: rc0
+      next-dev:
+        required: false
+        description: "Dev tag for the next dev version bumped on main (e.g. 'dev0'); pass an empty string to omit it"
+        type: string
+        default: dev0
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -72,11 +87,12 @@ jobs:
       DRY_RUN: ${{ inputs.dry-run }}
       SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
       PYPROJECT_NAME: ${{ inputs.python-package }}
+      RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
     environment:
       name: ${{ inputs.use-pat && 'main' || 'public' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
@@ -95,14 +111,30 @@ jobs:
 
           pushd $SRC_DIR${PYPROJECT_NAME//.//}
 
-          VERSION=$(python -c 'import package_info; print(f"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}")')
-          echo "version=r$VERSION" | tee -a "$GITHUB_OUTPUT"
+          VERSION=$(python -c "import package_info; print(f\"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}\")")
+          RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
+          echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
-          git switch --force-create r$VERSION
+          git switch --force-create ${RELEASE_BRANCH}
 
           if [[ "$DRY_RUN" != "true" ]]; then
-            git push -u origin r$VERSION --force
+            git push -u origin ${RELEASE_BRANCH} --force
           fi
+
+      - name: Create cherry-pick label
+        if: ${{ inputs.dry-run != true }}
+        env:
+          GH_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
+        run: |
+          DESCRIPTION="Auto-cherrypick to release branch. Apply before merge; cherrypick happens after merge."
+          gh label create "${RELEASE_BRANCH}" \
+            --repo ${{ github.repository }} \
+            --description "${DESCRIPTION}" \
+            --color "0075ca" 2>&1 \
+          || gh label edit "${RELEASE_BRANCH}" \
+            --repo ${{ github.repository }} \
+            --description "${DESCRIPTION}" 2>&1
 
   bump-next-version:
     runs-on: ubuntu-latest
@@ -112,17 +144,20 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
           fetch-tags: true
           ref: main
+          token: ${{ inputs.use-pat && secrets.PAT || github.token }}
 
       - name: Bump version
         id: bump-version
         env:
           PACKAGING: ${{ inputs.packaging }}
+          NEXT_PRERELEASE: ${{ inputs.next-pre-release }}
+          NEXT_DEV: ${{ inputs.next-dev }}
         run: |
           cd ${{ github.run_id }}
 
@@ -140,8 +175,11 @@ jobs:
           fi
 
           NEXT_PATCH=0
-          NEXT_PRERELEASE=rc0
-          NEXT_DEV=dev0
+
+          NEXT_VERSION="$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
+          if [[ -n "$NEXT_DEV" ]]; then
+            NEXT_VERSION="$NEXT_VERSION.$NEXT_DEV"
+          fi
 
           if [[ "$PACKAGING" == "setuptools" ]]; then
             sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" package_info.py
@@ -150,13 +188,13 @@ jobs:
             sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" package_info.py
             sed -i "/^DEV/c\DEV = '$NEXT_DEV'" package_info.py
           elif [[ "$PACKAGING" == "hatch" ]]; then
-            sed -i "/^__version__/c\__version__ = '$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV'" package_info.py
+            sed -i "/^__version__/c\__version__ = '$NEXT_VERSION'" package_info.py
           fi
 
-          echo "version=$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE.$NEXT_DEV" | tee -a "$GITHUB_OUTPUT"
+          echo "version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
 
       - name: Create Version Bump PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         id: create-pull-request
         if: ${{ inputs.dry-run != true }}
         with:
@@ -179,7 +217,7 @@ jobs:
       SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0

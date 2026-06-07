@@ -23,7 +23,7 @@ on:
     inputs:
       release-ref:
         required: true
-        description: Ref (SHA or branch) to release
+        description: Commit SHA to release (must be a full 40-char SHA, not a branch name)
         type: string
       python-package:
         type: string
@@ -283,7 +283,18 @@ permissions:
   pull-requests: write
 
 jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release-ref is a commit SHA
+        run: |
+          if ! echo "${{ inputs.release-ref }}" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::release-ref must be a full 40-character commit SHA, not a branch name. Using a branch name causes a race condition where the version-bump job mutates the branch before the wheel is built, publishing the wrong version. Got: '${{ inputs.release-ref }}'"
+            exit 1
+          fi
+
   bump:
+    needs: validate-inputs
     uses: ./.github/workflows/_release_bump.yml
     with:
       release-ref: ${{ inputs.release-ref }}

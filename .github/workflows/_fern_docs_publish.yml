@@ -1,0 +1,91 @@
+# Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes the Fern documentation site.
+#
+# Callers define their own trigger (push to main, tag, workflow_dispatch) and
+# concurrency group. This workflow only handles the publish step.
+#
+# Required configuration:
+# - Secret: DOCS_FERN_TOKEN (from `fern token` for the Fern org)
+
+name: Publish Fern Docs
+
+on:
+  workflow_call:
+    inputs:
+      fern-directory:
+        description: Path to the fern directory relative to the repository root
+        required: false
+        type: string
+        default: fern
+      container-image:
+        description: |
+          Optional container image to run the job in, such as
+          ghcr.io/nvidia/docs-builder-ci:<semver>. Leave empty to run
+          directly on the runner, which installs Node.js and fern-api
+          before each run.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      DOCS_FERN_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container: ${{ inputs.container-image != '' && inputs.container-image || null }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        if: ${{ inputs.container-image == '' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        if: ${{ inputs.container-image == '' }}
+        run: npm install -g fern-api
+
+      - name: Detect Fern libraries field
+        id: libraries
+        run: |
+          DOCS_YML="${{ inputs.fern-directory }}/docs.yml"
+          if [ -f "$DOCS_YML" ] && yq -e '.libraries' "$DOCS_YML" >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate library reference MDX (autodocs)
+        if: steps.libraries.outputs.present == 'true'
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          cd "$(dirname "${{ inputs.fern-directory }}")"
+          fern docs md generate
+
+      - name: Publish Docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          cd "$(dirname "${{ inputs.fern-directory }}")"
+          fern generate --docs

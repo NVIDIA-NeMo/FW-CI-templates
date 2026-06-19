@@ -27,10 +27,10 @@ jobs:
         with:
           operations-per-run: 100
           days-before-issue-stale: 30
-          days-before-issue-close: 7
+          days-before-issue-close: 10
           stale-issue-label: "stale"
-          stale-issue-message: "This issue is stale because it has been open for 30 days with no activity. Remove stale label or comment or this will be closed in 7 days."
-          close-issue-message: "This issue was closed because it has been inactive for 7 days since being marked as stale."
+          stale-issue-message: "This issue is stale because it has been open for 30 days with no activity. Remove stale label or comment or this will be closed in 10 days."
+          close-issue-message: "This issue was closed because it has been inactive for 10 days since being marked as stale."
           days-before-pr-stale: 14
           days-before-pr-close: 7
           stale-pr-message: "This PR is stale because it has been open for 14 days with no activity. Remove stale label or comment or update or this will be closed in 7 days."

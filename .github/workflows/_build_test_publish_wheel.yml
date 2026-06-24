@@ -471,8 +471,9 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     if: failure() && inputs.suppress-failure-notify == false
-    environment: public
-    deployment: false
+    environment:
+      name: public
+      deployment: false
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

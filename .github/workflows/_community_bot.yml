@@ -34,7 +34,9 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    environment: ${{ inputs.environment }}
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
     env:
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}

@@ -52,7 +52,9 @@ defaults:
 jobs:
   bump-file:
     runs-on: ubuntu-latest
-    environment: main
+    environment:
+      name: main
+      deployment: false
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v6
@@ -123,10 +125,10 @@ jobs:
           title: ${{ inputs.pr-title || env.default-title }}
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ steps.ref.outputs.sha }}`.  
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ steps.ref.outputs.sha }}`.
 
-            📝 Please remember the following to-do's before merge: 
-            - [ ] Verify the presubmit CI  
+            📝 Please remember the following to-do's before merge:
+            - [ ] Verify the presubmit CI
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
           commit-message: ${{ env.default-title }}

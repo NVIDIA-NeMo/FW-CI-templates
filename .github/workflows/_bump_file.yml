@@ -38,7 +38,9 @@ defaults:
 jobs:
   bump-file:
     runs-on: ubuntu-latest
-    environment: main
+    environment:
+      name: main
+      deployment: false
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v6
@@ -50,7 +52,7 @@ jobs:
       - name: Get latest source commit
         id: ref
         run: |
-          cd ${{ github.run_id }}      
+          cd ${{ github.run_id }}
           sha=$(git rev-parse HEAD)
           repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
@@ -67,7 +69,7 @@ jobs:
 
       - name: Bump file
         run: |
-          cd ${{ github.run_id }}     
+          cd ${{ github.run_id }}
 
           sed -i 's/\(.* ${{ inputs.argument }}=\).*/\1${{ steps.ref.outputs.sha }}/' ${{ inputs.file }}
 
@@ -83,10 +85,10 @@ jobs:
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ inputs.argument }}=${{ steps.ref.outputs.sha }}`.  
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.file }}` to `${{ inputs.argument }}=${{ steps.ref.outputs.sha }}`.
 
-            📝 Please remember the following to-do's before merge: 
-            - [ ] Verify the presubmit CI  
+            📝 Please remember the following to-do's before merge:
+            - [ ] Verify the presubmit CI
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
           commit-message: ${{ env.title }}

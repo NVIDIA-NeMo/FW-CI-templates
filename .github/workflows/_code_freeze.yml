@@ -90,6 +90,7 @@ jobs:
       RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
     environment:
       name: ${{ inputs.use-pat && 'main' || 'public' }}
+      deployment: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -105,7 +106,7 @@ jobs:
           cd ${{ github.run_id }}
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
-                    
+
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" $PACKAGE_INFO_FILE
           sed -i "/^DEV/c\DEV = ''" $PACKAGE_INFO_FILE
 
@@ -210,7 +211,9 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     needs: [create-release-branch, bump-next-version]
-    environment: ${{ inputs.dry-run == true && 'public' || 'main' }}
+    environment:
+      name: ${{ inputs.dry-run == true && 'public' || 'main' }}
+      deployment: false
     env:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
@@ -228,7 +231,7 @@ jobs:
         with:
           message: >
             ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
-            
+
             PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
 
 

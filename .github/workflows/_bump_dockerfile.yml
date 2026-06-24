@@ -6,7 +6,7 @@ on:
       source-repository:
         type: string
         required: true
-      source-ref: 
+      source-ref:
         type: string
         required: false
         default: main
@@ -38,7 +38,9 @@ defaults:
 jobs:
   bump-dockerfile:
     runs-on: ubuntu-latest
-    environment: main
+    environment:
+      name: main
+      deployment: false
     steps:
       - name: Checkout ${{ inputs.source-repository }}
         uses: actions/checkout@v6
@@ -50,7 +52,7 @@ jobs:
       - name: Get latest source commit
         id: ref
         run: |
-          cd ${{ github.run_id }}      
+          cd ${{ github.run_id }}
           sha=$(git rev-parse HEAD)
           repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
@@ -67,7 +69,7 @@ jobs:
 
       - name: Bump Dockerfile
         run: |
-          cd ${{ github.run_id }}     
+          cd ${{ github.run_id }}
           sed -i 's/^ARG ${{ inputs.build-arg }}=.*$/ARG ${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}/' ${{ inputs.dockerfile }}
 
       - name: Create Bump PR
@@ -82,10 +84,10 @@ jobs:
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.dockerfile }}` to `${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}`.  
+            🚀 PR to bump `${{ inputs.source-repository }}` in `${{ inputs.dockerfile }}` to `${{ inputs.build-arg }}=${{ steps.ref.outputs.sha }}`.
 
-            📝 Please remember the following to-do's before merge: 
-            - [ ] Verify the presubmit CI  
+            📝 Please remember the following to-do's before merge:
+            - [ ] Verify the presubmit CI
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
           commit-message: ${{ env.title }}

@@ -174,7 +174,9 @@ permissions:
 jobs:
   create-gh-release:
     runs-on: ubuntu-latest
-    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+    environment:
+      name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+      deployment: false
     if: |
       inputs.create-gh-release == true
       && !cancelled()
@@ -326,7 +328,9 @@ jobs:
   publish-docs:
     needs: [create-gh-release, build-docs]
     runs-on: ubuntu-latest
-    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+    environment:
+      name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+      deployment: false
     if: |
       (
         success() || !failure()
@@ -384,7 +388,9 @@ jobs:
         success() || !failure()
       )
       && !cancelled()
-    environment: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+    environment:
+      name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+      deployment: false
     env:
       GH_URL: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.gh-release-tag-prefix || '' }}v${{ inputs.release-version }}
       PROJECT_NAME: ${{ inputs.library-name }}

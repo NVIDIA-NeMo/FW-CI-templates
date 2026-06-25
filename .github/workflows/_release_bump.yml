@@ -139,7 +139,9 @@ jobs:
 
   bump-next-version:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.validate-only && 'public' || 'main' }}
+    environment:
+      name: ${{ inputs.validate-only && 'public' || 'main' }}
+      deployment: false
     needs: [check-admin-permission]
     if: |
       !inputs.skip-version-bump

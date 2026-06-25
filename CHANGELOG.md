@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.1...v1.6.0) (2026-06-25)
+
+
+### Features
+
+* Use deployment: false for environments ([#498](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/498)) ([2d1e439](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2d1e439bb124b6c49de612a6761131952ab33930))
+
 ## [1.5.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.0...v1.5.1) (2026-06-03)
 
 

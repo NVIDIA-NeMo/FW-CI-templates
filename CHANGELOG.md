@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.2...v1.7.3) (2026-07-08)
+
+
+### Bug Fixes
+
+* use workflow ref for copyright checker ([#511](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/511)) ([350e7f6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/350e7f6acecc59c1d52ffbac4057d1bf60226fa5))
+
 ## [1.7.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.1...v1.7.2) (2026-07-08)
 
 

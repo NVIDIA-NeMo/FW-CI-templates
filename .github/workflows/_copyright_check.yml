@@ -64,18 +64,12 @@ jobs:
           files: '**/*.py'
           separator: ' '
 
-      - name: Determine copyright checker ref
-        id: copyright-checker-ref
-        run: |
-          WORKFLOW_REF="${{ github.workflow_ref }}"
-          echo "ref=${WORKFLOW_REF##*@}" | tee -a "$GITHUB_OUTPUT"
-
       - name: Checkout
         uses: actions/checkout@v6
         if: steps.changed-files.outputs.any_changed == 'true'
         with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: ${{ steps.copyright-checker-ref.outputs.ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: copyright-checker
 
       - name: Check copyright headers

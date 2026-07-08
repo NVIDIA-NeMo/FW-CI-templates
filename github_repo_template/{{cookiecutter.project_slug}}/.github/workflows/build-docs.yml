@@ -22,4 +22,4 @@ on:
 
 jobs:
   build-docs:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@v0.41.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@2a40b4d3746bfbd2462392b2a24fe40af3f8af39 # v0.41.0

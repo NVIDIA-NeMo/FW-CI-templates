@@ -42,7 +42,7 @@ jobs:
       cache-from: {% raw %}${{ steps.cache-from.outputs.LAST_PRS }}{% endraw %}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Get last merged PR
         id: cache-from
@@ -67,7 +67,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
   build:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_container.yml@v0.29.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_container.yml@3bde7eec1009d0de2634acbccad8977d6d2983c4 # v0.29.0
     needs: [pre-flight]
     with:
       image-name: {% raw %}${{ inputs.image-name }}{% endraw %}

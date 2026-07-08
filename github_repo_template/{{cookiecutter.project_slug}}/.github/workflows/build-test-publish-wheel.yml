@@ -26,7 +26,7 @@ defaults:
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.33.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@b39d5a700820f677c917b7a4249efd3cabb16694 # v0.33.0
     if: {% raw %}${{ vars.BUILD_TEST_PUBLISH_WHEEL == 'true' }}{% endraw %}
     with:
       dry-run: true

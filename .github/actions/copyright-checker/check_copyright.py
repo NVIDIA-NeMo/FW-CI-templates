@@ -9,9 +9,9 @@ import re  # Import the regular expression module
 from pathlib import Path
 from datetime import datetime
 
-# Regex to check for in the first line
-# Matches "Copyright.*NVIDIA CORPORATION.*All rights reserved."
-HEADER_REGEX = re.compile(r"^#\s*Copyright")
+# Regex to check for in leading comment lines.
+# Supports both legacy NVIDIA copyright headers and SPDX FileCopyrightText.
+HEADER_REGEX = re.compile(r"^#\s*(?:Copyright|SPDX-FileCopyrightText:\s*Copyright)")
 
 # Original format string, still used for the error message suggestion
 EXPECTED_HEADER = """# Copyright (c) {} NVIDIA CORPORATION & AFFILIATES. All rights reserved."""

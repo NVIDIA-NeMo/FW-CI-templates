@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.5...v1.8.0) (2026-07-09)
+
+
+### Features
+
+* AUT-760 pin GitHub Actions to immutable commit SHAs ([#513](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/513)) ([f567841](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f56784116c79108e19370caa7f6bd9c5d52dd7dd))
+* **docs:** Get Fern token from AWS Secrets Mgr ([#508](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/508)) ([63b9543](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/63b95437a95aad077ebb76c6a98bea86ae62af41))
+
 ## [1.7.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.4...v1.7.5) (2026-07-09)
 
 

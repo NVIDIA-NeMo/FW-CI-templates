@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.4...v1.7.5) (2026-07-09)
+
+
+### Bug Fixes
+
+* handle local copyright base refs ([#516](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/516)) ([5cb7260](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5cb7260d389ee8473778e0d91edb21476fcdaad9))
+
 ## [1.7.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.3...v1.7.4) (2026-07-08)
 
 

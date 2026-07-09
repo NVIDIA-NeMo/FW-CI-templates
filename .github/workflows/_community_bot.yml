@@ -41,14 +41,14 @@ jobs:
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 

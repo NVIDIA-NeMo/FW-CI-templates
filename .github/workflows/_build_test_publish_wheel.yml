@@ -136,7 +136,7 @@ jobs:
       EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
@@ -161,7 +161,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
@@ -245,7 +245,7 @@ jobs:
           echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ steps.build.outputs.DIST_DIR }}
@@ -262,13 +262,13 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/${{ github.run_id }}/
@@ -292,7 +292,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
@@ -342,19 +342,19 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -446,7 +446,7 @@ jobs:
       deployment: false
     steps:
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
@@ -483,7 +483,7 @@ jobs:
       COMMIT_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0

@@ -27,7 +27,7 @@ jobs:
       deployment: false
     steps:
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Identify Follow Up Issues
         uses: ./.github/actions/identify-follow-up-issues

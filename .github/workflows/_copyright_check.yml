@@ -32,32 +32,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
 
       - name: Get PR info
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')
-        uses: nv-gha-runners/get-pr-info@main
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
 
       - name: Determine base reference
         id: get-sha
         run: |
+          IS_PR=${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
           BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
 
           git config --global user.email "you@example.com"
           git config --global user.name "GitHub Action"
 
-          git fetch origin $BASE_REF
-          git merge origin/$BASE_REF
+          if [[ "$IS_PR" == "true" ]]; then
+            git fetch origin "$BASE_REF"
+            git merge "origin/$BASE_REF"
+            BASE_SHA=$(git rev-parse "origin/$BASE_REF")
+          else
+            BASE_SHA=$(git rev-parse "$BASE_REF")
+          fi
 
-          echo "sha=$(git rev-parse HEAD)" | tee -a $GITHUB_OUTPUT
-          echo "base_sha=${BASE_REF}" | tee -a $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+          echo "base_sha=${BASE_SHA}" | tee -a "$GITHUB_OUTPUT"
 
       - name: Get changed files
         id: changed-files
-        uses: step-security/changed-files@v47.0.5
+        uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
         with:
           sha: ${{ steps.get-sha.outputs.sha }}
           base_sha: ${{ steps.get-sha.outputs.base_sha }}
@@ -65,11 +71,11 @@ jobs:
           separator: ' '
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         if: steps.changed-files.outputs.any_changed == 'true'
         with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.66.7
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: copyright-checker
 
       - name: Check copyright headers

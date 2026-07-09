@@ -43,7 +43,7 @@ jobs:
       deployment: false
     steps:
       - name: Checkout ${{ inputs.source-repository }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: ${{ inputs.source-repository }}
           ref: ${{ inputs.source-ref }}
@@ -61,7 +61,7 @@ jobs:
           echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
 
       - name: Checkout ${{ github.repository }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           token: ${{ secrets.PAT }}
@@ -74,7 +74,7 @@ jobs:
           sed -i 's/\(.* ${{ inputs.argument }}=\).*/\1${{ steps.ref.outputs.sha }}/' ${{ inputs.file }}
 
       - name: Create Bump PR
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         id: create-pull-request
         env:
           title: 'chore(beep boop 🤖): Bump `${{ inputs.argument }}=${{ steps.ref.outputs.short_sha }}...` (${{ steps.ref.outputs.date }})'

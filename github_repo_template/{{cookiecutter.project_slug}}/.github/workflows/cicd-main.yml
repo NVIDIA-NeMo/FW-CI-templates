@@ -67,7 +67,7 @@ jobs:
     environment: nemo-ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: main
         uses: ./.github/actions/test-template
         with:
@@ -96,7 +96,7 @@ jobs:
     environment: nemo-ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: main
         uses: ./.github/actions/test-template
         with:
@@ -120,7 +120,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Get workflow result
         id: result
@@ -145,7 +145,7 @@ jobs:
           echo "code=$RESULT" | tee -a $GITHUB_OUTPUT
 
       - name: Checkout for GH CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Remove label if not cancelled
         if: |
@@ -162,7 +162,7 @@ jobs:
           steps.result.outputs.code == 'success'
           && github.event_name == 'pull_request'
           && env.SLACK_WEBHOOK != ''
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
         env:
           SLACK_WEBHOOK: {% raw %}${{ secrets.SLACK_WEBHOOK }}{% endraw %}
           REPOSITORY: {% raw %}${{ github.repository }}{% endraw %}
@@ -216,10 +216,10 @@ jobs:
         flag: [unit-test, e2e]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download coverage reports of current branch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: coverage-{% raw %}${{ matrix.flag }}{% endraw %}-*
 
@@ -245,7 +245,7 @@ jobs:
       #     flags: {% raw %}${{ matrix.flag }}{% endraw %}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-{% raw %}${{ matrix.flag }}{% endraw %}-aggregated
           path: |

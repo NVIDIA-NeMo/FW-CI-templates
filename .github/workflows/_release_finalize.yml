@@ -188,14 +188,14 @@ jobs:
       VERSION: ${{ inputs.release-version }}
       TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.release-ref }}
@@ -230,7 +230,7 @@ jobs:
       - name: Build Changelog
         id: build-changelog
         if: inputs.gh-release-use-changelog-builder == true
-        uses: mikepenz/release-changelog-builder-action@v6.1.0
+        uses: mikepenz/release-changelog-builder-action@6faf020194b7c8853f9e55c4fd92e40b02122a04 # v6.1.0
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
@@ -343,7 +343,7 @@ jobs:
       S3_TARGET_PATH: ${{ inputs.docs-target-path }}
     steps:
       - name: Checkout FW-CI-templates
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.94.1
@@ -444,7 +444,7 @@ jobs:
 
       - name: Checkout
         if: env.IS_VALIDATE_ONLY == 'false' && steps.webhook.outputs.configured == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0

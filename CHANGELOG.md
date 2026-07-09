@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.7.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.4...v1.7.5) (2026-07-09)
+
+
+### Bug Fixes
+
+* handle local copyright base refs ([#516](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/516)) ([5cb7260](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5cb7260d389ee8473778e0d91edb21476fcdaad9))
+
+## [1.7.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.3...v1.7.4) (2026-07-08)
+
+
+### Bug Fixes
+
+* checkout reusable workflow source for copyright checker ([#514](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/514)) ([5510b97](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5510b9763cfb111707fa6b378d5daf731f47325c))
+
+## [1.7.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.2...v1.7.3) (2026-07-08)
+
+
+### Bug Fixes
+
+* use workflow ref for copyright checker ([#511](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/511)) ([350e7f6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/350e7f6acecc59c1d52ffbac4057d1bf60226fa5))
+
+## [1.7.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.1...v1.7.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* accept SPDX copyright headers ([#510](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/510)) ([6be5b36](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6be5b360f060d87f8e30aac11796229d504473eb))
+* remove hardcoded uv 0.7.2 pin in build-wheel step ([#503](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/503)) ([961fcdf](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/961fcdf928e59c0fb71e001c15eb25ee2deb5a39))
+
 ## [1.6.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.1...v1.6.0) (2026-06-25)
 
 

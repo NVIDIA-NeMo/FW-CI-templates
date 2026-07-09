@@ -20,7 +20,8 @@
 # safe to run on fork PRs using the regular pull_request trigger.
 #
 # The companion workflow (_fern_docs_preview_comment.yml) picks up the
-# artifact, builds the preview with DOCS_FERN_TOKEN, and posts the PR comment.
+# artifact, reads the Fern token from AWS Secrets Manager, builds the preview,
+# and posts the PR comment.
 # When the PR closes, _fern_docs_preview_cleanup.yml deletes the preview.
 #
 # Setup required in the consuming repo:
@@ -44,8 +45,13 @@
 #      jobs:
 #        preview:
 #          uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_fern_docs_preview_comment.yml@vX.Y.Z
-#          secrets:
-#            DOCS_FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+#          permissions:
+#            actions: read
+#            id-token: write
+#            pull-requests: write
+#          with:
+#            aws-role-to-assume: arn:aws:iam::<account-id>:role/<role-name>
+#            fern-secret-id: docs/fern/github/<owner>/<repo>/token
 #
 #    fern-docs-preview-close.yml   (close half — cleanup pair, no secrets)
 #      on:
@@ -63,14 +69,19 @@
 #      jobs:
 #        cleanup:
 #          uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_fern_docs_preview_cleanup.yml@vX.Y.Z
-#          secrets:
-#            DOCS_FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+#          permissions:
+#            actions: read
+#            id-token: write
+#          with:
+#            aws-role-to-assume: arn:aws:iam::<account-id>:role/<role-name>
+#            fern-secret-id: docs/fern/github/<owner>/<repo>/token
 #
 # 2. If you override `artifact-name` here, pass the same value to the comment
 #    workflow. The default (`fern-preview`) works when there is only one Fern
 #    instance in the repo.
 #
-# 3. Configure the secret DOCS_FERN_TOKEN in the repo (or org) settings.
+# 3. Configure GitHub OIDC trust and an AWS role that can read the Fern token
+#    from Secrets Manager.
 #
 # 4. The default fern/ directory is at the repository root. Override
 #    `fern-directory` if it is elsewhere.

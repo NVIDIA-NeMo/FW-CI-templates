@@ -168,7 +168,11 @@ jobs:
             -f content='eyes'
 
       - name: Run Claude Code Review
+<<<<<<< HEAD
         uses: anthropics/claude-code-action@ba0aafd4308cbba7165f9f2cdb0cfbed5a3c99ce # v1.0.168
+=======
+        uses: anthropics/claude-code-action@37b464ce72700f7b2c5ff8d2db7fa7b15df792f5 # v1
+>>>>>>> origin/main
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"

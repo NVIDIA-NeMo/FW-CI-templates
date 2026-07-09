@@ -44,16 +44,22 @@ jobs:
       - name: Determine base reference
         id: get-sha
         run: |
+          IS_PR=${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
           BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
 
           git config --global user.email "you@example.com"
           git config --global user.name "GitHub Action"
 
-          git fetch origin $BASE_REF
-          git merge origin/$BASE_REF
+          if [[ "$IS_PR" == "true" ]]; then
+            git fetch origin "$BASE_REF"
+            git merge "origin/$BASE_REF"
+            BASE_SHA=$(git rev-parse "origin/$BASE_REF")
+          else
+            BASE_SHA=$(git rev-parse "$BASE_REF")
+          fi
 
-          echo "sha=$(git rev-parse HEAD)" | tee -a $GITHUB_OUTPUT
-          echo "base_sha=${BASE_REF}" | tee -a $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+          echo "base_sha=${BASE_SHA}" | tee -a "$GITHUB_OUTPUT"
 
       - name: Get changed files
         id: changed-files

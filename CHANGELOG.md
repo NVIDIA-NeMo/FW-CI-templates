@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.2...v1.8.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* allow Claude review top-level PR comments ([#523](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/523)) ([3ce78b3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3ce78b38564a6e2ac3443ef350cd4dc3b77fa5e8))
+
 ## [1.8.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.1...v1.8.2) (2026-07-10)
 
 

@@ -95,6 +95,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      id-token: write
     env:
       BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
       CHANGED_FILES: ${{ needs.authorize.outputs.changed_files }}
@@ -175,7 +176,6 @@ jobs:
           DISABLE_PROMPT_CACHING: "1"
         with:
           anthropic_api_key: ${{ secrets.NVIDIA_INFERENCE_KEY }}
-          github_token: ${{ github.token }}
           trigger_phrase: ${{ inputs.trigger_phrase }}
           show_full_output: false
           claude_args: |

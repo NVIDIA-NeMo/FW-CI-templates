@@ -180,7 +180,7 @@ jobs:
           show_full_output: false
           claude_args: |
             --add-dir "${{ env.PR_HEAD_DIR }}"
-            --allowedTools "Read,Glob,Grep,Bash(./review-context/check-pr-revision.sh),Bash(gh pr comment:*),Bash(gh pr view:*),mcp__github_comment__update_claude_comment,mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Read,Glob,Grep,Bash(./review-context/check-pr-revision.sh),Bash(gh pr comment:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
             --model "${{ inputs.model }}"
           prompt: |
             REPO: ${{ env.REPO }}
@@ -218,9 +218,9 @@ jobs:
               never post `LGTM`.
             - Use `mcp__github_inline_comment__create_inline_comment` for verified
               line-specific findings and pass `${{ env.EXPECTED_HEAD_SHA }}` as the
-              `commit_id`. Use `mcp__github_comment__update_claude_comment` for the
-              final summary, general findings, `LGTM`, or an incomplete-review notice.
-              Publish a top-level final status on every completed run, even when
-              inline comments are also posted. Never approve the pull request.
+              `commit_id`. Use `gh pr comment "$PR_NUMBER" --repo "$REPO" --body ...`
+              for the final summary, general findings, `LGTM`, or an incomplete-review
+              notice. Publish a top-level final status on every completed run, even
+              when inline comments are also posted. Never approve the pull request.
 
             ${{ inputs.prompt }}

@@ -49,9 +49,9 @@
 #            actions: read
 #            id-token: write
 #            pull-requests: write
-#          with:
-#            aws-role-to-assume: arn:aws:iam::<account-id>:role/<role-name>
-#            fern-secret-id: docs/fern/github/<owner>/<repo>/token
+#          secrets:
+#            DOCS_FERN_AWS_ROLE_TO_ASSUME: ${{ secrets.DOCS_FERN_AWS_ROLE_TO_ASSUME }}
+#            DOCS_FERN_SECRET_ID: ${{ secrets.DOCS_FERN_SECRET_ID }}
 #
 #    fern-docs-preview-close.yml   (close half — cleanup pair, no secrets)
 #      on:
@@ -72,9 +72,9 @@
 #          permissions:
 #            actions: read
 #            id-token: write
-#          with:
-#            aws-role-to-assume: arn:aws:iam::<account-id>:role/<role-name>
-#            fern-secret-id: docs/fern/github/<owner>/<repo>/token
+#          secrets:
+#            DOCS_FERN_AWS_ROLE_TO_ASSUME: ${{ secrets.DOCS_FERN_AWS_ROLE_TO_ASSUME }}
+#            DOCS_FERN_SECRET_ID: ${{ secrets.DOCS_FERN_SECRET_ID }}
 #
 # 2. If you override `artifact-name` here, pass the same value to the comment
 #    workflow. The default (`fern-preview`) works when there is only one Fern

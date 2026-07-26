@@ -120,16 +120,11 @@ jobs:
         run: |
           source .venv/bin/activate
           cd ${{ inputs.docs-directory }}
-          MAX_RETRIES=3
-          RETRY_DELAY=10
-          for attempt in $(seq 1 $MAX_RETRIES); do
-            sphinx-build --builder linkcheck . _build/linkcheck && break || true
-            if [ $attempt -lt $MAX_RETRIES ]; then
-              echo "Linkcheck attempt ${attempt}/${MAX_RETRIES} produced broken links, retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            fi
-          done
+          sphinx-build \
+            --define linkcheck_retries=3 \
+            --define linkcheck_rate_limit_timeout=60 \
+            --builder linkcheck \
+            . _build/linkcheck || true
 
       - name: Upload linkcheck output
         if: inputs.skip-linkcheck == false
@@ -162,14 +157,33 @@ jobs:
             fi
           }
 
+          function is_transient_transport_error {
+            local entry=$1
+            jq --exit-status '
+              .status == "timeout" or
+              (
+                .status == "broken" and
+                (.code // 0) == 0 and
+                ((.info // "") | test(
+                  "network is unreachable|no route to host|temporary failure in name resolution|name or service not known|nameresolutionerror|could not resolve|connection (reset|aborted|refused|timed out)|connecttimeouterror|readtimeouterror|remote end closed connection|remotedisconnected";
+                  "i"
+                ))
+              )
+            ' <<< "$entry" > /dev/null
+          }
+
           function check_links {
             local err=0
-            broken=$(jq -s 'map(select(.status=="broken"))' "$LINKCHECK_JSON")
-            count=$(echo "${broken}" | jq 'length')
-            for i in $(seq 0 $(($count - 1)))
+            local transient=0
+            while IFS= read -r entry
             do
-              entry=$(echo "${broken}" | jq ".[${i}]")
-              link=$(echo "${entry}" | jq -r '.uri')
+              if is_transient_transport_error "$entry"; then
+                transient=$((transient + 1))
+                echo "::warning::Transient link transport failure after bounded retries: $entry"
+                continue
+              fi
+
+              link=$(echo "$entry" | jq -r '.uri')
               local false_positive_resp="false"
               local needs_review_resp="false"
               if [ -f "${FALSE_POSITIVES_JSON}" ]; then
@@ -182,10 +196,13 @@ jobs:
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
                 err=$((err + 1))
-                echo $entry
+                echo "$entry"
               fi
-            done
+            done < <(jq -c 'select(.status == "broken" or .status == "timeout")' "$LINKCHECK_JSON")
 
+            if [ "${transient}" -gt 0 ]; then
+              echo "Found ${transient} transient link transport failure(s); all were checked and reported as warnings"
+            fi
             if [ "${err}" -gt 0 ]; then
               echo "Found ${err} broken links that are not in exclusion lists"
               exit 1

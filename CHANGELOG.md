@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.4...v1.8.5) (2026-07-29)
+
+
+### Bug Fixes
+
+* tolerate trailing whitespace in /claude review trigger phrase ([#531](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/531)) ([220aeab](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/220aeab0838301875d9182fe9aa408c9eed9f2a5))
+
 ## [1.8.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.3...v1.8.4) (2026-07-15)
 
 

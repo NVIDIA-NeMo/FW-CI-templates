@@ -28,7 +28,7 @@ jobs:
     if: |
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
-      github.event.comment.body == inputs.trigger_phrase
+      startsWith(github.event.comment.body, inputs.trigger_phrase)
     runs-on: ubuntu-latest
     permissions:
       contents: read

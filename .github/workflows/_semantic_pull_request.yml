@@ -42,7 +42,7 @@ jobs:
       - name: PR title length
         if: always()
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           PR=$(curl -L \

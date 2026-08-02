@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.6](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.5...v1.8.6) (2026-08-02)
+
+
+### Bug Fixes
+
+* trust svcnemo-autobot in SSO check ([#533](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/533)) ([e58e3b6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e58e3b6631161a5de373d4acc45523a8b647be5d))
+
 ## [1.8.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.4...v1.8.5) (2026-07-29)
 
 

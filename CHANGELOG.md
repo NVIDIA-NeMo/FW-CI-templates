@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.6...v1.8.7) (2026-08-03)
+
+
+### Bug Fixes
+
+* trust svcnemo-autobot in community labeling ([#535](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/535)) ([df8dcb4](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/df8dcb48d0749dabb5eae5ff45d36d7f0bf571b8))
+
 ## [1.8.6](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.5...v1.8.6) (2026-08-02)
 
 

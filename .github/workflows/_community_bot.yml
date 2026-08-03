@@ -96,7 +96,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             $API_URL)
 
-          if [ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]; then
+          if [ "$ISSUE_AUTHOR" = "svcnemo-autobot" ] || [ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]; then
             echo "is_maintainer=true" | tee -a $GITHUB_OUTPUT
           else
             echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT

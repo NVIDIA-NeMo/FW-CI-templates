@@ -10,4 +10,8 @@ jobs:
   community-bot:
     uses: ./.github/workflows/_community_bot.yml
     with:
-      maintainers: ko3n1g
+      community_project_id: ${{ vars.COMMUNITY_PROJECT_ID }}
+      app-id: ${{ vars.BOT_ID }}
+    secrets:
+      BOT_KEY: ${{ secrets.BOT_KEY }}
+      GH_TOKEN: ${{ secrets.PAT }}

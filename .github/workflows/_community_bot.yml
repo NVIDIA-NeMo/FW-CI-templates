@@ -135,7 +135,8 @@ jobs:
 
       - name: Add community-request label for community users
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          # The configured NVIDIA App can label pull requests but not regular issues.
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.app-token.outputs.token || secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -147,7 +148,9 @@ jobs:
 
       - name: Add community issue to community project
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          # The project lives in NVIDIA-NeMo even when the caller repository lives in NVIDIA.
+          # Prefer the PAT so this cross-organization mutation retains the pre-v1.5.0 behavior.
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -186,7 +189,7 @@ jobs:
 
       - name: Remove community-request label for maintainers
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.app-token.outputs.token || secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'true'

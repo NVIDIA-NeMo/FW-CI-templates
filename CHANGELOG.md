@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.7...v1.8.8) (2026-08-06)
+
+
+### Bug Fixes
+
+* preserve community bot membership checks ([#538](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/538)) ([559a1f9](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/559a1f9f1918be82363afb2cbc8ee824e19acf6f))
+
 ## [1.8.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.6...v1.8.7) (2026-08-03)
 
 

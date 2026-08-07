@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.9](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.8...v1.8.9) (2026-08-07)
+
+
+### Bug Fixes
+
+* **community:** route app tokens by installation ([#541](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/541)) ([eebe2d3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eebe2d394f9f5c0857d009767e471191e8954fe2))
+
 ## [1.8.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.7...v1.8.8) (2026-08-06)
 
 

@@ -29,7 +29,7 @@ on:
       BOT_KEY:
         required: false
       GH_TOKEN:
-        description: Optional PAT used for membership checks and as a legacy bot-token fallback
+        description: Optional legacy PAT fallback
         required: false
 
 jobs:
@@ -46,28 +46,46 @@ jobs:
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
       REPO: ${{ github.repository }}
     steps:
-      - name: Create GitHub App token
+      - name: Create repository GitHub App token
         if: inputs.app-id != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: app-token
+        id: repo-app-token
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-members: read
+          permission-metadata: read
+          permission-organization-projects: ${{ github.repository_owner == 'NVIDIA-NeMo' && 'write' || '' }}
+          permission-pull-requests: write
+
+      - name: Create cross-organization GitHub App token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: cross-org-app-token
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          # The workflow is shared by repositories in these two organizations.
+          owner: ${{ github.repository_owner == 'NVIDIA-NeMo' && 'NVIDIA' || 'NVIDIA-NeMo' }}
+          permission-members: read
+          permission-organization-projects: ${{ github.repository_owner != 'NVIDIA-NeMo' && 'write' || '' }}
 
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          token: ${{ steps.app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          token: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
 
       - name: Check pre-conditions
         id: pre-flight
         env:
           AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
           IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
-          # Prefer the PAT for private/cross-organization membership visibility. Callers that do
-          # not have one retain the App-token behavior introduced in v1.5.0.
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
           ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
+          REPO_GITHUB_TOKEN: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          NVIDIA_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA-NeMo' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
+          NVIDIA_NEMO_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         run: |
           # Get the username who triggered the action
           USERNAME="${{ github.actor }}"
@@ -98,7 +116,7 @@ jobs:
             REPO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Authorization: Bearer $REPO_GITHUB_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
@@ -107,7 +125,7 @@ jobs:
             ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error \
               --output /dev/null --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Authorization: Bearer $NVIDIA_NEMO_GITHUB_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
@@ -116,7 +134,7 @@ jobs:
             ORG_NVIDIA_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Authorization: Bearer $NVIDIA_GITHUB_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
@@ -135,8 +153,8 @@ jobs:
 
       - name: Add community-request label for community users
         env:
-          # The configured NVIDIA App can label pull requests but not regular issues.
-          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.app-token.outputs.token || secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
+          # Legacy Apps may only label pull requests; migrated Apps handle both issue types.
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -149,8 +167,7 @@ jobs:
       - name: Add community issue to community project
         env:
           # The project lives in NVIDIA-NeMo even when the caller repository lives in NVIDIA.
-          # Prefer the PAT so this cross-organization mutation retains the pre-v1.5.0 behavior.
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -189,7 +206,7 @@ jobs:
 
       - name: Remove community-request label for maintainers
         env:
-          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.app-token.outputs.token || secrets.GH_TOKEN || steps.app-token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'true'

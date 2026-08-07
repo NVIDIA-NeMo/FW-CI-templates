@@ -54,52 +54,56 @@ jobs:
           TARGET_BRANCHES_PATTERN: ${{ inputs.target-branches-pattern }}
         run: |
           set -x
-          set +e
 
           git config --global user.email "nemo-bot@nvidia.com"
           git config --global user.name "NeMo Bot"
 
           SHA=$(git rev-list --no-merges -n 1 HEAD)
-          MESSAGE=$(git log -n 1 --pretty=format:%s $SHA)
-          PR_ID=$(echo $MESSAGE | awk -F'#' '{print $2}' | awk -F')' '{print $1}' )
-          USERNAME=$(git log -n 1 --pretty=format:%ae $SHA | awk -F'@' '{print $1}')
+          USERNAME=$(git log -n 1 --pretty=format:%ae "$SHA" | awk -F'@' '{print $1}')
 
-          PR=$(curl -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/$REPOSITORY/pulls/$PR_ID)
-          PR_TITLE=$(echo -E $PR | jq '.title' | tr -d '"')
+          PR=$(
+            gh api --paginate \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/$REPOSITORY/commits/$SHA/pulls?per_page=100" |
+              jq -scer --arg sha "$SHA" '
+                [.[][] | select(.merged_at != null and .merge_commit_sha == $sha)] as $pull_requests
+                | if ($pull_requests | length) == 1 then
+                    $pull_requests[0]
+                  else
+                    error(
+                      "expected exactly one merged pull request for commit \($sha), found \($pull_requests | length)"
+                    )
+                  end
+              '
+          )
+          PR_ID=$(jq -er '.number' <<< "$PR")
+          PR_TITLE=$(jq -er '.title' <<< "$PR")
+          LABELS=$(jq -er '[.labels[].name] | join(",")' <<< "$PR")
+          AUTHOR=$(jq -er '.user.login' <<< "$PR")
 
-          LABELS=$(echo -E $PR | jq '.labels | [.[].name] | join(",")' | tr -d '"')
-          AUTHOR=$(echo -E $PR | jq '.user.login' | tr -d '"')
+          TARGET_BRANCHES=$(grep -Eo "$TARGET_BRANCHES_PATTERN" <<< "$LABELS" || true)
 
-          TARGET_BRANCHES=$(echo "$LABELS" | egrep -o "$TARGET_BRANCHES_PATTERN")
-
-          if [[ $TARGET_BRANCHES == '' ]]; then
+          if [[ -z "$TARGET_BRANCHES" ]]; then
             echo Nothing to cherry-pick
             exit 0
           fi
 
-          echo $TARGET_BRANCHES | while read -r RELEASE_BRANCH ; do
-            TARGET_BRANCH_EXISTS_OK=$([[ "$(git ls-remote --heads origin refs/heads/$RELEASE_BRANCH)" != "" ]] && echo true || echo false)
+          while read -r RELEASE_BRANCH; do
+            TARGET_BRANCH_EXISTS_OK=$([[ "$(git ls-remote --heads origin "refs/heads/$RELEASE_BRANCH")" != "" ]] && echo true || echo false)
 
             if [[ "$TARGET_BRANCH_EXISTS_OK" == "false" ]]; then
-              echo Release branch does not yet exist, will not  cherry-pick
+              echo Release branch does not yet exist, will not cherry-pick
               continue
             fi
 
-            (
-              git fetch origin $RELEASE_BRANCH:$RELEASE_BRANCH
-              git switch --force-create cherry-pick-$PR_ID-$RELEASE_BRANCH $RELEASE_BRANCH
-              git cherry-pick -s $SHA
-              git push -u origin --force cherry-pick-$PR_ID-$RELEASE_BRANCH
-              git checkout ${CI_DEFAULT_BRANCH:-main}
-            )
-
-            CHERRYPICK_SUCCESSFUL=$?
-
-            if [[ $CHERRYPICK_SUCCESSFUL -eq 0 ]]; then
+            if (
+              git fetch origin "$RELEASE_BRANCH:$RELEASE_BRANCH" &&
+                git switch --force-create "cherry-pick-$PR_ID-$RELEASE_BRANCH" "$RELEASE_BRANCH" &&
+                git cherry-pick -s "$SHA" &&
+                git push -u origin --force "cherry-pick-$PR_ID-$RELEASE_BRANCH" &&
+                git checkout "${CI_DEFAULT_BRANCH:-main}"
+            ); then
               PR_URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
               MESSAGE="Hi @$AUTHOR 👋,
@@ -164,6 +168,9 @@ jobs:
               fi
 
             else
+              git cherry-pick --abort || true
+              git checkout "${CI_DEFAULT_BRANCH:-main}" || true
+
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
               MESSAGE="Hey <@$USERNAME>: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
@@ -188,7 +195,7 @@ jobs:
 
             fi
 
-          done
+          done <<< "$TARGET_BRANCHES"
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

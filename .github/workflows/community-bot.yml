@@ -14,4 +14,3 @@ jobs:
       app-id: ${{ vars.BOT_ID }}
     secrets:
       BOT_KEY: ${{ secrets.BOT_KEY }}
-      GH_TOKEN: ${{ secrets.PAT }}

@@ -6,12 +6,37 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+import sys
+import types
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
-import mbridge_orchestrator as orchestrator
-from mbridge_orchestrator import Config, Credential
+
+def load_embedded_orchestrator() -> types.ModuleType:
+    workflow = Path(__file__).parents[1] / "workflows/_mbridge_orchestrator.yml"
+    lines = workflow.read_text(encoding="utf-8").splitlines()
+    start = lines.index("          python3 <<'MBRIDGE_ORCHESTRATOR'") + 1
+    end = lines.index("          MBRIDGE_ORCHESTRATOR", start)
+    embedded_lines = lines[start:end]
+    if not embedded_lines or any(
+        line and not line.startswith("          ") for line in embedded_lines
+    ):
+        raise RuntimeError("Embedded orchestrator indentation is invalid")
+    source = "\n".join(line[10:] if line else "" for line in embedded_lines) + "\n"
+    module = types.ModuleType("mbridge_orchestrator")
+    module.__file__ = f"{workflow}:embedded-python"
+    sys.modules[module.__name__] = module
+    exec(  # noqa: S102 - execute the reviewed workflow payload under test
+        compile(source, module.__file__, "exec"), module.__dict__
+    )
+    return module
+
+
+orchestrator = load_embedded_orchestrator()
+Config = orchestrator.Config
+Credential = orchestrator.Credential
 
 
 class FakeClock:

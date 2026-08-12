@@ -6,8 +6,6 @@ name: Test MBridge orchestrator
 on:
   pull_request:
     paths:
-      - .github/scripts/generate_mbridge_workflow.py
-      - .github/scripts/mbridge_orchestrator.py
       - .github/scripts/test_mbridge_orchestrator.py
       - .github/workflows/_mbridge_orchestrator.yml
       - .github/workflows/test-mbridge-orchestrator.yml
@@ -15,8 +13,6 @@ on:
     branches:
       - main
     paths:
-      - .github/scripts/generate_mbridge_workflow.py
-      - .github/scripts/mbridge_orchestrator.py
       - .github/scripts/test_mbridge_orchestrator.py
       - .github/workflows/_mbridge_orchestrator.yml
       - .github/workflows/test-mbridge-orchestrator.yml
@@ -39,10 +35,7 @@ jobs:
           command -v openssl
 
       - name: Test orchestrator
-        run: PYTHONPATH=.github/scripts python3 .github/scripts/test_mbridge_orchestrator.py -v
-
-      - name: Check generated reusable workflow
-        run: python3 .github/scripts/generate_mbridge_workflow.py --check
+        run: python3 .github/scripts/test_mbridge_orchestrator.py -v
 
       - name: Validate workflow trust boundary
         env:
@@ -53,4 +46,5 @@ jobs:
           ! grep -F 'actions/create-github-app-token' "$WORKFLOW"
           ! grep -F 'actions/github-script' "$WORKFLOW"
           ! grep -F 'node <<' "$WORKFLOW"
+          ! find .github/scripts -maxdepth 1 -type f -name '*mbridge*' ! -name 'test_mbridge_orchestrator.py' | grep -q .
           ! grep -F 'actions/checkout' "$WORKFLOW"

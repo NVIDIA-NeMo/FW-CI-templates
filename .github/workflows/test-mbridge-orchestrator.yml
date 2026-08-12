@@ -1,0 +1,50 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Test MBridge orchestrator
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/generate_mbridge_workflow.js
+      - .github/scripts/mbridge_orchestrator.js
+      - .github/scripts/test_mbridge_orchestrator.js
+      - .github/workflows/_mbridge_orchestrator.yml
+      - .github/workflows/test-mbridge-orchestrator.yml
+  push:
+    branches:
+      - main
+    paths:
+      - .github/scripts/generate_mbridge_workflow.js
+      - .github/scripts/mbridge_orchestrator.js
+      - .github/scripts/test_mbridge_orchestrator.js
+      - .github/workflows/_mbridge_orchestrator.yml
+      - .github/workflows/test-mbridge-orchestrator.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Test orchestrator
+        run: node --test .github/scripts/test_mbridge_orchestrator.js
+
+      - name: Check generated reusable workflow
+        run: node .github/scripts/generate_mbridge_workflow.js --check
+
+      - name: Validate workflow trust boundary
+        env:
+          WORKFLOW: .github/workflows/_mbridge_orchestrator.yml
+        run: |
+          grep -F 'permissions: {}' "$WORKFLOW"
+          ! grep -F 'github.token' "$WORKFLOW"
+          ! grep -F 'actions/create-github-app-token' "$WORKFLOW"
+          ! grep -F 'actions/github-script' "$WORKFLOW"
+          ! grep -F 'actions/checkout' "$WORKFLOW"

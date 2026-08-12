@@ -12,7 +12,7 @@ const orchestrator = require("./mbridge_orchestrator.js");
 function config(overrides = {}) {
   return {
     appId: "123",
-    privateKey: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+    privateKey: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----", // pragma: allowlist secret
     mcoreRef: "a".repeat(40),
     testSuite: "L1",
     pollTimeoutSeconds: 12600,

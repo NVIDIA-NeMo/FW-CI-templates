@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.10](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.9...v1.8.10) (2026-08-13)
+
+
+### Bug Fixes
+
+* abort when SSO list download fails ([#547](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/547)) ([87d7dd1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/87d7dd1b638a0c47058a195e0e60ee79df1afa6b))
+* resolve cherry-pick pull requests from merge commits ([#544](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/544)) ([6e5017e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6e5017e435b6904acfef8ae38c90c9a431505d3b))
+
 ## [1.8.9](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.8...v1.8.9) (2026-08-07)
 
 

@@ -46,6 +46,14 @@ on:
         required: false
         type: string
         default: fern
+      docs-version:
+        description: |
+          Release version to stamp into the `slug: latest` Fern picker entry
+          before publishing. The surrounding display-name text is preserved.
+          Leave empty to publish docs.yml unchanged.
+        required: false
+        type: string
+        default: ''
       container-image:
         description: |
           Optional container image to run the job in, such as
@@ -66,6 +74,54 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Stamp release version in Fern picker
+        if: inputs.docs-version != ''
+        env:
+          DOCS_VERSION: ${{ inputs.docs-version }}
+          DOCS_YML: ${{ inputs.fern-directory }}/docs.yml
+        run: |
+          VERSION="${DOCS_VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::Invalid Fern docs version: '$DOCS_VERSION'"
+            exit 1
+          fi
+
+          if [[ ! -f "$DOCS_YML" ]]; then
+            echo "::error::Fern docs configuration not found: $DOCS_YML"
+            exit 1
+          fi
+
+          latest_count=$(yq '[.versions[] | select(.slug == "latest")] | length' "$DOCS_YML")
+          if [[ "$latest_count" != "1" ]]; then
+            echo "::error::$DOCS_YML must contain exactly one version with slug 'latest'"
+            exit 1
+          fi
+
+          current_display=$(yq -r '.versions[] | select(.slug == "latest") | .display-name' "$DOCS_YML")
+          if [[ "$current_display" =~ v?[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)? ]]; then
+            current_version="${BASH_REMATCH[0]}"
+            if [[ "$current_version" == v* ]]; then
+              stamped_version="v$VERSION"
+            else
+              stamped_version="$VERSION"
+            fi
+            latest_display="${current_display/$current_version/$stamped_version}"
+          else
+            latest_display="$current_display · $VERSION"
+          fi
+
+          export latest_display
+          yq -i \
+            '(.versions[] | select(.slug == "latest") | .display-name) = strenv(latest_display)' \
+            "$DOCS_YML"
+
+          actual_display=$(yq -r '.versions[] | select(.slug == "latest") | .display-name' "$DOCS_YML")
+          if [[ "$actual_display" != "$latest_display" ]]; then
+            echo "::error::Failed to stamp release version in $DOCS_YML"
+            exit 1
+          fi
+          echo "Fern latest picker: $current_display -> $actual_display"
 
       - name: Setup Node.js
         if: ${{ inputs.container-image == '' }}

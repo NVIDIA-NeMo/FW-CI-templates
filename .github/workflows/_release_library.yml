@@ -224,6 +224,16 @@ on:
         description: Space-separated `--no-extra <name>` flags to skip optional extras when syncing all groups (only used when docs-sync-all is true).
         type: string
         default: ""
+      prepare-release-docs:
+        required: false
+        description: Create a release commit that updates docs/conf.py, docs/project.json, and docs/versions1.json before the next-version bump.
+        type: boolean
+        default: false
+      docs-version-directory:
+        required: false
+        description: Repo-relative directory containing release docs metadata files.
+        type: string
+        default: "docs"
       container-options:
         required: false
         description: Options to pass to the container
@@ -293,6 +303,11 @@ jobs:
             exit 1
           fi
 
+          if [[ "${{ inputs.prepare-release-docs }}" == "true" && "${{ inputs.skip-version-bump }}" == "true" ]]; then
+            echo "::error::prepare-release-docs requires the version-bump job so it can create and publish the prepared release commit"
+            exit 1
+          fi
+
   bump:
     needs: validate-inputs
     uses: ./.github/workflows/_release_bump.yml
@@ -311,6 +326,10 @@ jobs:
       has-src-dir: ${{ inputs.has-src-dir }}
       packaging: ${{ inputs.packaging }}
       root-dir: ${{ inputs.root-dir }}
+      prepare-release-docs: ${{ inputs.prepare-release-docs && inputs.publish-docs }}
+      docs-version-directory: ${{ inputs.docs-version-directory }}
+      docs-target-path: ${{ inputs.docs-target-path }}
+      publish-as-latest: ${{ inputs.publish-as-latest }}
     secrets: inherit
 
   build-test-publish-wheel:
@@ -327,7 +346,7 @@ jobs:
       suppress-failure-notify: ${{ inputs.validate-only }}
       python-package: ${{ inputs.python-package }}
       python-version: ${{ inputs.python-version }}
-      ref: ${{ inputs.release-ref }}
+      ref: ${{ needs.bump.outputs.prepared-release-ref || inputs.release-ref }}
       packaging: ${{ inputs.packaging }}
       has-src-dir: ${{ inputs.has-src-dir }}
       skip-test-wheel: ${{ inputs.skip-test-wheel }}
@@ -351,7 +370,7 @@ jobs:
       )
       && !cancelled()
     with:
-      release-ref: ${{ inputs.release-ref }}
+      release-ref: ${{ needs.bump.outputs.prepared-release-ref || inputs.release-ref }}
       release-version: ${{ needs.bump.outputs.release-version || needs.build-test-publish-wheel.outputs.version }}
       library-name: ${{ inputs.library-name }}
       pypi-name: ${{ needs.build-test-publish-wheel.outputs.pypi-name }}

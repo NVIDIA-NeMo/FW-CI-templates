@@ -95,6 +95,26 @@ on:
         required: false
         default: "./"
         description: Sub-directory containing the package source(s).
+      prepare-release-docs:
+        type: boolean
+        required: false
+        default: false
+        description: Prepare the standard Sphinx release metadata before creating the next-version bump commit.
+      docs-version-directory:
+        type: string
+        required: false
+        default: "docs"
+        description: Repo-relative directory containing conf.py, project.json, and versions1.json.
+      docs-target-path:
+        type: string
+        required: false
+        default: ""
+        description: Public docs.nvidia.com path used to construct the version-picker URL.
+      publish-as-latest:
+        type: boolean
+        required: false
+        default: true
+        description: Mark the prepared stable release as the preferred docs version.
     secrets:
       BOT_KEY:
         required: true
@@ -102,6 +122,9 @@ on:
       release-version:
         description: The version being released (current version of the first bump target, before the bump).
         value: ${{ jobs.bump-next-version.outputs.release-version }}
+      prepared-release-ref:
+        description: Commit SHA containing release docs metadata but not the next-version package bump.
+        value: ${{ jobs.bump-next-version.outputs.prepared-release-ref }}
 
 permissions:
   contents: write
@@ -152,6 +175,7 @@ jobs:
     outputs:
       release-version: ${{ steps.bump.outputs.release-version }}
       next-version: ${{ steps.bump.outputs.next-version }}
+      prepared-release-ref: ${{ steps.prepared-release-ref.outputs.value }}
     env:
       IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
@@ -249,6 +273,100 @@ jobs:
           echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
           printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
 
+      - name: Prepare release docs metadata
+        if: inputs.prepare-release-docs == true
+        env:
+          DOCS_DIR: ${{ inputs.docs-version-directory }}
+          DOCS_TARGET_PATH: ${{ inputs.docs-target-path }}
+          PUBLISH_AS_LATEST: ${{ inputs.publish-as-latest }}
+          VERSION: ${{ steps.bump.outputs.release-version }}
+        run: |
+          cd ${{ github.run_id }}
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::Invalid release version for docs metadata: '$VERSION'"
+            exit 1
+          fi
+
+          DOCS_DIR="${DOCS_DIR%/}"
+          DOCS_TARGET_PATH="${DOCS_TARGET_PATH#/}"
+          DOCS_TARGET_PATH="${DOCS_TARGET_PATH%/}"
+          if [[ -z "$DOCS_DIR" || -z "$DOCS_TARGET_PATH" ]]; then
+            echo "::error::docs-version-directory and docs-target-path are required when prepare-release-docs is enabled"
+            exit 1
+          fi
+
+          CONF_FILE="$DOCS_DIR/conf.py"
+          PROJECT_FILE="$DOCS_DIR/project.json"
+          PICKER_FILE="$DOCS_DIR/versions1.json"
+          for file in "$CONF_FILE" "$PROJECT_FILE" "$PICKER_FILE"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Required release docs metadata file not found: $file"
+              exit 1
+            fi
+          done
+
+          if ! grep -qE "^release = [\"'].*[\"']$" "$CONF_FILE"; then
+            echo "::error::$CONF_FILE must contain a top-level quoted 'release = ...' assignment"
+            exit 1
+          fi
+          sed -i -E "s/^release = .*/release = \"${VERSION}\"/" "$CONF_FILE"
+
+          tmp_project=$(mktemp)
+          jq --arg version "$VERSION" '.version = $version' "$PROJECT_FILE" > "$tmp_project"
+          mv "$tmp_project" "$PROJECT_FILE"
+
+          public_url="https://docs.nvidia.com/${DOCS_TARGET_PATH}/${VERSION}/"
+          tmp_picker=$(mktemp)
+          jq \
+            --arg version "$VERSION" \
+            --arg url "$public_url" \
+            --argjson latest "$PUBLISH_AS_LATEST" \
+            '
+              def clear_latest:
+                del(.preferred)
+                | if ((.name? | type) == "string")
+                  then .name |= sub(" \\(latest\\)$"; "")
+                  else .
+                  end;
+
+              map(
+                if .version == $version then empty
+                elif $latest and (.preferred? == true) then clear_latest
+                else .
+                end
+              ) as $remaining
+              | ({
+                  name: ($version + (if $latest then " (latest)" else "" end)),
+                  version: $version,
+                  url: $url
+                } + (if $latest then {preferred: true} else {} end)) as $release
+              | if (($remaining | length) > 0 and $remaining[0].version == "nightly")
+                then [$remaining[0], $release] + $remaining[1:]
+                else [$release] + $remaining
+                end
+            ' "$PICKER_FILE" > "$tmp_picker"
+          mv "$tmp_picker" "$PICKER_FILE"
+
+          if [[ "$(jq -r '.version' "$PROJECT_FILE")" != "$VERSION" ]]; then
+            echo "::error::$PROJECT_FILE does not identify release $VERSION"
+            exit 1
+          fi
+          if [[ "$(jq --arg version "$VERSION" '[.[] | select(.version == $version)] | length' "$PICKER_FILE")" != "1" ]]; then
+            echo "::error::$PICKER_FILE must contain release $VERSION exactly once"
+            exit 1
+          fi
+          if [[ "$PUBLISH_AS_LATEST" == "true" ]]; then
+            preferred_version=$(jq -r '[.[] | select(.preferred == true) | .version] | if length == 1 then .[0] else "" end' "$PICKER_FILE")
+            if [[ "$preferred_version" != "$VERSION" ]]; then
+              echo "::error::$PICKER_FILE must contain exactly one preferred entry for $VERSION"
+              exit 1
+            fi
+          fi
+
+          printf '%s\n' "$CONF_FILE" "$PROJECT_FILE" "$PICKER_FILE" > /tmp/prepared-docs-files.txt
+          git diff --check -- "$CONF_FILE" "$PROJECT_FILE" "$PICKER_FILE"
+
       - name: Record computed versions
         if: env.IS_INERT == 'true'
         run: |
@@ -257,6 +375,9 @@ jobs:
             echo
             echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
             echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
+            if [[ "${{ inputs.prepare-release-docs }}" == "true" ]]; then
+              echo "- release docs metadata: prepared and validated locally"
+            fi
             echo
             echo "IS_INERT=true → preconditions are asserted (App permissions +"
             echo "source rule \`isAdminEnforced=false\`). No commit is pushed, no PR"
@@ -363,18 +484,34 @@ jobs:
           echo "VERSION_BUMP_BRANCH=$BRANCH" | tee -a $GITHUB_ENV
 
       - name: Create and push deployment branch
+        id: deployment-branch
         if: env.IS_INERT == 'false'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           TMP_BRANCH="deploy-release/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
+
+          # Commit release docs metadata separately so the release tag can point
+          # here while the target branch continues to the next package version.
+          if [[ -s /tmp/prepared-docs-files.txt ]]; then
+            while IFS= read -r f; do
+              [[ -n "$f" ]] && git add -- "$f"
+            done < /tmp/prepared-docs-files.txt
+            if ! git diff --cached --quiet; then
+              git commit -s -m "docs(release): prepare ${{ steps.bump.outputs.release-version }}"
+            fi
+          fi
+
+          PREPARED_RELEASE_REF=$(git rev-parse HEAD)
+          echo "prepared-release-ref=$PREPARED_RELEASE_REF" | tee -a "$GITHUB_OUTPUT"
+
+          cd ${{ inputs.root-dir }}
           while IFS= read -r f; do
             [[ -n "$f" ]] && git add "$f"
           done < /tmp/bumped-files.txt
@@ -390,6 +527,17 @@ jobs:
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
           PR_NUMBER="${PR_URL##*/}"
           echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
+
+      - name: Resolve prepared release ref
+        id: prepared-release-ref
+        env:
+          PREPARED_RELEASE_REF: ${{ steps.deployment-branch.outputs.prepared-release-ref }}
+          RELEASE_REF: ${{ inputs.release-ref }}
+        run: |
+          if [[ -z "$PREPARED_RELEASE_REF" ]]; then
+            PREPARED_RELEASE_REF="$RELEASE_REF"
+          fi
+          echo "value=$PREPARED_RELEASE_REF" | tee -a "$GITHUB_OUTPUT"
 
       - name: Merge deploy-release branch into target
         if: env.IS_INERT == 'false'

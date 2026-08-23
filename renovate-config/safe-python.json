@@ -1,0 +1,183 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Conservative Python tooling updates for NeMo repositories",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["pep621", "custom.regex"],
+  "constraints": {
+    "uv": "0.11.8"
+  },
+  "dependencyDashboard": true,
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 3,
+  "automerge": false,
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Detect simple versioned requirements in root tool.uv.override-dependencies",
+      "managerFilePatterns": ["/^pyproject\\.toml$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "(?:^|\\r?\\n)\\[tool\\.uv\\][^\\r\\n]*(?:\\r?\\n(?:[^\\[\\r\\n][^\\r\\n]*)?)*",
+        "override-dependencies\\s*=\\s*\\[(?:\\s|#[^\\r\\n]*(?:\\r?\\n|$)|\"[^\"\\r\\n]*\"\\s*,?)*\\]",
+        "\"(?<depName>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\\s*(?:==|>=)\\s*(?<currentValue>[0-9][0-9A-Za-z.!+_-]*)\""
+      ],
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+      "depTypeTemplate": "tool.uv.override-dependencies"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Default deny for Python dependencies",
+      "matchManagers": ["pep621", "custom.regex"],
+      "enabled": false
+    },
+    {
+      "description": "Use targeted uv lock updates for the low-risk allowlist",
+      "matchManagers": ["pep621"],
+      "matchDatasources": ["pypi"],
+      "matchDepTypes": ["dependency-groups"],
+      "matchFileNames": ["pyproject.toml"],
+      "matchPackageNames": [
+        "ruff",
+        "black",
+        "isort",
+        "flake8",
+        "pylint",
+        "mypy",
+        "pre-commit",
+        "pytest",
+        "pytest-*",
+        "coverage",
+        "mock",
+        "sphinx",
+        "sphinx-*",
+        "myst-parser",
+        "nvidia-sphinx-theme"
+      ],
+      "rangeStrategy": "update-lockfile"
+    },
+    {
+      "description": "Allow patch and minor updates for low-risk Python tooling",
+      "matchManagers": ["pep621"],
+      "matchDatasources": ["pypi"],
+      "matchDepTypes": ["dependency-groups"],
+      "matchFileNames": ["pyproject.toml"],
+      "matchPackageNames": [
+        "ruff",
+        "black",
+        "isort",
+        "flake8",
+        "pylint",
+        "mypy",
+        "pre-commit",
+        "pytest",
+        "pytest-*",
+        "coverage",
+        "mock",
+        "sphinx",
+        "sphinx-*",
+        "myst-parser",
+        "nvidia-sphinx-theme"
+      ],
+      "matchUpdateTypes": ["patch", "minor"],
+      "enabled": true
+    },
+    {
+      "description": "Require Dependency Dashboard approval for stable major updates",
+      "matchManagers": ["pep621"],
+      "matchDatasources": ["pypi"],
+      "matchDepTypes": ["dependency-groups"],
+      "matchFileNames": ["pyproject.toml"],
+      "matchPackageNames": [
+        "ruff",
+        "black",
+        "isort",
+        "flake8",
+        "pylint",
+        "mypy",
+        "pre-commit",
+        "pytest",
+        "pytest-*",
+        "coverage",
+        "mock",
+        "sphinx",
+        "sphinx-*",
+        "myst-parser",
+        "nvidia-sphinx-theme"
+      ],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "enabled": true
+    },
+    {
+      "description": "Keep tool.uv.override-dependencies detection read-only",
+      "matchManagers": ["custom.regex"],
+      "enabled": false
+    },
+    {
+      "description": "Do not update Git or source-mapped Python dependencies",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["tool.uv.sources"],
+      "enabled": false
+    },
+    {
+      "description": "Do not update Python requirements",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    },
+    {
+      "description": "Allow only patch updates for pre-1.0 packages",
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    },
+    {
+      "description": "Do not update GPU and accelerator runtime packages",
+      "matchPackageNames": [
+        "apex",
+        "bitsandbytes",
+        "causal-conv1d",
+        "deep-gemm",
+        "fast-hadamard-transform",
+        "flash-attn",
+        "flash-attn-*",
+        "flashinfer*",
+        "flash-linear-attention",
+        "flash-mla",
+        "mamba-ssm",
+        "nvidia-cublas-*",
+        "nvidia-cuda-*",
+        "nvidia-cudnn-*",
+        "nvidia-cufft-*",
+        "nvidia-cufile-*",
+        "nvidia-curand-*",
+        "nvidia-cusolver-*",
+        "nvidia-cusparse-*",
+        "nvidia-cusparselt-*",
+        "nvidia-cutlass-*",
+        "nvidia-mathdx",
+        "nvidia-modelopt*",
+        "nvidia-nccl-*",
+        "nvidia-nvjitlink-*",
+        "nvidia-nvshmem-*",
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "torchao",
+        "torch-tensorrt",
+        "transformer-engine*",
+        "triton",
+        "xformers"
+      ],
+      "enabled": false
+    }
+  ]
+}

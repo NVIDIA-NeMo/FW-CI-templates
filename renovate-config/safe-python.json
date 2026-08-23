@@ -6,6 +6,9 @@
   "constraints": {
     "uv": "0.11.8"
   },
+  "ignorePaths": [
+    "**/.renovate-cache-bust-v1/**"
+  ],
   "dependencyDashboard": true,
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 3,

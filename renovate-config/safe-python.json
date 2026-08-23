@@ -61,7 +61,8 @@
         "myst-parser",
         "nvidia-sphinx-theme"
       ],
-      "rangeStrategy": "update-lockfile"
+      "rangeStrategy": "update-lockfile",
+      "enabled": true
     },
     {
       "description": "Allow patch and minor updates for low-risk Python tooling",

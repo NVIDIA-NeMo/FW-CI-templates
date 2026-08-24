@@ -92,6 +92,133 @@ class LinkedPullRequestTests(unittest.TestCase):
         add_label.assert_not_called()
 
 
+class HumanActivityTests(unittest.TestCase):
+    def test_activity_watermark_includes_bodyless_reviews_and_ignores_bots(self):
+        content = {
+            "__typename": "PullRequest",
+            "createdAt": "2026-08-20T10:00:00Z",
+            "comments": {
+                "nodes": [
+                    {
+                        "author": {"__typename": "User", "login": "maintainer"},
+                        "createdAt": "2026-08-21T10:00:00Z",
+                        "body": "/ok to test abc",
+                    },
+                    {
+                        "author": {"__typename": "Bot", "login": "ci-bot"},
+                        "createdAt": "2026-08-24T10:00:00Z",
+                        "body": "CI started",
+                    },
+                ]
+            },
+            "reviewThreads": {"nodes": []},
+            "reviews": {
+                "nodes": [
+                    {
+                        "author": {"__typename": "User", "login": "reviewer"},
+                        "submittedAt": "2026-08-22T10:00:00Z",
+                        "body": "",
+                        "state": "APPROVED",
+                    }
+                ]
+            },
+        }
+
+        self.assertEqual(
+            identify_follow_up_issues._latest_human_activity_date(content),
+            "2026-08-22T10:00:00Z",
+        )
+        self.assertEqual(
+            identify_follow_up_issues._collect_non_bot_activity(content),
+            [("maintainer", "2026-08-21T10:00:00Z", "/ok to test abc")],
+        )
+
+
+class ScheduledLabelRaceTests(unittest.TestCase):
+    def issue(self):
+        return {
+            "item_type": "PullRequest",
+            "issue_id": 3626,
+            "repo_name": "Automodel",
+            "classification": "waiting-on-maintainers",
+            "needs_attention": True,
+            "has_maintainers_label": False,
+            "has_waiting_on_customer_label": False,
+            "has_deprecated_label": False,
+            "target_branch": "main",
+            "is_draft": False,
+            "activity_watermark_date": "2026-08-22T06:48:45Z",
+        }
+
+    @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue")
+    @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
+    @mock.patch.object(
+        identify_follow_up_issues,
+        "fetch_latest_human_activity_date",
+        return_value="2026-08-24T16:14:08Z",
+    )
+    def test_newer_live_activity_suppresses_stale_add(
+        self, fetch_activity, ensure_label, add_label, remove_label
+    ):
+        identify_follow_up_issues.update_labels(
+            [self.issue()], "NVIDIA-NeMo", "token"
+        )
+
+        fetch_activity.assert_called_once_with(
+            "NVIDIA-NeMo", "Automodel", 3626, "token"
+        )
+        ensure_label.assert_not_called()
+        add_label.assert_not_called()
+        remove_label.assert_not_called()
+
+    @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue")
+    @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
+    @mock.patch.object(
+        identify_follow_up_issues,
+        "fetch_latest_human_activity_date",
+        return_value="2026-08-22T06:48:45Z",
+    )
+    def test_unchanged_live_activity_allows_add(
+        self, fetch_activity, ensure_label, add_label, remove_label
+    ):
+        identify_follow_up_issues.update_labels(
+            [self.issue()], "NVIDIA-NeMo", "token"
+        )
+
+        fetch_activity.assert_called_once()
+        ensure_label.assert_called_once()
+        add_label.assert_called_once_with(
+            "NVIDIA-NeMo",
+            "Automodel",
+            3626,
+            "waiting-on-maintainers",
+            "token",
+        )
+        remove_label.assert_not_called()
+
+    @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue")
+    @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
+    @mock.patch.object(
+        identify_follow_up_issues,
+        "fetch_latest_human_activity_date",
+        side_effect=RuntimeError("transient API failure"),
+    )
+    def test_failed_refresh_fails_closed(
+        self, fetch_activity, ensure_label, add_label, remove_label
+    ):
+        identify_follow_up_issues.update_labels(
+            [self.issue()], "NVIDIA-NeMo", "token"
+        )
+
+        fetch_activity.assert_called_once()
+        ensure_label.assert_not_called()
+        add_label.assert_not_called()
+        remove_label.assert_not_called()
+
+
 class FollowUpDecisionTests(unittest.TestCase):
     NOW = datetime(2026, 8, 14, 12, tzinfo=timezone.utc)
     STALE = "2026-08-11T12:00:00Z"

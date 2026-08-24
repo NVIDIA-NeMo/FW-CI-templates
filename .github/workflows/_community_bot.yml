@@ -42,7 +42,7 @@ jobs:
       name: ${{ inputs.environment }}
       deployment: false
     env:
-      ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
+      ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number || github.event.pull_request.number }}
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
       REPO: ${{ github.repository }}
     steps:
@@ -75,14 +75,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          ref: ${{ github.event.repository.default_branch }}
           token: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
 
       - name: Check pre-conditions
         id: pre-flight
         env:
-          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association || github.event.pull_request.author_association }}
+          ACTOR_ASSOCIATION: ${{ github.event.comment.author_association || github.event.review.author_association }}
+          ACTOR_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type }}
           IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
-          ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
+          IS_FOLLOW_UP_EVENT: ${{ (github.event_name == 'issue_comment' && github.event.action == 'created') || (github.event_name == 'pull_request_review' && github.event.action == 'submitted') || (github.event_name == 'pull_request_review_comment' && github.event.action == 'created') }}
+          ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login || github.event.pull_request.user.login }}
           REPO_GITHUB_TOKEN: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
           NVIDIA_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA-NeMo' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
           NVIDIA_NEMO_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
@@ -99,20 +103,22 @@ jobs:
             exit 0
           fi
 
-          case "$AUTHOR_ASSOCIATION" in
-            OWNER|MEMBER|COLLABORATOR)
-              IS_ASSOCIATED=true
-              ;;
-            *)
-              IS_ASSOCIATED=false
-              ;;
-          esac
+          is_maintainer() {
+            local user="$1"
+            local association="$2"
 
-          if [[ "$ISSUE_AUTHOR" = "svcnemo-autobot" || "$IS_ASSOCIATED" = "true" ]]; then
-            IS_MAINTAINER=true
-          else
-            echo "Checking if $ISSUE_AUTHOR is a repo collaborator..."
-            API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
+            if [[ "$user" = "svcnemo-autobot" ]]; then
+              return 0
+            fi
+
+            case "$association" in
+              OWNER|MEMBER|COLLABORATOR)
+                return 0
+                ;;
+            esac
+
+            echo "Checking if $user is a repo collaborator..."
+            API_URL="https://api.github.com/repos/$REPO/collaborators/$user"
             REPO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -120,8 +126,8 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
-            echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA-NeMo..."
-            API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$ISSUE_AUTHOR"
+            echo "Checking if $user is an organization member of NVIDIA-NeMo..."
+            API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$user"
             ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error \
               --output /dev/null --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -129,8 +135,8 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
-            echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA..."
-            API_URL="https://api.github.com/orgs/NVIDIA/members/$ISSUE_AUTHOR"
+            echo "Checking if $user is an organization member of NVIDIA..."
+            API_URL="https://api.github.com/orgs/NVIDIA/members/$user"
             ORG_NVIDIA_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -141,13 +147,29 @@ jobs:
             if [[ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 \
               || "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 \
               || "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]]; then
-              IS_MAINTAINER=true
-            else
-              IS_MAINTAINER=false
+              return 0
             fi
+
+            return 1
+          }
+
+          if is_maintainer "$ISSUE_AUTHOR" "$AUTHOR_ASSOCIATION"; then
+            IS_MAINTAINER=true
+          else
+            IS_MAINTAINER=false
+          fi
+
+          if [[ "$ACTOR_TYPE" = "Bot" || "$USERNAME" = *"[bot]" ]]; then
+            IS_ACTOR_MAINTAINER=false
+          elif is_maintainer "$USERNAME" "$ACTOR_ASSOCIATION"; then
+            IS_ACTOR_MAINTAINER=true
+          else
+            IS_ACTOR_MAINTAINER=false
           fi
 
           echo "is_maintainer=$IS_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
+          echo "is_actor_maintainer=$IS_ACTOR_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
+          echo "is_follow_up_event=$IS_FOLLOW_UP_EVENT" | tee -a "$GITHUB_OUTPUT"
           echo "is_valid_event=$IS_VALID_EVENT" | tee -a "$GITHUB_OUTPUT"
           echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
 
@@ -221,9 +243,27 @@ jobs:
             echo "Label 'community-request' not present on issue #$ISSUE_NUMBER, skipping removal."
           fi
 
+      - name: Clear waiting-on-maintainers after maintainer activity
+        env:
+          GITHUB_TOKEN: ${{ github.event.pull_request && steps.repo-app-token.outputs.token || github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
+        if: |
+          (
+            steps.pre-flight.outputs.is_actor_maintainer == 'true'
+            && steps.pre-flight.outputs.is_follow_up_event == 'true'
+          )
+        run: |
+          LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels -q '.labels[].name')
+          if grep -q "^waiting-on-maintainers$" <<< "$LABELS"; then
+            gh issue edit "$ISSUE_NUMBER" --remove-label "waiting-on-maintainers"
+          else
+            echo "Label 'waiting-on-maintainers' not present on issue #$ISSUE_NUMBER, skipping removal."
+          fi
+
       - name: Log action taken
         run: |
           echo "User: ${{ steps.pre-flight.outputs.username }}"
           echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
+          echo "Is actor maintainer: ${{ steps.pre-flight.outputs.is_actor_maintainer }}"
+          echo "Is follow-up event: ${{ steps.pre-flight.outputs.is_follow_up_event }}"
           echo "Event: ${{ github.event_name }}"
           echo "Issue number: $ISSUE_NUMBER"

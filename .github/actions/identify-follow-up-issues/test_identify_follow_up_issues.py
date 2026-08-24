@@ -93,7 +93,7 @@ class LinkedPullRequestTests(unittest.TestCase):
 
 
 class HumanActivityTests(unittest.TestCase):
-    def test_activity_watermark_includes_bodyless_reviews_and_ignores_bots(self):
+    def test_activity_watermark_ignores_bots_and_service_accounts(self):
         content = {
             "__typename": "PullRequest",
             "createdAt": "2026-08-20T10:00:00Z",
@@ -108,6 +108,14 @@ class HumanActivityTests(unittest.TestCase):
                         "author": {"__typename": "Bot", "login": "ci-bot"},
                         "createdAt": "2026-08-24T10:00:00Z",
                         "body": "CI started",
+                    },
+                    {
+                        "author": {
+                            "__typename": "User",
+                            "login": "svcnemo-autobot",
+                        },
+                        "createdAt": "2026-08-23T10:00:00Z",
+                        "body": "Automated service-account update",
                     },
                 ]
             },
@@ -132,6 +140,16 @@ class HumanActivityTests(unittest.TestCase):
             identify_follow_up_issues._collect_non_bot_activity(content),
             [("maintainer", "2026-08-21T10:00:00Z", "/ok to test abc")],
         )
+
+
+class CommunityBotWorkflowTests(unittest.TestCase):
+    def test_service_account_actor_is_rejected_before_maintainer_check(self):
+        workflow_path = MODULE_PATH.parents[2] / "workflows" / "_community_bot.yml"
+        workflow = workflow_path.read_text()
+
+        self.assertIn('if [[ "$user" = "svcnemo-autobot" ]]; then', workflow)
+        self.assertIn('|| "$user" = "svcnemo-autobot" ]]', workflow)
+        self.assertIn('if is_bot_actor "$USERNAME" "$ACTOR_TYPE"; then', workflow)
 
 
 class ScheduledLabelRaceTests(unittest.TestCase):

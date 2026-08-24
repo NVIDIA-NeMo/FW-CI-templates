@@ -48,6 +48,7 @@ WAITING_ON_CUSTOMER_DESCRIPTION = "Waiting on the original author to respond"
 APPROVED_LABEL = "Approved"
 
 SKIPPED_REPOS = {"Megatron-Bridge"}
+SERVICE_ACCOUNT_LOGINS = {"svcnemo-autobot"}
 
 CLASSIFICATION_SYSTEM_PROMPT = """\
 You are classifying GitHub issues and pull requests. Based on the conversation \
@@ -194,6 +195,14 @@ def get_repo_org(repo: str, default_org: str) -> str:
     return repo_org_overrides.get(repo, default_org)
 
 
+def _is_bot_account(author: dict) -> bool:
+    """Return whether a GitHub author is a bot or known service account."""
+    return (
+        author.get("__typename", "") == "Bot"
+        or author.get("login", "") in SERVICE_ACCOUNT_LOGINS
+    )
+
+
 def _collect_non_bot_activity(
     content: dict, *, include_bodyless_reviews: bool = False
 ) -> list[tuple[str, str, str]]:
@@ -205,7 +214,7 @@ def _collect_non_bot_activity(
         activity.append(
             (
                 commenter_obj.get("login", ""),
-                commenter_obj.get("__typename", "") == "Bot",
+                _is_bot_account(commenter_obj),
                 comment.get("createdAt", ""),
                 comment.get("body", ""),
             )
@@ -218,7 +227,7 @@ def _collect_non_bot_activity(
                 activity.append(
                     (
                         commenter_obj.get("login", ""),
-                        commenter_obj.get("__typename", "") == "Bot",
+                        _is_bot_account(commenter_obj),
                         comment.get("createdAt", ""),
                         comment.get("body", ""),
                     )
@@ -234,7 +243,7 @@ def _collect_non_bot_activity(
             activity.append(
                 (
                     reviewer_obj.get("login", ""),
-                    reviewer_obj.get("__typename", "") == "Bot",
+                    _is_bot_account(reviewer_obj),
                     review.get("submittedAt", ""),
                     prefix + review_body,
                 )
@@ -732,8 +741,7 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             # Get author info
             author_obj = content.get("author", {}) or {}
             author = author_obj.get("login", "")
-            author_type = author_obj.get("__typename", "")
-            author_is_bot = author_type == "Bot"
+            author_is_bot = _is_bot_account(author_obj)
             created_at = content.get("createdAt", "")
 
             # Skip items authored by bots
@@ -769,10 +777,9 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 for review in content.get("reviews", {}).get("nodes", []):
                     reviewer_obj = review.get("author", {}) or {}
                     reviewer_login = reviewer_obj.get("login", "")
-                    reviewer_type = reviewer_obj.get("__typename", "")
                     submitted = review.get("submittedAt", "")
                     state = review.get("state", "")
-                    if not reviewer_login or not state or reviewer_type == "Bot":
+                    if not reviewer_login or not state or _is_bot_account(reviewer_obj):
                         continue
                     prev = reviewer_latest.get(reviewer_login)
                     if prev is None or submitted > prev[1]:

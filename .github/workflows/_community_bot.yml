@@ -153,13 +153,22 @@ jobs:
             return 1
           }
 
+          is_bot_actor() {
+            local user="$1"
+            local actor_type="$2"
+
+            [[ "$actor_type" = "Bot" \
+              || "$user" = *"[bot]" \
+              || "$user" = "svcnemo-autobot" ]]
+          }
+
           if is_maintainer "$ISSUE_AUTHOR" "$AUTHOR_ASSOCIATION"; then
             IS_MAINTAINER=true
           else
             IS_MAINTAINER=false
           fi
 
-          if [[ "$ACTOR_TYPE" = "Bot" || "$USERNAME" = *"[bot]" ]]; then
+          if is_bot_actor "$USERNAME" "$ACTOR_TYPE"; then
             IS_ACTOR_MAINTAINER=false
           elif is_maintainer "$USERNAME" "$ACTOR_ASSOCIATION"; then
             IS_ACTOR_MAINTAINER=true

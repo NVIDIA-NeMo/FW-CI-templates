@@ -48,6 +48,9 @@ WAITING_ON_CUSTOMER_DESCRIPTION = "Waiting on the original author to respond"
 APPROVED_LABEL = "Approved"
 
 SKIPPED_REPOS = {"Megatron-Bridge"}
+# Service accounts are regular `User` accounts, so the `Bot` __typename does not
+# identify them. Keep in sync with SERVICE_ACCOUNT_LOGINS in
+# .github/workflows/_community_bot.yml.
 SERVICE_ACCOUNT_LOGINS = {"svcnemo-autobot"}
 
 CLASSIFICATION_SYSTEM_PROMPT = """\
@@ -257,22 +260,30 @@ def _collect_non_bot_activity(
     ]
 
 
+def _latest_human_activity(content: dict) -> tuple[str, str]:
+    """Return the newest human activity as (date, login), including bodyless reviews."""
+    newest_date = content.get("createdAt", "")
+    newest_login = (content.get("author") or {}).get("login", "")
+
+    for login, date, _ in _collect_non_bot_activity(
+        content, include_bodyless_reviews=True
+    ):
+        if date > newest_date:
+            newest_date = date
+            newest_login = login
+
+    return newest_date, newest_login
+
+
 def _latest_human_activity_date(content: dict) -> str:
     """Return the latest human activity watermark, including bodyless reviews."""
-    dates = [content.get("createdAt", "")]
-    dates.extend(
-        date
-        for _, date, _ in _collect_non_bot_activity(
-            content, include_bodyless_reviews=True
-        )
-    )
-    return max(date for date in dates if date)
+    return _latest_human_activity(content)[0]
 
 
-def fetch_latest_human_activity_date(
+def fetch_latest_human_activity(
     org: str, repo: str, issue_number: int, token: str
-) -> str:
-    """Fetch the current human-activity watermark for an issue or pull request."""
+) -> tuple[str, str]:
+    """Fetch the live human-activity watermark as (date, login)."""
     query = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
@@ -316,11 +327,11 @@ def fetch_latest_human_activity_date(
     )
     if not content:
         raise RuntimeError(f"Could not refresh {org}/{repo}#{issue_number}")
-    return _latest_human_activity_date(content)
+    return _latest_human_activity(content)
 
 
 def _scheduled_add_is_current(issue: dict, org: str, token: str) -> bool:
-    """Reject a scheduled label add when human activity changed after its snapshot."""
+    """Reject a scheduled label add when someone new responded after its snapshot."""
     repo = issue["repo_name"]
     repo_org = get_repo_org(repo, org)
     issue_number = issue["issue_id"]
@@ -329,9 +340,14 @@ def _scheduled_add_is_current(issue: dict, org: str, token: str) -> bool:
         or issue.get("last_comment_date")
         or issue.get("issue_created_date")
     )
+    snapshot_login = (
+        issue.get("activity_watermark_login")
+        or issue.get("last_commenter")
+        or issue.get("issue_author")
+    )
 
     try:
-        live_date = fetch_latest_human_activity_date(
+        live_date, live_login = fetch_latest_human_activity(
             repo_org, repo, issue_number, token
         )
     except Exception as error:
@@ -341,14 +357,28 @@ def _scheduled_add_is_current(issue: dict, org: str, token: str) -> bool:
         )
         return False
 
-    if not snapshot_date or live_date > snapshot_date:
+    if not snapshot_date:
         print(
-            f"  Skipping stale label add for {repo_org}/{repo}#{issue_number}: "
-            f"activity advanced from {snapshot_date or 'unknown'} to {live_date}"
+            f"  Skipping label add for {repo_org}/{repo}#{issue_number}: "
+            f"no activity watermark in the project snapshot"
         )
         return False
 
-    return True
+    if live_date <= snapshot_date:
+        return True
+
+    # Further activity from the same person only reinforces the snapshot: the item is
+    # still waiting on someone else. A reply from anyone else may have answered it, so
+    # leave that item to the next sweep rather than labelling it from stale state.
+    if live_login and live_login == snapshot_login:
+        return True
+
+    print(
+        f"  Skipping stale label add for {repo_org}/{repo}#{issue_number}: "
+        f"{live_login or 'someone'} responded at {live_date}, after the "
+        f"{snapshot_date} snapshot"
+    )
+    return False
 
 
 def classify_with_llm(client: openai.OpenAI, model: str, item: dict) -> str:
@@ -507,15 +537,14 @@ def update_labels(issues: list[dict], org: str, token: str):
 
         # Handle waiting-on-maintainers label
         if issue["needs_attention"] and not issue["has_maintainers_label"] and not excluded:
-            if not _scheduled_add_is_current(issue, org, token):
-                continue
-            if repo not in repos_with_maintainers_label:
-                if ensure_label_exists(repo_org, repo, WAITING_ON_MAINTAINERS_LABEL, WAITING_ON_MAINTAINERS_COLOR, WAITING_ON_MAINTAINERS_DESCRIPTION, token):
-                    repos_with_maintainers_label.add(repo)
-                else:
-                    continue
-            if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
-                maintainers_added += 1
+            if _scheduled_add_is_current(issue, org, token):
+                if repo not in repos_with_maintainers_label:
+                    if ensure_label_exists(repo_org, repo, WAITING_ON_MAINTAINERS_LABEL, WAITING_ON_MAINTAINERS_COLOR, WAITING_ON_MAINTAINERS_DESCRIPTION, token):
+                        repos_with_maintainers_label.add(repo)
+                    else:
+                        continue
+                if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
+                    maintainers_added += 1
         elif issue["has_maintainers_label"] and (not issue["needs_attention"] or excluded):
             if remove_label_from_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
                 maintainers_removed += 1
@@ -750,6 +779,7 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
 
             # Find recent non-bot comments (last 5, chronological order)
             non_bot_activity = _collect_non_bot_activity(content)
+            watermark_date, watermark_login = _latest_human_activity(content)
             last_commenter = author
             last_comment_date = created_at
 
@@ -810,7 +840,8 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 "issue_author": author,
                 "author_is_bot": author_is_bot,
                 "issue_created_date": created_at,
-                "activity_watermark_date": _latest_human_activity_date(content),
+                "activity_watermark_date": watermark_date,
+                "activity_watermark_login": watermark_login,
                 "last_commenter": last_commenter,
                 "last_comment_date": last_comment_date,
                 "recent_comments": recent_comments,

@@ -8,6 +8,15 @@ on:
         description: The environment to use for the workflow
         type: string
         default: "main"
+      review_environment:
+        required: false
+        description: >-
+          The environment to use for pull_request_review and
+          pull_request_review_comment runs. Those events run on
+          refs/pull/<number>/merge, which can never satisfy a deployment branch
+          policy, so this must name an environment without one.
+        type: string
+        default: "public"
       community_project_id:
         required: true
         description: The GitHub project ID to add community issues to
@@ -39,12 +48,23 @@ jobs:
       issues: write
       pull-requests: write
     environment:
-      name: ${{ inputs.environment }}
+      # Review events run on `refs/pull/<number>/merge`. An environment with a
+      # deployment branch policy rejects such a job before any step runs, so those
+      # events are routed through `review_environment` instead.
+      name: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request_review_comment') && inputs.review_environment || inputs.environment }}
       deployment: false
+    concurrency:
+      # A batch review fires one `pull_request_review_comment` per inline comment.
+      # Collapse those into a single run per pull request; every other event keeps a
+      # unique group so nothing that mutates project state is ever cancelled.
+      group: community-bot-${{ github.event_name == 'pull_request_review_comment' && format('review-comment-{0}', github.event.pull_request.number) || github.run_id }}
+      cancel-in-progress: true
     env:
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number || github.event.pull_request.number }}
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
       REPO: ${{ github.repository }}
+      # `gh issue view/edit` would otherwise depend on the checked-out git remote.
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Create repository GitHub App token
         if: inputs.app-id != ''
@@ -82,6 +102,9 @@ jobs:
         id: pre-flight
         env:
           AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association || github.event.pull_request.author_association }}
+          # Login, type and association all come from the same payload object;
+          # `github.actor` is only a fallback for events that carry neither.
+          ACTOR_LOGIN: ${{ github.event.comment.user.login || github.event.review.user.login || github.actor }}
           ACTOR_ASSOCIATION: ${{ github.event.comment.author_association || github.event.review.author_association }}
           ACTOR_TYPE: ${{ github.event.comment.user.type || github.event.review.user.type }}
           IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
@@ -98,16 +121,37 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "Manual test mode - treating as community user"
             echo "is_maintainer=false" | tee -a "$GITHUB_OUTPUT"
+            echo "is_actor_maintainer=false" | tee -a "$GITHUB_OUTPUT"
+            echo "is_follow_up_event=false" | tee -a "$GITHUB_OUTPUT"
             echo "is_valid_event=true" | tee -a "$GITHUB_OUTPUT"
             echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # Service accounts are regular `User` accounts, so neither the `Bot`
+          # account type nor the `[bot]` login suffix identifies them. Keep in sync
+          # with SERVICE_ACCOUNT_LOGINS in
+          # .github/actions/identify-follow-up-issues/identify_follow_up_issues.py.
+          SERVICE_ACCOUNT_LOGINS=("svcnemo-autobot")
+
+          is_service_account() {
+            local user="$1"
+            local known
+
+            for known in "${SERVICE_ACCOUNT_LOGINS[@]}"; do
+              if [[ "$user" = "$known" ]]; then
+                return 0
+              fi
+            done
+
+            return 1
+          }
+
           is_maintainer() {
             local user="$1"
             local association="$2"
 
-            if [[ "$user" = "svcnemo-autobot" ]]; then
+            if is_service_account "$user"; then
               return 0
             fi
 
@@ -116,6 +160,12 @@ jobs:
                 return 0
                 ;;
             esac
+
+            local API_URL
+            local REPO_MEMBERSHIP_RESPONSE
+            local ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE
+            local ORG_NVIDIA_MEMBERSHIP_RESPONSE
+            local status
 
             echo "Checking if $user is a repo collaborator..."
             API_URL="https://api.github.com/repos/$REPO/collaborators/$user"
@@ -144,6 +194,20 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "$API_URL")
 
+            # 204 means "is a member", 404 means "is not". Anything else (000 from a
+            # transport failure, 401/403 from a token problem, 5xx) silently reads as
+            # "not a maintainer", so make it visible in the run log.
+            for status in "$REPO_MEMBERSHIP_RESPONSE" \
+              "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" \
+              "$ORG_NVIDIA_MEMBERSHIP_RESPONSE"; do
+              case "$status" in
+                204|404) ;;
+                *)
+                  echo "::warning::Unexpected HTTP $status from a membership lookup for $user; treating as non-maintainer."
+                  ;;
+              esac
+            done
+
             if [[ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 \
               || "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 \
               || "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]]; then
@@ -157,9 +221,11 @@ jobs:
             local user="$1"
             local actor_type="$2"
 
-            [[ "$actor_type" = "Bot" \
-              || "$user" = *"[bot]" \
-              || "$user" = "svcnemo-autobot" ]]
+            if [[ "$actor_type" = "Bot" || "$user" = *"[bot]" ]]; then
+              return 0
+            fi
+
+            is_service_account "$user"
           }
 
           if is_maintainer "$ISSUE_AUTHOR" "$AUTHOR_ASSOCIATION"; then
@@ -168,15 +234,19 @@ jobs:
             IS_MAINTAINER=false
           fi
 
-          if is_bot_actor "$USERNAME" "$ACTOR_TYPE"; then
-            IS_ACTOR_MAINTAINER=false
-          elif is_maintainer "$USERNAME" "$ACTOR_ASSOCIATION"; then
-            IS_ACTOR_MAINTAINER=true
-          else
-            IS_ACTOR_MAINTAINER=false
+          # Classifying the actor costs up to three API calls, so only do it for the
+          # events that can clear the label.
+          IS_ACTOR_MAINTAINER=false
+          if [[ "$IS_FOLLOW_UP_EVENT" = "true" ]]; then
+            if is_bot_actor "$ACTOR_LOGIN" "$ACTOR_TYPE"; then
+              echo "Actor $ACTOR_LOGIN is a bot or service account; its activity does not clear maintainer labels."
+            elif is_maintainer "$ACTOR_LOGIN" "$ACTOR_ASSOCIATION"; then
+              IS_ACTOR_MAINTAINER=true
+            fi
           fi
 
           echo "is_maintainer=$IS_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
+          echo "actor=$ACTOR_LOGIN" | tee -a "$GITHUB_OUTPUT"
           echo "is_actor_maintainer=$IS_ACTOR_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
           echo "is_follow_up_event=$IS_FOLLOW_UP_EVENT" | tee -a "$GITHUB_OUTPUT"
           echo "is_valid_event=$IS_VALID_EVENT" | tee -a "$GITHUB_OUTPUT"
@@ -254,7 +324,8 @@ jobs:
 
       - name: Clear waiting-on-maintainers after maintainer activity
         env:
-          GITHUB_TOKEN: ${{ github.event.pull_request && steps.repo-app-token.outputs.token || github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
+          # Legacy Apps may only label pull requests; migrated Apps handle both issue types.
+          GITHUB_TOKEN: ${{ (github.event.pull_request || github.event.issue.pull_request) && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_actor_maintainer == 'true'
@@ -272,6 +343,7 @@ jobs:
         run: |
           echo "User: ${{ steps.pre-flight.outputs.username }}"
           echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
+          echo "Actor: ${{ steps.pre-flight.outputs.actor }}"
           echo "Is actor maintainer: ${{ steps.pre-flight.outputs.is_actor_maintainer }}"
           echo "Is follow-up event: ${{ steps.pre-flight.outputs.is_follow_up_event }}"
           echo "Event: ${{ github.event_name }}"

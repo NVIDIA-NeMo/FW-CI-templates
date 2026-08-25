@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import importlib.util
+import os
+import subprocess
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +23,7 @@ from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("identify_follow_up_issues.py")
+WORKFLOW_PATH = MODULE_PATH.parents[2] / "workflows" / "_community_bot.yml"
 SPEC = importlib.util.spec_from_file_location("identify_follow_up_issues", MODULE_PATH)
 identify_follow_up_issues = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(identify_follow_up_issues)
@@ -133,6 +137,10 @@ class HumanActivityTests(unittest.TestCase):
         }
 
         self.assertEqual(
+            identify_follow_up_issues._latest_human_activity(content),
+            ("2026-08-22T10:00:00Z", "reviewer"),
+        )
+        self.assertEqual(
             identify_follow_up_issues._latest_human_activity_date(content),
             "2026-08-22T10:00:00Z",
         )
@@ -141,20 +149,182 @@ class HumanActivityTests(unittest.TestCase):
             [("maintainer", "2026-08-21T10:00:00Z", "/ok to test abc")],
         )
 
+    def test_activity_watermark_falls_back_to_the_item_author(self):
+        content = {
+            "__typename": "Issue",
+            "createdAt": "2026-08-20T10:00:00Z",
+            "author": {"__typename": "User", "login": "reporter"},
+            "comments": {"nodes": []},
+        }
 
-class CommunityBotWorkflowTests(unittest.TestCase):
-    def test_service_account_actor_is_rejected_before_maintainer_check(self):
-        workflow_path = MODULE_PATH.parents[2] / "workflows" / "_community_bot.yml"
-        workflow = workflow_path.read_text()
+        self.assertEqual(
+            identify_follow_up_issues._latest_human_activity(content),
+            ("2026-08-20T10:00:00Z", "reporter"),
+        )
 
-        self.assertIn('if [[ "$user" = "svcnemo-autobot" ]]; then', workflow)
-        self.assertIn('|| "$user" = "svcnemo-autobot" ]]', workflow)
-        self.assertIn('if is_bot_actor "$USERNAME" "$ACTOR_TYPE"; then', workflow)
+    def test_activity_watermark_survives_an_item_with_no_dates(self):
+        self.assertEqual(
+            identify_follow_up_issues._latest_human_activity({"__typename": "Issue"}),
+            ("", ""),
+        )
+
+
+def _preflight_script() -> str:
+    """Extract the `Check pre-conditions` shell body from the reusable workflow."""
+    lines = WORKFLOW_PATH.read_text().splitlines()
+    step = next(i for i, line in enumerate(lines) if line.strip() == "id: pre-flight")
+    run = next(i for i in range(step, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+
+    body = []
+    for line in lines[run + 1 :]:
+        if line.strip() and len(line) - len(line.lstrip()) < indent:
+            break
+        body.append(line[indent:])
+    return "\n".join(body)
+
+
+class CommunityBotPreflightTests(unittest.TestCase):
+    """Run the workflow's actor classifier as the runner would: `bash -e`, stubbed curl."""
+
+    MAINTAINER_EVENT = {
+        "GH_EVENT_NAME": "issue_comment",
+        "IS_VALID_EVENT": "true",
+        "IS_FOLLOW_UP_EVENT": "true",
+        "ISSUE_AUTHOR": "community-user",
+        "AUTHOR_ASSOCIATION": "NONE",
+        "ACTOR_ASSOCIATION": "MEMBER",
+        "ACTOR_TYPE": "User",
+        "ACTOR_LOGIN": "maintainer",
+    }
+
+    def run_preflight(self, overrides, curl_status="404"):
+        script = _preflight_script()
+        script = script.replace("${{ github.actor }}", "$GH_ACTOR")
+        script = script.replace("${{ github.event_name }}", "$GH_EVENT_NAME")
+        # Any other expression would reach bash unrendered and silently change meaning.
+        self.assertNotIn("${{", script)
+
+        env = dict(self.MAINTAINER_EVENT)
+        env.update(overrides)
+        env.setdefault("GH_ACTOR", env["ACTOR_LOGIN"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            curl_log = tmp / "curl.log"
+            (bin_dir / "curl").write_text(
+                "#!/usr/bin/env bash\n"
+                f'echo "${{@: -1}}" >> "{curl_log}"\n'
+                f"printf '{curl_status}'\n"
+            )
+            (bin_dir / "curl").chmod(0o755)
+
+            script_path = tmp / "preflight.sh"
+            script_path.write_text(script)
+            github_output = tmp / "github_output"
+            github_output.touch()
+
+            env.update(
+                {
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "GITHUB_OUTPUT": str(github_output),
+                    "REPO": "NVIDIA-NeMo/Automodel",
+                    "REPO_GITHUB_TOKEN": "t",
+                    "NVIDIA_GITHUB_TOKEN": "t",
+                    "NVIDIA_NEMO_GITHUB_TOKEN": "t",
+                }
+            )
+
+            result = subprocess.run(
+                ["bash", "-e", str(script_path)],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            outputs = dict(
+                line.split("=", 1)
+                for line in github_output.read_text().splitlines()
+                if "=" in line
+            )
+            lookups = curl_log.read_text().splitlines() if curl_log.exists() else []
+
+        # Only the lookups for the event actor; the issue-author path runs regardless.
+        actor_lookups = [url for url in lookups if url.endswith("/" + env["ACTOR_LOGIN"])]
+        return outputs, actor_lookups
+
+    def test_maintainer_comment_clears_the_label(self):
+        outputs, _ = self.run_preflight({})
+
+        self.assertEqual(outputs["is_actor_maintainer"], "true")
+        self.assertEqual(outputs["actor"], "maintainer")
+
+    def test_service_account_comment_does_not_clear_the_label(self):
+        # `svcnemo-autobot` is a `User` account with write access, so neither the
+        # account type nor the association rejects it.
+        outputs, lookups = self.run_preflight(
+            {"ACTOR_LOGIN": "svcnemo-autobot", "ACTOR_TYPE": "User"},
+            curl_status="204",
+        )
+
+        self.assertEqual(outputs["is_actor_maintainer"], "false")
+        self.assertEqual(lookups, [])
+
+    def test_app_bot_comment_does_not_clear_the_label(self):
+        for actor, actor_type in (("some-app[bot]", "User"), ("dependabot", "Bot")):
+            with self.subTest(actor=actor):
+                outputs, _ = self.run_preflight(
+                    {"ACTOR_LOGIN": actor, "ACTOR_TYPE": actor_type},
+                    curl_status="204",
+                )
+                self.assertEqual(outputs["is_actor_maintainer"], "false")
+
+    def test_outside_contributor_comment_does_not_clear_the_label(self):
+        outputs, lookups = self.run_preflight(
+            {"ACTOR_LOGIN": "outsider", "ACTOR_ASSOCIATION": "CONTRIBUTOR"}
+        )
+
+        self.assertEqual(outputs["is_actor_maintainer"], "false")
+        self.assertEqual(len(lookups), 3)
+
+    def test_org_member_without_association_clears_the_label(self):
+        outputs, _ = self.run_preflight(
+            {"ACTOR_LOGIN": "nvidian", "ACTOR_ASSOCIATION": "CONTRIBUTOR"},
+            curl_status="204",
+        )
+
+        self.assertEqual(outputs["is_actor_maintainer"], "true")
+
+    def test_non_follow_up_event_skips_the_actor_lookups(self):
+        outputs, lookups = self.run_preflight(
+            {
+                "GH_EVENT_NAME": "issues",
+                "IS_FOLLOW_UP_EVENT": "false",
+                "AUTHOR_ASSOCIATION": "MEMBER",
+                "ACTOR_ASSOCIATION": "",
+                "ACTOR_TYPE": "",
+                "ACTOR_LOGIN": "maintainer",
+            }
+        )
+
+        self.assertEqual(outputs["is_actor_maintainer"], "false")
+        self.assertEqual(lookups, [])
+
+    def test_push_test_mode_emits_every_output(self):
+        outputs, _ = self.run_preflight({"GH_EVENT_NAME": "push"})
+
+        self.assertEqual(outputs["is_maintainer"], "false")
+        self.assertEqual(outputs["is_actor_maintainer"], "false")
+        self.assertEqual(outputs["is_follow_up_event"], "false")
+        self.assertEqual(outputs["is_valid_event"], "true")
 
 
 class ScheduledLabelRaceTests(unittest.TestCase):
-    def issue(self):
-        return {
+    def issue(self, **overrides):
+        issue = {
             "item_type": "PullRequest",
             "issue_id": 3626,
             "repo_name": "Automodel",
@@ -165,16 +335,20 @@ class ScheduledLabelRaceTests(unittest.TestCase):
             "has_deprecated_label": False,
             "target_branch": "main",
             "is_draft": False,
+            "issue_author": "community-user",
             "activity_watermark_date": "2026-08-22T06:48:45Z",
+            "activity_watermark_login": "community-user",
         }
+        issue.update(overrides)
+        return issue
 
     @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue")
     @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
     @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
     @mock.patch.object(
         identify_follow_up_issues,
-        "fetch_latest_human_activity_date",
-        return_value="2026-08-24T16:14:08Z",
+        "fetch_latest_human_activity",
+        return_value=("2026-08-24T16:14:08Z", "maintainer"),
     )
     def test_newer_live_activity_suppresses_stale_add(
         self, fetch_activity, ensure_label, add_label, remove_label
@@ -195,8 +369,8 @@ class ScheduledLabelRaceTests(unittest.TestCase):
     @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
     @mock.patch.object(
         identify_follow_up_issues,
-        "fetch_latest_human_activity_date",
-        return_value="2026-08-22T06:48:45Z",
+        "fetch_latest_human_activity",
+        return_value=("2026-08-22T06:48:45Z", "community-user"),
     )
     def test_unchanged_live_activity_allows_add(
         self, fetch_activity, ensure_label, add_label, remove_label
@@ -221,7 +395,49 @@ class ScheduledLabelRaceTests(unittest.TestCase):
     @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
     @mock.patch.object(
         identify_follow_up_issues,
-        "fetch_latest_human_activity_date",
+        "fetch_latest_human_activity",
+        return_value=("2026-08-24T16:14:08Z", "community-user"),
+    )
+    def test_same_author_follow_up_still_adds(
+        self, fetch_activity, ensure_label, add_label, remove_label
+    ):
+        # The requester chasing their own issue is exactly when the label is wanted.
+        identify_follow_up_issues.update_labels(
+            [self.issue()], "NVIDIA-NeMo", "token"
+        )
+
+        add_label.assert_called_once()
+
+    @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
+    @mock.patch.object(
+        identify_follow_up_issues,
+        "fetch_latest_human_activity",
+        return_value=("2026-08-24T16:14:08Z", "maintainer"),
+    )
+    def test_suppressed_add_still_reconciles_waiting_on_customer(
+        self, fetch_activity, ensure_label, add_label, remove_label
+    ):
+        identify_follow_up_issues.update_labels(
+            [self.issue(has_waiting_on_customer_label=True)], "NVIDIA-NeMo", "token"
+        )
+
+        add_label.assert_not_called()
+        remove_label.assert_called_once_with(
+            "NVIDIA-NeMo",
+            "Automodel",
+            3626,
+            "waiting-on-customer",
+            "token",
+        )
+
+    @mock.patch.object(identify_follow_up_issues, "remove_label_from_issue")
+    @mock.patch.object(identify_follow_up_issues, "add_label_to_issue", return_value=True)
+    @mock.patch.object(identify_follow_up_issues, "ensure_label_exists", return_value=True)
+    @mock.patch.object(
+        identify_follow_up_issues,
+        "fetch_latest_human_activity",
         side_effect=RuntimeError("transient API failure"),
     )
     def test_failed_refresh_fails_closed(

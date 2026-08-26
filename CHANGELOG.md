@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.10...v1.9.0) (2026-08-26)
+
+
+### Features
+
+* add ephemeral runner routing workflow ([#560](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/560)) ([4a2b02c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4a2b02ca23c9b42d9f87c9597e90685cd70b6117))
+
+
+### Bug Fixes
+
+* avoid duplicate community follow-up labels ([#548](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/548)) ([f1fdd63](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f1fdd634b464dd3aebb6c7dec9beead24f19183f))
+
 ## [1.8.10](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.9...v1.8.10) (2026-08-13)
 
 

@@ -1,0 +1,122 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+name: Ephemeral runner routing
+
+on:
+  workflow_call:
+    inputs:
+      lane:
+        description: "Routing lane; empty selects the legacy runner"
+        required: false
+        default: ""
+        type: string
+      legacy_label:
+        description: "Supported legacy ephemeral runner label"
+        required: true
+        type: string
+      run_id:
+        description: "Workflow run ID used in the production route"
+        required: true
+        type: string
+      run_attempt:
+        description: "Workflow run attempt used in the production route"
+        required: true
+        type: string
+    outputs:
+      runner_label:
+        description: "Resolved runner label"
+        value: ${{ jobs.resolve.outputs.runner_label }}
+      legacy_cleanup_required:
+        description: "Whether the caller must run legacy cleanup"
+        value: ${{ jobs.resolve.outputs.legacy_cleanup_required }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash -e -u -o pipefail {0}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      runner_label: ${{ steps.route.outputs.runner_label }}
+      legacy_cleanup_required: ${{ steps.route.outputs.legacy_cleanup_required }}
+    steps:
+      - name: Require an immutable workflow reference
+        env:
+          JOB_CONTEXT: ${{ toJSON(job) }}
+        run: |
+          if [[ "$JOB_CONTEXT" =~ \"workflow_ref\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+            workflow_ref=${BASH_REMATCH[1]}
+          else
+            echo "Unable to determine the reusable workflow reference" >&2
+            exit 1
+          fi
+          if [[ "$JOB_CONTEXT" =~ \"workflow_sha\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+            workflow_sha=${BASH_REMATCH[1]}
+          else
+            echo "Unable to determine the reusable workflow SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$workflow_ref" =~ @[0-9a-fA-F]{40}$ || "${workflow_ref##*@}" != "$workflow_sha" ]]; then
+            echo "This reusable workflow must be referenced by its full commit SHA: $workflow_ref" >&2
+            exit 1
+          fi
+
+      - name: Resolve runner route
+        id: route
+        env:
+          LANE: ${{ inputs.lane }}
+          LEGACY_LABEL: ${{ inputs.legacy_label }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_ATTEMPT: ${{ inputs.run_attempt }}
+        run: |
+          case "$LEGACY_LABEL" in
+            nemo-ci-aws-gpu-x2-ephemeral) route_prefix=ephe-v2-pmx2 ;;
+            nemo-ci-aws-gpu-x8-ephemeral) route_prefix=ephe-v2-pmx8 ;;
+            nvidia-ci-aws-gpu-x2-ephemeral) route_prefix=ephe-v2-pnx2 ;;
+            nvidia-ci-aws-gpu-x8-ephemeral) route_prefix=ephe-v2-pnx8 ;;
+            *)
+              echo "Unsupported legacy runner label: $LEGACY_LABEL" >&2
+              exit 1
+              ;;
+          esac
+
+          for name in REPOSITORY_ID RUN_ID RUN_ATTEMPT; do
+            value=${!name}
+            if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Invalid $name: $value" >&2
+              exit 1
+            fi
+          done
+
+          case "$LANE" in
+            "")
+              runner_label=$LEGACY_LABEL
+              legacy_cleanup_required=true
+              ;;
+            ephemeral-v2)
+              runner_label="${route_prefix}-p${REPOSITORY_ID}-r${RUN_ID}-a${RUN_ATTEMPT}"
+              legacy_cleanup_required=false
+              ;;
+            *)
+              echo "Unsupported ephemeral runner lane: $LANE" >&2
+              exit 1
+              ;;
+          esac
+
+          printf 'runner_label=%s\n' "$runner_label" >> "$GITHUB_OUTPUT"
+          printf 'legacy_cleanup_required=%s\n' "$legacy_cleanup_required" >> "$GITHUB_OUTPUT"

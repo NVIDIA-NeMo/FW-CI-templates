@@ -64,10 +64,17 @@ jobs:
         id: pull_request
         if: steps.permission.outputs.authorized == 'true'
         run: |
-          metadata=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json baseRefOid,changedFiles,headRefOid)
-          base_sha=$(jq -r .baseRefOid <<< "$metadata")
-          changed_files=$(jq -r .changedFiles <<< "$metadata")
-          head_sha=$(jq -r .headRefOid <<< "$metadata")
+          set -euo pipefail
+          metadata=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json baseRefOid,changedFiles,headRefOid,isCrossRepository)
+
+          if ! jq -e '.isCrossRepository | type == "boolean" and . == false' <<< "$metadata" > /dev/null; then
+            echo "Cross-repository pull requests are not supported." >&2
+            exit 1
+          fi
+
+          base_sha=$(jq -er '.baseRefOid | select(type == "string")' <<< "$metadata")
+          changed_files=$(jq -er '.changedFiles | select(type == "number") | tostring' <<< "$metadata")
+          head_sha=$(jq -er '.headRefOid | select(type == "string")' <<< "$metadata")
           merge_base_sha=$(
             gh api "repos/$REPO/compare/$base_sha...$head_sha" --jq .merge_base_commit.sha
           )
@@ -95,7 +102,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
     env:
       BASE_SHA: ${{ needs.authorize.outputs.base_sha }}
       CHANGED_FILES: ${{ needs.authorize.outputs.changed_files }}
@@ -175,6 +181,7 @@ jobs:
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
           DISABLE_PROMPT_CACHING: "1"
         with:
+          github_token: ${{ github.token }}
           anthropic_api_key: ${{ secrets.NVIDIA_INFERENCE_KEY }}
           trigger_phrase: ${{ inputs.trigger_phrase }}
           show_full_output: false

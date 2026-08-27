@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.0...v1.9.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* AUT-2166 tighten Claude review authorization ([#561](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/561)) ([6f6f506](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6f6f50631fadf4a3f7b813926e80322fb82bfccc))
+* fail Slack alerts on HTTP rejection ([#563](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/563)) ([5bc7a03](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5bc7a0327f326f97eed97b17f1458f2a3376b848))
+
 ## [1.9.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.10...v1.9.0) (2026-08-26)
 
 

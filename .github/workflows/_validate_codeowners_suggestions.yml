@@ -1,0 +1,199 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Three checks on the calling repo's .github/CODEOWNERS `# suggest:` lines:
+#
+#   unit-tests            Runs the shared codeowners-suggestions.js matcher's
+#                          own test suite, so a regression in the matching
+#                          logic is caught in CI, not discovered live on a PR.
+#   check-redundant-rules  Warns (non-blocking) when a `# suggest:` or
+#                          enforced line is made redundant by an earlier rule
+#                          that already covers the same paths with the same
+#                          owners — e.g. `docker/` enforced to a team, then
+#                          later `# suggest: docker/scripts/` to the same
+#                          team adds nothing.
+#   validate-membership    Every individual user referenced in a `# suggest:`
+#                          line — directly, or via a suggested team's full
+#                          membership — must be a current NVIDIA-NeMo org
+#                          member. Runs on every PR unconditionally, not only
+#                          ones that touch CODEOWNERS, so someone who has
+#                          since left the org is still caught. Fails CI.
+
+on:
+  workflow_call:
+    inputs:
+      workflow_ref:
+        description: "Ref of this repo (FW-CI-templates) to check out for shared scripts/actions"
+        required: false
+        default: main
+        type: string
+    secrets:
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: "Org-scoped PAT used to check org membership and expand team membership"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Run codeowners-suggestions.js unit tests
+        run: node --test ci-templates/.github/scripts/codeowners-suggestions.test.js
+
+  check-redundant-rules:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            .github/CODEOWNERS
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Warn on redundant CODEOWNERS rules
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { parseCodeowners, findRedundantRules } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
+
+            const codeownersPath = '.github/CODEOWNERS';
+            if (!fs.existsSync(codeownersPath)) return;
+
+            const { enforcedRules, suggestRules } = parseCodeowners(fs.readFileSync(codeownersPath, 'utf8'));
+            const redundant = findRedundantRules(enforcedRules, suggestRules);
+
+            for (const { rule, coveredBy, reason } of redundant) {
+              core.warning(
+                `.github/CODEOWNERS: "${rule.pattern} ${rule.owners.join(' ')}" is redundant (${reason}) — ` +
+                `already covered by "${coveredBy.pattern} ${coveredBy.owners.join(' ')}"`,
+                { file: '.github/CODEOWNERS' }
+              );
+            }
+
+            if (redundant.length > 0) {
+              core.info(`${redundant.length} redundant CODEOWNERS rule(s) found — see warnings above. Non-blocking.`);
+            }
+
+  extract-suggested-users:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      usernames: ${{ steps.expand.outputs.usernames }}
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            .github/CODEOWNERS
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Parse `# suggest:` users and teams
+        id: parse
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { parseCodeowners } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
+
+            const codeownersPath = '.github/CODEOWNERS';
+            const { suggestRules } = fs.existsSync(codeownersPath)
+              ? parseCodeowners(fs.readFileSync(codeownersPath, 'utf8'))
+              : { suggestRules: [] };
+
+            const users = new Set();
+            const teams = new Set();
+            for (const { owners } of suggestRules) {
+              for (const owner of owners) {
+                const name = owner.replace(/^@/, '');
+                (name.includes('/') ? teams : users).add(name);
+              }
+            }
+
+            core.setOutput('users', JSON.stringify([...users]));
+            core.setOutput('teams', JSON.stringify([...teams]));
+
+      - name: Expand teams to member usernames
+        id: expand
+        env:
+          GH_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          USERS_JSON: ${{ steps.parse.outputs.users }}
+          TEAMS_JSON: ${{ steps.parse.outputs.teams }}
+        run: |
+          set -euo pipefail
+          all_users=$(echo "$USERS_JSON" | jq -c '.')
+
+          for team in $(echo "$TEAMS_JSON" | jq -r '.[]'); do
+            org="${team%%/*}"
+            slug="${team#*/}"
+            echo "Expanding team members for $org/$slug..."
+            members=$(gh api "orgs/${org}/teams/${slug}/members" --paginate --jq '[.[].login]')
+            all_users=$(echo "$all_users $members" | jq -sc 'add | unique')
+          done
+
+          echo "usernames=$all_users" | tee -a "$GITHUB_OUTPUT"
+
+  validate-membership:
+    needs: extract-suggested-users
+    if: needs.extract-suggested-users.outputs.usernames != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        username: ${{ fromJson(needs.extract-suggested-users.outputs.usernames) }}
+    steps:
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Check NVIDIA-NeMo org membership
+        id: check-sso
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
+        with:
+          username: ${{ matrix.username }}
+          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+
+      - name: Fail if not an org member
+        if: steps.check-sso.outputs.is_org_member != 'true'
+        run: |
+          echo "::error::${{ matrix.username }} is referenced in a .github/CODEOWNERS \`# suggest:\` line (directly, or via a suggested team) but is not a current member of the NVIDIA-NeMo org."
+          exit 1

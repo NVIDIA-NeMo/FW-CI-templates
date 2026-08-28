@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-NeMo/FW-CI-templates/isolated-claude-review/review-output-v1.schema.json",
+  "title": "Isolated Claude Review Output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "repository", "pull_request", "review_id", "review_mode",
+    "base_sha", "merge_base_sha", "head_sha", "context_digest", "status",
+    "coverage", "inline_findings", "general_findings", "summary", "clean_review"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$"},
+    "pull_request": {"type": "integer", "minimum": 1},
+    "review_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "review_mode": {"enum": ["manual", "automatic", "light", "strict"]},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "merge_base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["complete", "incomplete"]},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed_files_reviewed", "changed_files_total", "diff_complete", "notes"],
+      "properties": {
+        "changed_files_reviewed": {"type": "integer", "minimum": 0},
+        "changed_files_total": {"type": "integer", "minimum": 0},
+        "diff_complete": {"type": "boolean"},
+        "notes": {"type": "string", "maxLength": 4000}
+      }
+    },
+    "inline_findings": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {"$ref": "#/$defs/inlineFinding"}
+    },
+    "general_findings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {"$ref": "#/$defs/generalFinding"}
+    },
+    "summary": {"type": "string", "maxLength": 32768},
+    "clean_review": {"type": "boolean"},
+    "failure_reason": {"type": ["string", "null"], "maxLength": 4000}
+  },
+  "$defs": {
+    "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+    "inlineFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "side", "line", "severity", "category", "body"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "side": {"enum": ["LEFT", "RIGHT"]},
+        "line": {"type": "integer", "minimum": 1},
+        "severity": {"$ref": "#/$defs/severity"},
+        "category": {"type": "string", "minLength": 1, "maxLength": 200},
+        "body": {"type": "string", "minLength": 1, "maxLength": 16384}
+      }
+    },
+    "generalFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "category", "body"],
+      "properties": {
+        "severity": {"$ref": "#/$defs/severity"},
+        "category": {"type": "string", "minLength": 1, "maxLength": 200},
+        "body": {"type": "string", "minLength": 1, "maxLength": 16384}
+      }
+    }
+  }
+}

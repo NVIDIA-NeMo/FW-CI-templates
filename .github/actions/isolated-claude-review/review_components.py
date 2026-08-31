@@ -40,9 +40,9 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 SAFE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 MAX_CHANGED_FILES = 2_000
-MAX_TREE_ENTRIES = 20_000
+MAX_TREE_ENTRIES = 50_000
 MAX_FILE_BYTES = 512 * 1024
-MAX_CONTEXT_BYTES = 8 * 1024 * 1024
+MAX_CONTEXT_BYTES = 64 * 1024 * 1024
 MAX_DIFF_BYTES = 4 * 1024 * 1024
 MAX_DIFF_HUNKS = 20_000
 MAX_OUTPUT_BYTES = 256 * 1024
@@ -50,8 +50,10 @@ MAX_INLINE_FINDINGS = 50
 MAX_GENERAL_FINDINGS = 20
 MAX_COMMENT_BODY_BYTES = 16 * 1024
 MAX_SUMMARY_BYTES = 32 * 1024
+MAX_REVIEW_BODY_BYTES = 60 * 1024
+MAX_REVIEW_PAYLOAD_BYTES = 512 * 1024
 RETRIEVER_MAX_CALLS = 256
-RETRIEVER_MAX_BYTES = 4 * 1024 * 1024
+RETRIEVER_MAX_BYTES = 16 * 1024 * 1024
 RETRIEVER_MAX_RESULTS = 1_000
 RETRIEVER_MAX_SECONDS = 600
 CLAUDE_OIDC_AUDIENCE = "claude-code-github-action"
@@ -226,6 +228,17 @@ def is_binary_blob(repo: Path, oid: str, size: int | None) -> bool:
     return b"\0" in sample[:8_000]
 
 
+def is_governing_base_path(path: str) -> bool:
+    """Return whether a trusted-base path can govern repository review."""
+    parts = PurePosixPath(path).parts
+    name = parts[-1].lower() if parts else ""
+    if name in {"agents.md", "claude.md", "codeowners", "contributing.md"}:
+        return True
+    if path in {".github/copilot-instructions.md", ".github/instructions.md"}:
+        return True
+    return len(parts) >= 2 and parts[-1] == "SKILL.md" and ("skills" in parts or ".claude" in parts)
+
+
 def materialize_snapshot(
     repo: Path,
     output: Path,
@@ -383,6 +396,12 @@ def build_context(args: argparse.Namespace) -> None:
     (output / "review.diff").write_bytes(stored_diff)
 
     budget = [0]
+    governing_paths = sorted(path for path in base_tree if is_governing_base_path(path))
+    base_repository: dict[str, dict[str, Any]] = {}
+    # Capture governing instructions first so general source material cannot consume their budget.
+    for path in governing_paths:
+        base_repository[path] = materialize_snapshot(repo, output, "trusted-base", path, base_tree[path], budget)
+
     changed_records = []
     for index, entry in enumerate(changed):
         old_path = entry["old_path"]
@@ -407,8 +426,17 @@ def build_context(args: argparse.Namespace) -> None:
             }
         )
 
+    # Capture bounded trusted BASE_SHA source for unchanged definitions, callers, tests,
+    # configurations, and repository policy. Unavailable entries remain explicit.
+    for path, entry in sorted(base_tree.items()):
+        if path not in base_repository:
+            base_repository[path] = materialize_snapshot(repo, output, "trusted-base", path, entry, budget)
+    governing_records = [{"path": path, **base_repository[path]} for path in governing_paths]
+
     write_json(output / "metadata.json", metadata)
     write_json(output / "changed-files.json", changed_records)
+    write_json(output / "base-repository.json", base_repository)
+    write_json(output / "governing-base.json", governing_records)
     write_json(output / "diff-hunks.json", hunks)
     write_json(output / "trees.json", {"base": base_tree, "head": head_tree})
     tools_dir = output / "tools"
@@ -421,6 +449,8 @@ def build_context(args: argparse.Namespace) -> None:
     artifact_paths = [
         "metadata.json",
         "changed-files.json",
+        "base-repository.json",
+        "governing-base.json",
         "diff-hunks.json",
         "trees.json",
         "review.diff",
@@ -451,6 +481,8 @@ def build_context(args: argparse.Namespace) -> None:
             "full_diff_bytes": len(full_diff),
             "stored_diff_bytes": len(stored_diff),
             "materialized_bytes": budget[0],
+            "trusted_base_files": sum(1 for item in base_repository.values() if item.get("available")),
+            "governing_base_files": len(governing_records),
             "diff_hunks": len(hunks),
         },
         "artifacts": artifacts,
@@ -480,7 +512,15 @@ class RetrievalBudget:
             raise ReviewError("retrieval result budget exhausted")
 
 
-def audit_record(audit: Path, operation: str, request: dict[str, Any], outcome: str, output_bytes: int, results: int) -> None:
+def audit_record(
+    audit: Path,
+    operation: str,
+    request: dict[str, Any],
+    outcome: str,
+    output_bytes: int,
+    results: int,
+    coverage: dict[str, Any] | None = None,
+) -> None:
     record = {
         "operation": operation,
         "request": request,
@@ -488,6 +528,8 @@ def audit_record(audit: Path, operation: str, request: dict[str, Any], outcome: 
         "output_bytes": output_bytes,
         "results": results,
     }
+    if coverage is not None:
+        record["coverage"] = coverage
     with audit.open("ab") as stream:
         stream.write(canonical_json(record) + b"\n")
 
@@ -497,8 +539,10 @@ def retriever(args: argparse.Namespace) -> None:
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)
     metadata = read_json(root / "metadata.json", max_bytes=256 * 1024)
-    trees = read_json(root / "trees.json", max_bytes=16 * 1024 * 1024)
+    trees = read_json(root / "trees.json", max_bytes=32 * 1024 * 1024)
     hunks = read_json(root / "diff-hunks.json", max_bytes=4 * 1024 * 1024)
+    base_repository = read_json(root / "base-repository.json", max_bytes=32 * 1024 * 1024)
+    governing = read_json(root / "governing-base.json", max_bytes=2 * 1024 * 1024)
     audit = Path(args.audit).resolve()
     audit_root = root.resolve()
     try:
@@ -514,11 +558,38 @@ def retriever(args: argparse.Namespace) -> None:
             prior_results += int(record.get("results", 0))
     budget = RetrievalBudget(started=time.monotonic(), calls=prior_calls, bytes=prior_bytes, results=prior_results)
 
-    def emit(operation: str, request: dict[str, Any], value: Any, results: int) -> None:
+    def emit(
+        operation: str,
+        request: dict[str, Any],
+        value: Any,
+        results: int,
+        coverage: dict[str, Any] | None = None,
+    ) -> None:
         data = canonical_json(value) + b"\n"
         budget.charge(output_bytes=len(data), results=results)
-        audit_record(audit, operation, request, "ok", len(data), results)
+        audit_record(audit, operation, request, "ok", len(data), results, coverage)
         sys.stdout.buffer.write(data)
+
+    def emit_text(operation: str, request: dict[str, Any], path: str, snapshot: str, data: bytes) -> None:
+        if b"\0" in data[:8_000]:
+            raise ReviewError("text retrieval refused binary content")
+        offset = max(args.offset, 0)
+        limit = min(max(args.byte_limit, 1), MAX_FILE_BYTES)
+        page = data[offset : offset + limit]
+        end = offset + len(page)
+        emit(
+            operation,
+            request,
+            {
+                "path": path,
+                "snapshot": snapshot,
+                "offset": offset,
+                "next_offset": end if end < len(data) else None,
+                "content": page.decode("utf-8", "replace"),
+            },
+            1,
+            {"kind": operation.replace("-", "_"), "path": path, "start": offset, "end": end, "total": len(data)},
+        )
 
     operation = args.operation
     request = {key: value for key, value in vars(args).items() if key not in {"func", "context", "audit"} and value is not None}
@@ -533,6 +604,17 @@ def retriever(args: argparse.Namespace) -> None:
                 operation,
                 request,
                 {"entries": page, "next_offset": offset + len(page) if offset + len(page) < len(changed) else None},
+                len(page),
+                {"kind": "changed_files", "path": "", "start": offset, "end": offset + len(page), "total": len(changed)},
+            )
+        elif operation == "governing-base":
+            offset = max(args.offset, 0)
+            limit = min(max(args.limit, 1), 200)
+            page = governing[offset : offset + limit]
+            emit(
+                operation,
+                request,
+                {"entries": page, "next_offset": offset + len(page) if offset + len(page) < len(governing) else None},
                 len(page),
             )
         elif operation == "tree":
@@ -567,23 +649,19 @@ def retriever(args: argparse.Namespace) -> None:
             source = contained_path(root / "snapshots" / args.snapshot, path)
             if source.is_symlink() or not source.is_file():
                 raise ReviewError("snapshot path is not a regular file")
-            data = source.read_bytes()
-            offset = max(args.offset, 0)
-            limit = min(max(args.byte_limit, 1), MAX_FILE_BYTES)
-            page = data[offset : offset + limit]
-            emit(
-                operation,
-                request,
-                {
-                    "path": path,
-                    "snapshot": args.snapshot,
-                    "offset": offset,
-                    "next_offset": offset + len(page) if offset + len(page) < len(data) else None,
-                    "encoding": "base64",
-                    "content": base64.b64encode(page).decode("ascii"),
-                },
-                1,
-            )
+            emit_text(operation, request, path, args.snapshot, source.read_bytes())
+        elif operation == "diff":
+            data = (root / "review.diff").read_bytes()
+            emit_text(operation, request, "review.diff", "merge-base..head", data)
+        elif operation == "trusted-base-read":
+            path = normalize_repo_path(args.path)
+            info = base_repository.get(path)
+            if not isinstance(info, dict) or not info.get("available"):
+                raise ReviewError("path is not an available trusted-base regular file")
+            source = contained_path(root / "snapshots" / "trusted-base", path)
+            if source.is_symlink() or not source.is_file():
+                raise ReviewError("trusted-base path is not a regular file")
+            emit_text(operation, request, path, "base", source.read_bytes())
         elif operation == "search":
             if args.snapshot not in {"base", "head"}:
                 raise ReviewError("search snapshot must be base or head")
@@ -612,6 +690,30 @@ def retriever(args: argparse.Namespace) -> None:
                 if len(matches) >= min(max(args.limit, 1), 200):
                     break
             emit(operation, request, {"matches": matches, "truncated": len(matches) == min(max(args.limit, 1), 200)}, len(matches))
+        elif operation == "trusted-base-search":
+            query = args.query
+            if not query or len(query.encode()) > 1_000:
+                raise ReviewError("search query must be non-empty and bounded")
+            query_bytes = query.encode("utf-8")
+            matches = []
+            prefix = "" if args.path is None else normalize_repo_path(args.path).rstrip("/") + "/"
+            result_limit = min(max(args.limit, 1), 200)
+            for path, info in sorted(base_repository.items()):
+                if prefix and path != prefix.rstrip("/") and not path.startswith(prefix):
+                    continue
+                if not isinstance(info, dict) or not info.get("available"):
+                    continue
+                source = contained_path(root / "snapshots" / "trusted-base", path)
+                for line_number, line in enumerate(source.read_bytes().splitlines(), 1):
+                    if query_bytes in line:
+                        matches.append({"path": path, "line": line_number, "text": line[:1_000].decode("utf-8", "replace")})
+                        if len(matches) >= result_limit:
+                            break
+                if len(matches) >= result_limit:
+                    break
+            emit(operation, request, {"matches": matches, "truncated": len(matches) == result_limit}, len(matches))
+        elif operation == "coverage":
+            emit(operation, request, retrieval_coverage(root, audit), 1)
         elif operation == "diff-hunks":
             offset = max(args.offset, 0)
             limit = min(max(args.limit, 1), 200)
@@ -640,14 +742,86 @@ def retriever(args: argparse.Namespace) -> None:
         raise
 
 
+def _covered_length(intervals: list[tuple[int, int]], total: int) -> int:
+    cursor = covered = 0
+    for start, end in sorted(intervals):
+        start = max(0, min(start, total))
+        end = max(start, min(end, total))
+        if end <= cursor:
+            continue
+        start = max(start, cursor)
+        covered += end - start
+        cursor = end
+    return covered
+
+
+def retrieval_coverage(root: Path, audit: Path) -> dict[str, Any]:
+    """Derive review completeness exclusively from successful audited retrieval."""
+    manifest = validate_manifest(root)
+    changed_total = int(manifest["changed_files"])
+    diff_total = int(manifest["coverage"]["stored_diff_bytes"])
+    governing = read_json(root / "governing-base.json", max_bytes=2 * 1024 * 1024)
+    intervals: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    if audit.exists():
+        for raw in audit.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise ReviewError("retrieval audit contains invalid JSON") from error
+            if not isinstance(record, dict) or record.get("outcome") != "ok":
+                continue
+            coverage = record.get("coverage")
+            if not isinstance(coverage, dict):
+                continue
+            kind = coverage.get("kind")
+            path = str(coverage.get("path") or "")
+            start = coverage.get("start")
+            end = coverage.get("end")
+            if isinstance(kind, str) and type(start) is int and type(end) is int:
+                intervals.setdefault((kind, path), []).append((start, end))
+    changed_seen = _covered_length(intervals.get(("changed_files", ""), []), changed_total)
+    diff_seen = _covered_length(intervals.get(("diff", "review.diff"), []), diff_total)
+    governing_missing = []
+    governing_unread = []
+    for record in governing:
+        path = record["path"]
+        if not record.get("available"):
+            governing_missing.append(path)
+            continue
+        size = int(record["size"])
+        if _covered_length(intervals.get(("trusted_base_read", path), []), size) != size:
+            governing_unread.append(path)
+    diff_complete = not manifest["coverage"]["diff_truncated"] and diff_seen == diff_total
+    listing_complete = changed_seen == changed_total
+    governing_complete = not governing_missing and not governing_unread
+    tree_complete = not manifest["coverage"]["base_tree_truncated"]
+    complete = listing_complete and diff_complete and governing_complete and tree_complete
+    return {
+        "changed_files_reviewed": changed_total if complete else 0,
+        "changed_files_total": changed_total,
+        "diff_complete": diff_complete,
+        "changed_files_list_complete": listing_complete,
+        "governing_base_complete": governing_complete,
+        "trusted_base_tree_complete": tree_complete,
+        "governing_base_missing": governing_missing,
+        "governing_base_unread": governing_unread,
+        "complete": complete,
+    }
+
+
 retrieve = retriever
 
 
 MCP_TOOLS = [
     {"name": "metadata", "description": "Get normalized pull-request metadata and captured revision", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}}},
     {"name": "changed_files", "description": "List changed files with status and coverage", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
+    {"name": "governing_base", "description": "List captured trusted BASE_SHA instructions and skills", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
     {"name": "tree", "description": "List a bounded captured repository tree", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["snapshot"], "properties": {"snapshot": {"enum": ["base", "head"]}, "path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
-    {"name": "read", "description": "Read a bounded changed-file snapshot", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["snapshot", "path"], "properties": {"snapshot": {"enum": ["base", "head"]}, "path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "byte_limit": {"type": "integer", "minimum": 1, "maximum": 524288}}}},
+    {"name": "read", "description": "Read bounded UTF-8 text from a changed-file snapshot", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["snapshot", "path"], "properties": {"snapshot": {"enum": ["base", "head"]}, "path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "byte_limit": {"type": "integer", "minimum": 1, "maximum": 524288}}}},
+    {"name": "diff", "description": "Read the immutable textual pull-request diff incrementally", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"offset": {"type": "integer", "minimum": 0}, "byte_limit": {"type": "integer", "minimum": 1, "maximum": 524288}}}},
+    {"name": "trusted_base_read", "description": "Read bounded UTF-8 text from any captured trusted BASE_SHA regular file", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["path"], "properties": {"path": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "byte_limit": {"type": "integer", "minimum": 1, "maximum": 524288}}}},
+    {"name": "trusted_base_search", "description": "Search bounded captured trusted BASE_SHA source for literal text", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["query"], "properties": {"path": {"type": "string"}, "query": {"type": "string", "minLength": 1, "maxLength": 1000}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
+    {"name": "coverage", "description": "Derive current completeness from the retrieval audit", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}}},
     {"name": "search", "description": "Search captured changed-file snapshots for literal text", "inputSchema": {"type": "object", "additionalProperties": False, "required": ["snapshot", "query"], "properties": {"snapshot": {"enum": ["base", "head"]}, "query": {"type": "string", "minLength": 1, "maxLength": 1000}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
     {"name": "diff_hunks", "description": "List immutable diff hunks incrementally", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}}},
     {"name": "history", "description": "List optional bounded trusted-base history", "inputSchema": {"type": "object", "additionalProperties": False, "properties": {"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}}},
@@ -730,7 +904,12 @@ def line_in_ranges(line: int, ranges: list[list[int]]) -> bool:
     return any(start <= line <= end for start, end in ranges)
 
 
-def validate_output_document(output: Any, manifest: dict[str, Any], changed: list[dict[str, Any]]) -> dict[str, Any]:
+def validate_output_document(
+    output: Any,
+    manifest: dict[str, Any],
+    changed: list[dict[str, Any]],
+    audited_coverage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not isinstance(output, dict):
         raise ReviewError("review output must be a JSON object")
     top_fields = {
@@ -793,10 +972,18 @@ def validate_output_document(output: Any, manifest: dict[str, Any], changed: lis
     if type(coverage.get("diff_complete")) is not bool:
         raise ReviewError("diff_complete must be a JSON boolean")
     validate_text("coverage.notes", coverage.get("notes"), 4_000, allow_empty=True)
+    if audited_coverage is not None:
+        for field in ("changed_files_reviewed", "changed_files_total", "diff_complete"):
+            if coverage[field] != audited_coverage[field]:
+                raise ReviewError(f"coverage.{field} does not match the retrieval audit")
+        if output["status"] == "complete" and not audited_coverage["complete"]:
+            raise ReviewError("complete output is not supported by audited retrieval")
     if output["status"] == "complete" and (
         coverage["changed_files_reviewed"] != coverage["changed_files_total"] or not coverage["diff_complete"]
     ):
         raise ReviewError("complete output must report complete coverage")
+    if output["status"] == "incomplete" and (output["inline_findings"] or output["general_findings"] or output["clean_review"]):
+        raise ReviewError("incomplete output cannot publish findings or claim a clean review")
 
     by_key: dict[tuple[str, str], tuple[dict[str, Any], int]] = {}
     for index, record in enumerate(changed):
@@ -859,7 +1046,8 @@ def validate_output(args: argparse.Namespace) -> None:
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)
     output = read_json(Path(args.output), max_bytes=MAX_OUTPUT_BYTES)
-    validated = validate_output_document(output, manifest, changed)
+    audited = retrieval_coverage(root, Path(args.audit).resolve())
+    validated = validate_output_document(output, manifest, changed, audited)
     write_json(Path(args.validated_output), validated)
     print(json.dumps({"status": validated["status"], "inline_findings": len(validated["inline_findings"])}))
 
@@ -946,14 +1134,36 @@ def fixed_result_body(output: dict[str, Any]) -> str:
     body = "\n\n".join(part for part in body_parts if part)
     if output["clean_review"]:
         body = "LGTM — no actionable findings were identified."
-    return body or "Review completed."
+    body = body or "Review completed."
+    if len(body.encode("utf-8")) > MAX_REVIEW_BODY_BYTES:
+        raise ReviewError("composed review body exceeds the GitHub comment limit")
+    return body
+
+
+def review_payload(output: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "commit_id": manifest["head_sha"],
+        "event": "COMMENT",
+        "body": fixed_result_body(output),
+        "comments": [
+            {"path": item["path"], "side": item["side"], "line": item["line"], "body": item["body"]}
+            for item in output["inline_findings"]
+        ] if output["status"] == "complete" else [],
+    }
+    if len(canonical_json(payload)) > MAX_REVIEW_PAYLOAD_BYTES:
+        raise ReviewError("composed review request exceeds the publication limit")
+    return payload
 
 
 def publish(args: argparse.Namespace) -> None:
     root = Path(args.context).resolve()
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)
-    output = validate_output_document(read_json(Path(args.output), max_bytes=MAX_OUTPUT_BYTES), manifest, changed)
+    audited = retrieval_coverage(root, Path(args.audit).resolve())
+    output = validate_output_document(
+        read_json(Path(args.output), max_bytes=MAX_OUTPUT_BYTES), manifest, changed, audited
+    )
+    payload = review_payload(output, manifest)  # Preflight every body and inline comment before authentication.
     api_url = args.api_url.rstrip("/")
     oidc_token = get_oidc_token()
     token = exchange_publisher_token(oidc_token)
@@ -968,40 +1178,38 @@ def publish(args: argparse.Namespace) -> None:
             )
             print(json.dumps({"published": "stale"}))
             return
-        if output["status"] == "complete":
-            for finding in output["inline_findings"]:
-                live_base, live_head = live_revision(api_url, manifest["repository"], manifest["pull_request"], token)
-                if live_base != manifest["base_sha"] or live_head != manifest["head_sha"]:
-                    github_request("POST", f"{api_url}/repos/{manifest['repository']}/issues/{manifest['pull_request']}/comments", token, {"body": "Review incomplete: the pull request revision changed before publication."})
-                    print(json.dumps({"published": "stale"}))
-                    return
-                payload = {
-                    "body": finding["body"],
-                    "commit_id": manifest["head_sha"],
-                    "path": finding["path"],
-                    "side": finding["side"],
-                    "line": finding["line"],
-                    "subject_type": "line",
-                }
-                github_request(
-                    "POST",
-                    f"{api_url}/repos/{manifest['repository']}/pulls/{manifest['pull_request']}/comments",
-                    token,
-                    payload,
-                )
-        # Check again immediately before the top-level result.
-        live_base, live_head = live_revision(api_url, manifest["repository"], manifest["pull_request"], token)
-        if live_base != manifest["base_sha"] or live_head != manifest["head_sha"]:
-            body = "Review incomplete: the pull request revision changed before publication."
-        else:
-            body = fixed_result_body(output)
         github_request(
             "POST",
-            f"{api_url}/repos/{manifest['repository']}/issues/{manifest['pull_request']}/comments",
+            f"{api_url}/repos/{manifest['repository']}/pulls/{manifest['pull_request']}/reviews",
             token,
-            {"body": body},
+            payload,
         )
         print(json.dumps({"published": "complete" if output["status"] == "complete" else "incomplete"}))
+    finally:
+        try:
+            github_request("DELETE", f"{api_url}/installation/token", token)
+        except ReviewError as error:
+            print(f"warning: publisher token revocation failed: {error}", file=sys.stderr)
+
+
+def publish_incomplete(args: argparse.Namespace) -> None:
+    repository = require_repository(args.repository)
+    if args.pr_number <= 0:
+        raise ReviewError("pr_number must be positive")
+    base_sha = require_sha("base_sha", args.base_sha)
+    head_sha = require_sha("head_sha", args.head_sha)
+    reason = validate_text("reason", args.reason, 1_000)
+    body = f"Review incomplete: {reason}"
+    if len(body.encode("utf-8")) > MAX_REVIEW_BODY_BYTES:
+        raise ReviewError("incomplete status exceeds the GitHub comment limit")
+    api_url = args.api_url.rstrip("/")
+    token = exchange_publisher_token(get_oidc_token())
+    try:
+        live_base, live_head = live_revision(api_url, repository, args.pr_number, token)
+        if live_base != base_sha or live_head != head_sha:
+            body = "Review incomplete: the pull request revision changed before publication."
+        github_request("POST", f"{api_url}/repos/{repository}/issues/{args.pr_number}/comments", token, {"body": body})
+        print(json.dumps({"published": "incomplete"}))
     finally:
         try:
             github_request("DELETE", f"{api_url}/installation/token", token)
@@ -1030,7 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
     retrieve.add_argument("--context", required=True)
     retrieve.add_argument("--audit", required=True)
     retrieve.add_argument(
-        "operation", choices=["metadata", "changed-files", "tree", "read", "search", "diff-hunks", "history"]
+        "operation", choices=["metadata", "changed-files", "governing-base", "tree", "read", "search", "diff", "trusted-base-read", "trusted-base-search", "coverage", "diff-hunks", "history"]
     )
     retrieve.add_argument("--snapshot", choices=["base", "head"])
     retrieve.add_argument("--path")
@@ -1048,14 +1256,25 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-output")
     validate.add_argument("--context", required=True)
     validate.add_argument("--output", required=True)
+    validate.add_argument("--audit", required=True)
     validate.add_argument("--validated-output", required=True)
     validate.set_defaults(func=validate_output)
 
     publisher = commands.add_parser("publish")
     publisher.add_argument("--context", required=True)
     publisher.add_argument("--output", required=True)
+    publisher.add_argument("--audit", required=True)
     publisher.add_argument("--api-url", default="https://api.github.com")
     publisher.set_defaults(func=publish)
+
+    incomplete = commands.add_parser("publish-incomplete")
+    incomplete.add_argument("--repository", required=True)
+    incomplete.add_argument("--pr-number", type=int, required=True)
+    incomplete.add_argument("--base-sha", required=True)
+    incomplete.add_argument("--head-sha", required=True)
+    incomplete.add_argument("--reason", required=True)
+    incomplete.add_argument("--api-url", default="https://api.github.com")
+    incomplete.set_defaults(func=publish_incomplete)
     return parser
 
 

@@ -1,5 +1,16 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-# Licensed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import importlib.util
 import io
@@ -29,11 +40,14 @@ class RepositoryFixture(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.name", "test")
         self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
         (self.repo / "kept.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
         (self.repo / "deleted.txt").write_text("old\n", encoding="utf-8")
         (self.repo / "binary.bin").write_bytes(b"old\x00bytes")
         (self.repo / "link").symlink_to("kept.txt")
         (self.repo / "changed-link").symlink_to("kept.txt")
+        (self.repo / "AGENTS.md").write_text("trusted instructions\n", encoding="utf-8")
+        (self.repo / "unchanged.py").write_text("unchanged definition\n", encoding="utf-8")
         self.git("add", "-A")
         self.git("commit", "-qm", "base")
         self.base = self.git("rev-parse", "HEAD").strip()
@@ -147,6 +161,27 @@ class RetrieverTests(RepositoryFixture):
         self.assertEqual(value["matches"][0]["path"], "renamed.txt")
 
 
+    def test_text_diff_trusted_base_and_audited_coverage(self):
+        json.loads(self.retrieve(operation="changed-files", limit=100))
+        diff = json.loads(self.retrieve(operation="diff", byte_limit=1_000_000))
+        self.assertIn("changed", diff["content"])
+        self.assertNotIn("encoding", diff)
+        governed = json.loads(self.retrieve(operation="governing-base", limit=100))
+        self.assertEqual(governed["entries"][0]["path"], "AGENTS.md")
+        value = json.loads(self.retrieve(operation="trusted-base-read", path="AGENTS.md", byte_limit=1024))
+        self.assertIn("trusted instructions", value["content"])
+        coverage = review_components.retrieval_coverage(self.context, self.context / "audit.jsonl")
+        self.assertTrue(coverage["diff_complete"])
+        self.assertTrue(coverage["changed_files_list_complete"])
+        self.assertTrue(coverage["governing_base_complete"])
+        self.assertTrue(coverage["complete"])
+
+    def test_trusted_base_search_includes_unchanged_source(self):
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="unchanged definition", limit=10))
+        self.assertEqual(value["matches"][0]["path"], "unchanged.py")
+
+
+
 class OutputTests(RepositoryFixture):
     def test_accepts_complete_clean_output(self):
         output, manifest, changed = self.output()
@@ -179,6 +214,20 @@ class OutputTests(RepositoryFixture):
             review_components.validate_output_document(output, manifest, changed)
 
 
+    def test_complete_output_requires_audited_retrieval(self):
+        output, manifest, changed = self.output()
+        incomplete = {"changed_files_reviewed": 0, "changed_files_total": len(changed), "diff_complete": False, "complete": False}
+        with self.assertRaisesRegex(review_components.ReviewError, "retrieval audit"):
+            review_components.validate_output_document(output, manifest, changed, incomplete)
+
+    def test_incomplete_output_cannot_carry_findings(self):
+        output, manifest, changed = self.output(status="incomplete", clean_review=False, failure_reason="budget")
+        output["general_findings"] = [{"severity": "medium", "category": "correctness", "body": "Partial"}]
+        with self.assertRaisesRegex(review_components.ReviewError, "incomplete output"):
+            review_components.validate_output_document(output, manifest, changed)
+
+
+
 class PublisherContractTests(unittest.TestCase):
     def test_exchange_masks_token(self):
         response = mock.MagicMock()
@@ -188,6 +237,23 @@ class PublisherContractTests(unittest.TestCase):
         self.assertEqual(token, "app-token")
         self.assertEqual(json.loads(urlopen.call_args.args[0].data), {"permissions": {"contents": "read", "pull_requests": "write", "issues": "write"}})
         printing.assert_called_with("::add-mask::app-token")
+
+
+    def test_review_payload_is_one_comment_review_request(self):
+        output = {"status": "complete", "summary": "Summary", "general_findings": [], "clean_review": False,
+                  "inline_findings": [{"path": "file.py", "side": "RIGHT", "line": 3, "body": "Fix"}]}
+        manifest = {"head_sha": "a" * 40}
+        self.assertEqual(review_components.review_payload(output, manifest), {
+            "commit_id": "a" * 40, "event": "COMMENT", "body": "Summary",
+            "comments": [{"path": "file.py", "side": "RIGHT", "line": 3, "body": "Fix"}],
+        })
+
+    def test_review_payload_preflight_rejects_oversized_body(self):
+        output = {"status": "complete", "summary": "x" * (review_components.MAX_REVIEW_BODY_BYTES + 1),
+                  "general_findings": [], "clean_review": False, "inline_findings": []}
+        with self.assertRaisesRegex(review_components.ReviewError, "comment limit"):
+            review_components.review_payload(output, {"head_sha": "a" * 40})
+
 
 
 if __name__ == "__main__":

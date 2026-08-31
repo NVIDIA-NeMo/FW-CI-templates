@@ -1,5 +1,16 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-# Licensed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import re
 import unittest
@@ -7,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
+FULL_HEADER = "Licensed under the Apache License, Version 2.0 (the \"License\")"
 
 
 class WorkflowBoundaryTests(unittest.TestCase):
@@ -19,6 +31,10 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertNotIn("id-token: write", value)
         self.assertNotIn("pull-requests: write", value)
         self.assertIn("show_full_output: false", value)
+        self.assertIn("--max-turns 128", value)
+        self.assertIn("governing_base", value)
+        self.assertIn("trusted_base_read", value)
+        self.assertIn("retrieval-audit.jsonl", value)
         self.assertIn("claude-code-action/base-action@536f2c32a39763739000b0e1ac69ca2647d97ce9", value)
 
     def test_publisher_has_no_model_or_checkout(self):
@@ -27,6 +43,7 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertNotIn("NVIDIA_INFERENCE", value)
         self.assertNotIn("claude-code-action", value)
         self.assertNotIn("actions/checkout", value)
+        self.assertIn("publish-incomplete", value)
 
     def test_third_party_actions_use_full_commit_ids(self):
         for path in WORKFLOWS.glob("_isolated_review_*.yml"):
@@ -36,13 +53,39 @@ class WorkflowBoundaryTests(unittest.TestCase):
                 reference = line.split("uses:", 1)[1].strip().split()[0]
                 self.assertRegex(reference, r"@[0-9a-f]{40}$", f"{path}: {reference}")
 
-    def test_reference_composition_allows_manual_fork_context(self):
+    def test_workflows_have_full_license_headers_and_budgets(self):
+        for name in ("_isolated_review_context.yml", "_isolated_review_analyze.yml", "_isolated_review_publish.yml"):
+            value = self.text(name)
+            self.assertIn(FULL_HEADER, value)
+            self.assertRegex(value, r"timeout-minutes: [1-9]")
+
+    def test_reference_composition_supports_manual_and_automatic_modes(self):
         value = self.text("_claude_review.yml")
-        self.assertNotIn("isCrossRepository", value)
-        self.assertNotIn("pull_request_target", value)
+        self.assertIn("review_mode", value)
+        self.assertIn("inputs.review_mode == 'manual'", value)
+        self.assertIn("inputs.review_mode == 'automatic'", value)
+        self.assertIn("concurrency:", value)
+        self.assertIn("cancel-in-progress: true", value)
+        self.assertIn("content=eyes", value)
+        self.assertIn("publish-incomplete", value)
+        self.assertNotIn("startsWith(github.event.comment.body", value)
+        self.assertIn("^[[0-9a-f]{40}$".replace("[[", "["), value)
+        self.assertIn("isCrossRepository", value)
         self.assertIn("_isolated_review_context.yml", value)
         self.assertIn("_isolated_review_analyze.yml", value)
         self.assertIn("_isolated_review_publish.yml", value)
+
+    def test_reference_prompt_is_tool_compatible_and_model_cannot_publish(self):
+        value = self.text("_isolated_review_analyze.yml")
+        self.assertIn("immutable pull-request snapshot", value)
+        self.assertIn("untrusted data", value)
+        self.assertIn("Return only the requested structured JSON", value)
+        self.assertNotIn("gh pr comment", value)
+        self.assertNotIn("github_inline_comment", value)
+        allowed = re.search(r'--allowedTools "([^"]+)"', value)
+        self.assertIsNotNone(allowed)
+        self.assertNotIn("Bash", allowed.group(1))
+        self.assertNotIn("Read", allowed.group(1))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,28 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 name: Claude Code Review
 on:
   workflow_call:
     inputs:
+      review_mode:
+        description: Review trigger mode (manual or automatic)
+        required: false
+        default: manual
+        type: string
       trigger_phrase:
-        description: Comment phrase that triggers the review
+        description: Exact normalized first-line command for manual review
         required: false
         default: /claude review
         type: string
@@ -13,67 +32,122 @@ on:
         default: aws/anthropic/bedrock-claude-opus-4-8
         type: string
       prompt:
-        description: Review prompt for Claude
+        description: Caller-owned repository review policy (not tool or publication instructions)
         required: true
         type: string
     secrets:
-      NVIDIA_INFERENCE_URL:
-        required: true
-      NVIDIA_INFERENCE_KEY:
-        required: true
+      NVIDIA_INFERENCE_URL: {required: true}
+      NVIDIA_INFERENCE_KEY: {required: true}
+
+concurrency:
+  group: isolated-claude-review-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
 
 jobs:
   authorize:
-    name: Authorize Claude review
+    name: Capture and authorize immutable review
     if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, inputs.trigger_phrase)
+      (inputs.review_mode == 'manual' && github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
+      (inputs.review_mode == 'automatic' && github.event_name == 'pull_request')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
+      issues: write
     outputs:
-      authorized: ${{ steps.permission.outputs.authorized }}
+      authorized: ${{ steps.pull_request.outputs.authorized }}
       base_sha: ${{ steps.pull_request.outputs.base_sha }}
       changed_files: ${{ steps.pull_request.outputs.changed_files }}
       head_sha: ${{ steps.pull_request.outputs.head_sha }}
       merge_base_sha: ${{ steps.pull_request.outputs.merge_base_sha }}
+      pull_request: ${{ steps.pull_request.outputs.pull_request }}
     env:
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_ID: ${{ github.event.comment.id }}
       GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
       REPO: ${{ github.repository }}
-      PR_NUMBER: ${{ github.event.issue.number }}
+      REVIEW_MODE: ${{ inputs.review_mode }}
+      TRIGGER_ACTOR: ${{ github.event.comment.user.login }}
+      TRIGGER_PHRASE: ${{ inputs.trigger_phrase }}
     steps:
-      - name: Check trigger actor permission
-        id: permission
-        env:
-          TRIGGER_ACTOR: ${{ github.event.comment.user.login }}
-        run: |
-          set -euo pipefail
-          permission=$(gh api "repos/$REPO/collaborators/$TRIGGER_ACTOR/permission" --jq .permission)
-          case "$permission" in
-            admin|maintain|write) echo "authorized=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "authorized=false" >> "$GITHUB_OUTPUT" ;;
-          esac
-
-      - name: Capture pull request revision
+      - name: Parse exact trigger and capture pull request revision
         id: pull_request
-        if: steps.permission.outputs.authorized == 'true'
         run: |
           set -euo pipefail
-          metadata=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json baseRefOid,changedFiles,headRefOid)
-          base_sha=$(jq -er '.baseRefOid | select(type == "string")' <<< "$metadata")
-          changed_files=$(jq -er '.changedFiles | select(type == "number") | tostring' <<< "$metadata")
-          head_sha=$(jq -er '.headRefOid | select(type == "string")' <<< "$metadata")
+          [[ "$REVIEW_MODE" == manual || "$REVIEW_MODE" == automatic ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          expected_head=""
+          if [[ "$REVIEW_MODE" == manual ]]; then
+            [[ -n "$TRIGGER_PHRASE" && "$TRIGGER_PHRASE" != *$'\n'* && "$TRIGGER_PHRASE" != *$'\r'* ]]
+            first_line=${COMMENT_BODY%%$'\n'*}
+            first_line=${first_line%$'\r'}
+            first_line=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$first_line")
+            if [[ "$first_line" == "$TRIGGER_PHRASE" ]]; then
+              :
+            elif [[ "$first_line" == "$TRIGGER_PHRASE "* ]]; then
+              expected_head=${first_line#"$TRIGGER_PHRASE "}
+              [[ "$expected_head" =~ ^[0-9a-f]{40}$ ]] || exit 0
+            else
+              exit 0
+            fi
+            permission=$(gh api "repos/$REPO/collaborators/$TRIGGER_ACTOR/permission" --jq .permission)
+            [[ "$permission" == admin || "$permission" == maintain || "$permission" == write ]] || exit 0
+          fi
+          metadata=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json baseRefOid,changedFiles,headRefOid,isCrossRepository)
+          base_sha=$(jq -er '.baseRefOid | select(type == "string")' <<<"$metadata")
+          changed_files=$(jq -er '.changedFiles | select(type == "number") | tostring' <<<"$metadata")
+          head_sha=$(jq -er '.headRefOid | select(type == "string")' <<<"$metadata")
+          cross_repository=$(jq -er '.isCrossRepository | select(type == "boolean")' <<<"$metadata")
           merge_base_sha=$(gh api "repos/$REPO/compare/$base_sha...$head_sha" --jq .merge_base_commit.sha)
           [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$merge_base_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$changed_files" =~ ^[0-9]+$ ]]
-          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
-          echo "changed_files=$changed_files" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-          echo "merge_base_sha=$merge_base_sha" >> "$GITHUB_OUTPUT"
+          [[ -z "$expected_head" || "$expected_head" == "$head_sha" ]]
+          {
+            echo "authorized=true"
+            echo "base_sha=$base_sha"
+            echo "changed_files=$changed_files"
+            echo "head_sha=$head_sha"
+            echo "merge_base_sha=$merge_base_sha"
+            echo "pull_request=$PR_NUMBER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Acknowledge accepted manual command
+        if: inputs.review_mode == 'manual' && steps.pull_request.outputs.authorized == 'true'
+        run: gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes >/dev/null
+
+  bootstrap:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+    steps:
+      - name: Checkout trusted component revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: components
+      - id: name
+        run: echo "artifact_name=isolated-review-tools-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+      - name: Upload trusted publisher tool
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          path: |
+            components/.github/actions/isolated-claude-review/review_components.py
+            components/.github/actions/isolated-claude-review/review-output-v1.schema.json
+          if-no-files-found: error
+          retention-days: 1
 
   context:
     needs: authorize
@@ -81,9 +155,9 @@ jobs:
     uses: ./.github/workflows/_isolated_review_context.yml
     with:
       repository: ${{ github.repository }}
-      pull_request: ${{ github.event.issue.number }}
+      pull_request: ${{ fromJSON(needs.authorize.outputs.pull_request) }}
       review_id: ${{ github.run_id }}-${{ github.run_attempt }}
-      review_mode: manual
+      review_mode: ${{ inputs.review_mode }}
       base_sha: ${{ needs.authorize.outputs.base_sha }}
       merge_base_sha: ${{ needs.authorize.outputs.merge_base_sha }}
       head_sha: ${{ needs.authorize.outputs.head_sha }}
@@ -91,21 +165,49 @@ jobs:
 
   analyze:
     needs: [authorize, context]
+    if: needs.authorize.outputs.authorized == 'true' && needs.context.result == 'success'
     uses: ./.github/workflows/_isolated_review_analyze.yml
     with:
       artifact_name: ${{ needs.context.outputs.artifact_name }}
       model: ${{ inputs.model }}
-      prompt: ${{ inputs.prompt }}
+      policy: ${{ inputs.prompt }}
     secrets:
       NVIDIA_INFERENCE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
       NVIDIA_INFERENCE_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}
 
   publish:
-    needs: [context, analyze]
-    concurrency:
-      group: claude-review-${{ github.repository }}-${{ github.event.issue.number }}
-      cancel-in-progress: true
+    needs: [authorize, bootstrap, context, analyze]
+    if: |
+      always() && needs.authorize.outputs.authorized == 'true' &&
+      needs.bootstrap.result == 'success' && needs.context.result == 'success' && needs.analyze.result == 'success'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
     uses: ./.github/workflows/_isolated_review_publish.yml
     with:
+      publication_mode: result
       context_artifact_name: ${{ needs.context.outputs.artifact_name }}
       result_artifact_name: ${{ needs.analyze.outputs.result_artifact_name }}
+      tool_artifact_name: ${{ needs.bootstrap.outputs.artifact_name }}
+
+  publish-incomplete:
+    needs: [authorize, bootstrap, context, analyze]
+    if: |
+      always() && needs.authorize.outputs.authorized == 'true' && needs.bootstrap.result == 'success' &&
+      (needs.context.result != 'success' || needs.analyze.result != 'success')
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: ./.github/workflows/_isolated_review_publish.yml
+    with:
+      publication_mode: incomplete
+      repository: ${{ github.repository }}
+      pull_request: ${{ fromJSON(needs.authorize.outputs.pull_request) }}
+      base_sha: ${{ needs.authorize.outputs.base_sha }}
+      head_sha: ${{ needs.authorize.outputs.head_sha }}
+      reason: context or analysis failed or exceeded its explicit budget
+      tool_artifact_name: ${{ needs.bootstrap.outputs.artifact_name }}

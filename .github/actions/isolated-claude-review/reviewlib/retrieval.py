@@ -16,8 +16,27 @@
 
 from __future__ import annotations
 
-from .contracts import *  # noqa: F403
+import argparse
+import json
+import sys
+import time
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
 from .context import validate_manifest
+from .contracts import (
+    MAX_FILE_BYTES,
+    RETRIEVER_MAX_BYTES,
+    RETRIEVER_MAX_CALLS,
+    RETRIEVER_MAX_RESULTS,
+    RETRIEVER_MAX_SECONDS,
+    SEARCH_UNAVAILABLE_SAMPLE_LIMIT,
+    RetrievalCoverage,
+    ReviewError,
+)
+from .utils import canonical_json, contained_path, normalize_repo_path, read_json
 
 @dataclass
 class RetrievalBudget:
@@ -232,9 +251,14 @@ def retriever(args: argparse.Namespace) -> None:
                 if not prefix or path == prefix.rstrip("/") or path.startswith(prefix)
             ]
             unavailable = [
-                {"path": path, "reason": info.get("reason", "unavailable")}
+                (path, str(info.get("reason") or "unavailable"))
                 for path, info in scope
                 if not isinstance(info, dict) or not info.get("available")
+            ]
+            unavailable_reasons = Counter(reason for _, reason in unavailable)
+            unavailable_sample = [
+                {"path": path, "reason": reason}
+                for path, reason in unavailable[:SEARCH_UNAVAILABLE_SAMPLE_LIMIT]
             ]
             searched = 0
             result_truncated = False
@@ -260,7 +284,9 @@ def retriever(args: argparse.Namespace) -> None:
                     "truncated": result_truncated,
                     "files_total": len(scope),
                     "files_searched": searched,
-                    "files_unavailable": unavailable,
+                    "files_unavailable_count": len(unavailable),
+                    "files_unavailable_by_reason": dict(sorted(unavailable_reasons.items())),
+                    "files_unavailable_sample": unavailable_sample,
                     "scope_complete": scope_complete,
                 },
                 len(matches),

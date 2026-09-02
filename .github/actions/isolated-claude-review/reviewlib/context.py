@@ -16,7 +16,39 @@
 
 from __future__ import annotations
 
-from .contracts import *  # noqa: F403
+import argparse
+import json
+import re
+from pathlib import Path, PurePosixPath
+from typing import Any, Iterable
+
+from .contracts import (
+    HUNK_RE,
+    MANIFEST_VERSION,
+    MAX_CHANGED_FILES,
+    MAX_CONTEXT_BYTES,
+    MAX_DIFF_BYTES,
+    MAX_DIFF_HUNKS,
+    MAX_FILE_BYTES,
+    MAX_TREE_ENTRIES,
+    ChangedFile,
+    ChangedStatus,
+    DiffHunk,
+    ReviewError,
+    SnapshotInfo,
+    TreeEntry,
+)
+from .utils import (
+    canonical_json,
+    contained_path,
+    git,
+    normalize_repo_path,
+    read_json,
+    require_repository,
+    require_sha,
+    sha256_bytes,
+    write_json,
+)
 
 def parse_ls_tree(repo: Path, sha: str, limit: int) -> tuple[dict[str, TreeEntry], bool]:
     raw = git(repo, "ls-tree", "-r", "-z", "-l", sha)
@@ -44,11 +76,11 @@ def parse_ls_tree(repo: Path, sha: str, limit: int) -> tuple[dict[str, TreeEntry
     return entries, truncated
 
 
-def parse_name_status(raw: bytes) -> list[ChangedFile]:
+def parse_name_status(raw: bytes) -> list[ChangedStatus]:
     fields = raw.split(b"\0")
     if fields and fields[-1] == b"":
         fields.pop()
-    changed: list[ChangedFile] = []
+    changed: list[ChangedStatus] = []
     index = 0
     while index < len(fields):
         status = fields[index].decode("ascii")
@@ -71,8 +103,8 @@ def parse_name_status(raw: bytes) -> list[ChangedFile]:
     return changed
 
 
-def parse_hunks(diff: bytes, changed: list[dict[str, Any]]) -> list[dict[str, int]]:
-    hunks: list[dict[str, int]] = []
+def parse_hunks(diff: bytes, changed: list[ChangedStatus]) -> list[DiffHunk]:
+    hunks: list[DiffHunk] = []
     file_index = -1
     for raw_line in diff.decode("utf-8", "replace").splitlines():
         if raw_line.startswith("diff --git "):
@@ -96,7 +128,7 @@ def parse_hunks(diff: bytes, changed: list[dict[str, Any]]) -> list[dict[str, in
     return hunks
 
 
-def ranges_for_file(hunks: Iterable[dict[str, int]], file_index: int, side: str) -> list[list[int]]:
+def ranges_for_file(hunks: Iterable[DiffHunk], file_index: int, side: str) -> list[list[int]]:
     result = []
     for hunk in hunks:
         if hunk["file_index"] != file_index:
@@ -129,10 +161,10 @@ def is_governing_base_path(path: str) -> bool:
 def resolve_trusted_symlink(
     repo: Path,
     path: str,
-    tree: dict[str, dict[str, Any]],
+    tree: dict[str, TreeEntry],
     *,
     max_depth: int = 8,
-) -> tuple[str, dict[str, Any], list[str]]:
+) -> tuple[str, TreeEntry, list[str]]:
     """Resolve only captured, relative symlinks without touching the filesystem."""
     current = normalize_repo_path(path)
     seen: set[str] = set()
@@ -350,7 +382,7 @@ def build_context(args: argparse.Namespace) -> None:
     for path in governing_paths:
         base_repository[path] = materialize_snapshot(repo, output, "trusted-base", path, base_tree[path], budget, tree=base_tree)
 
-    changed_records = []
+    changed_records: list[ChangedFile] = []
     for index, entry in enumerate(changed):
         old_path = entry["old_path"]
         new_path = entry["new_path"]

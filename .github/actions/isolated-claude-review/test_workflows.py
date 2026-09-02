@@ -92,25 +92,18 @@ class WorkflowBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr.decode())
 
-    def test_review_modules_are_focused_and_acyclic(self):
+    def test_review_modules_have_explicit_dependencies(self):
         component_root = ROOT / ".github/actions/isolated-claude-review"
-        wrapper = (component_root / "review_components.py").read_text()
-        self.assertLess(len(wrapper.splitlines()), 60)
-        dependencies = {
-            "contracts.py": [],
-            "context.py": ["contracts"],
-            "retrieval.py": ["contracts", "context"],
-            "mcp.py": ["contracts", "retrieval"],
-            "validation.py": ["contracts", "context", "retrieval"],
-            "publisher.py": ["contracts", "context", "validation"],
-            "cli.py": ["contracts", "context", "mcp", "publisher", "retrieval", "validation"],
-        }
-        for name, imports in dependencies.items():
-            text = (component_root / "reviewlib" / name).read_text()
-            for dependency in imports:
-                self.assertIn(f"from .{dependency} import", text)
-        self.assertNotIn("urllib", (component_root / "reviewlib/retrieval.py").read_text())
-        self.assertNotIn("subprocess", (component_root / "reviewlib/publisher.py").read_text())
+        self.assertLess(len((component_root / "review_components.py").read_text().splitlines()), 60)
+        for path in [component_root / "review_components.py", *(component_root / "reviewlib").glob("*.py")]:
+            self.assertNotIn("import *", path.read_text(), str(path))
+        contracts = (component_root / "reviewlib/contracts.py").read_text()
+        self.assertNotIn("import subprocess", contracts)
+        self.assertNotIn("import urllib", contracts)
+        self.assertIn("class ChangedFile", contracts)
+        self.assertIn("class ReviewOutput", contracts)
+        self.assertIn("from .utils import", (component_root / "reviewlib/context.py").read_text())
+        self.assertIn("from .contracts import (", (component_root / "reviewlib/retrieval.py").read_text())
 
     def test_reference_composition_supports_manual_and_automatic_modes(self):
         value = self.text("_claude_review.yml")

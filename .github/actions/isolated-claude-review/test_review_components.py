@@ -15,7 +15,6 @@
 import importlib.util
 import io
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -134,6 +133,7 @@ class ContextTests(RepositoryFixture):
             "tools/review_components.py",
             "tools/reviewlib/__init__.py",
             "tools/reviewlib/contracts.py",
+            "tools/reviewlib/utils.py",
             "tools/reviewlib/context.py",
             "tools/reviewlib/retrieval.py",
             "tools/reviewlib/mcp.py",
@@ -232,7 +232,9 @@ class RetrieverTests(RepositoryFixture):
         value = json.loads(self.retrieve(operation="trusted-base-search", path="unchanged.py", query="unchanged definition", limit=10))
         self.assertEqual(value["matches"][0]["path"], "unchanged.py")
         self.assertEqual(value["files_searched"], value["files_total"])
-        self.assertEqual(value["files_unavailable"], [])
+        self.assertEqual(value["files_unavailable_count"], 0)
+        self.assertEqual(value["files_unavailable_by_reason"], {})
+        self.assertEqual(value["files_unavailable_sample"], [])
         self.assertTrue(value["scope_complete"])
 
     def test_trusted_base_search_reports_unavailable_and_truncated_scope(self):
@@ -248,12 +250,37 @@ class RetrieverTests(RepositoryFixture):
         review_components.write_json(self.context / "manifest.json", manifest)
         value = json.loads(self.retrieve(operation="trusted-base-search", query="not present", limit=10))
         self.assertFalse(value["scope_complete"])
-        self.assertIn({"path": "binary.bin", "reason": "binary"}, value["files_unavailable"])
-        self.assertIn({"path": "missing.txt", "reason": "context_budget"}, value["files_unavailable"])
+        self.assertEqual(value["files_unavailable_count"], 2)
+        self.assertEqual(value["files_unavailable_by_reason"], {"binary": 1, "context_budget": 1})
+        self.assertIn({"path": "binary.bin", "reason": "binary"}, value["files_unavailable_sample"])
+        self.assertIn({"path": "missing.txt", "reason": "context_budget"}, value["files_unavailable_sample"])
         value = json.loads(self.retrieve(operation="trusted-base-search", query="trusted", limit=1))
         self.assertTrue(value["truncated"])
         self.assertFalse(value["scope_complete"])
 
+
+
+    def test_trusted_base_search_unavailable_metadata_is_bounded(self):
+        repository = json.loads((self.context / "base-repository.json").read_text())
+        for index in range(2_000):
+            repository[f"unavailable/{index:04d}-{'x' * 180}.txt"] = {
+                "available": False,
+                "reason": "context_budget",
+            }
+        review_components.write_json(self.context / "base-repository.json", repository)
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        manifest["artifacts"]["base-repository.json"] = review_components.sha256_bytes(
+            (self.context / "base-repository.json").read_bytes()
+        )
+        manifest.pop("context_digest")
+        manifest["context_digest"] = review_components.sha256_bytes(review_components.canonical_json(manifest))
+        review_components.write_json(self.context / "manifest.json", manifest)
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="absent", limit=10))
+        encoded = review_components.canonical_json(value)
+        self.assertEqual(value["files_unavailable_count"], 2_001)
+        self.assertEqual(len(value["files_unavailable_sample"]), 100)
+        self.assertLess(len(encoded), 64 * 1024)
+        self.assertFalse(value["scope_complete"])
 
 
 class OutputTests(RepositoryFixture):
@@ -306,7 +333,9 @@ class PublisherContractTests(unittest.TestCase):
     def test_exchange_masks_token(self):
         response = mock.MagicMock()
         response.__enter__.return_value.read.return_value = json.dumps({"token": "app-token"}).encode()
-        with mock.patch.object(review_components.urllib.request, "urlopen", return_value=response) as urlopen, mock.patch("builtins.print") as printing:
+        from reviewlib import publisher
+
+        with mock.patch.object(publisher.urllib.request, "urlopen", return_value=response) as urlopen, mock.patch("builtins.print") as printing:
             token = review_components.exchange_publisher_token("oidc")
         self.assertEqual(token, "app-token")
         self.assertEqual(json.loads(urlopen.call_args.args[0].data), {"permissions": {"contents": "read", "pull_requests": "write", "issues": "write"}})

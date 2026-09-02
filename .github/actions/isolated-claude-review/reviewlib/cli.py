@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
-from .contracts import *  # noqa: F403
+import argparse
+import sys
+
 from .context import build_context
+from .contracts import ReviewError
 from .mcp import mcp_server
 from .publisher import publish, publish_incomplete
 from .retrieval import retriever

@@ -16,9 +16,30 @@
 
 from __future__ import annotations
 
-from .contracts import *  # noqa: F403
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any
+
 from .context import validate_manifest
-from .validation import validate_output_data
+from .contracts import (
+    CLAUDE_OIDC_AUDIENCE,
+    CLAUDE_TOKEN_EXCHANGE_URL,
+    GITHUB_API_VERSION,
+    MAX_OUTPUT_BYTES,
+    MAX_REVIEW_BODY_BYTES,
+    MAX_REVIEW_PAYLOAD_BYTES,
+    ReviewError,
+    ReviewOutput,
+)
+from .retrieval import retrieval_coverage
+from .utils import canonical_json, read_json, require_repository, require_sha
+from .validation import validate_output_document, validate_text
 
 def github_request(method: str, url: str, token: str, payload: Any | None = None, *, timeout: int = 20) -> Any:
     headers = {
@@ -94,7 +115,7 @@ def live_revision(api_url: str, repository: str, pr_number: int, token: str) -> 
     )
 
 
-def fixed_result_body(output: dict[str, Any]) -> str:
+def fixed_result_body(output: ReviewOutput) -> str:
     if output["status"] == "incomplete":
         return f"Review incomplete: {output['failure_reason']}"
     body_parts = [output["summary"].strip()]
@@ -109,7 +130,7 @@ def fixed_result_body(output: dict[str, Any]) -> str:
     return body
 
 
-def review_payload(output: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+def review_payload(output: ReviewOutput, manifest: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "commit_id": manifest["head_sha"],
         "event": "COMMENT",

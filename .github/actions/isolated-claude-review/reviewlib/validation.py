@@ -16,9 +16,27 @@
 
 from __future__ import annotations
 
-from .contracts import *  # noqa: F403
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
 from .context import validate_manifest
+from .contracts import (
+    MAX_COMMENT_BODY_BYTES,
+    MAX_GENERAL_FINDINGS,
+    MAX_INLINE_FINDINGS,
+    MAX_OUTPUT_BYTES,
+    MAX_SUMMARY_BYTES,
+    SCHEMA_VERSION,
+    ChangedFile,
+    RetrievalCoverage,
+    ReviewError,
+    ReviewOutput,
+)
 from .retrieval import retrieval_coverage
+from .utils import normalize_repo_path, read_json, write_json
 
 def reject_unknown(value: dict[str, Any], allowed: set[str], location: str) -> None:
     unknown = set(value) - allowed
@@ -165,7 +183,7 @@ def validate_output_document(
     return output
 
 
-def validate_output_data(output: Any, manifest: dict[str, Any]) -> dict[str, Any]:
+def validate_output_data(output: Any, manifest: dict[str, Any]) -> ReviewOutput:
     root_value = manifest.get("_context_root")
     if not root_value:
         raise ReviewError("context root is unavailable")

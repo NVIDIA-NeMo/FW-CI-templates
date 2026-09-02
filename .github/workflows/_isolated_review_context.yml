@@ -1,0 +1,127 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Build isolated review context
+on:
+  workflow_call:
+    inputs:
+      repository: {required: true, type: string}
+      pull_request: {required: true, type: number}
+      review_id: {required: true, type: string}
+      review_mode: {required: true, type: string}
+      base_sha: {required: true, type: string}
+      merge_base_sha: {required: true, type: string}
+      head_sha: {required: true, type: string}
+      changed_files: {required: true, type: number}
+    outputs:
+      artifact_name:
+        value: ${{ jobs.context.outputs.artifact_name }}
+      context_digest:
+        value: ${{ jobs.context.outputs.context_digest }}
+
+jobs:
+  context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      artifact_name: ${{ steps.names.outputs.artifact_name }}
+      context_digest: ${{ steps.build.outputs.context_digest }}
+    steps:
+      - name: Validate captured revision
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          CHANGED_FILES: ${{ inputs.changed_files }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          MERGE_BASE_SHA: ${{ inputs.merge_base_sha }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$MERGE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CHANGED_FILES" =~ ^[0-9]+$ ]]
+          metadata=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")
+          [[ "$(jq -er '.base.sha | select(type == "string")' <<<"$metadata")" == "$BASE_SHA" ]]
+          [[ "$(jq -er '.head.sha | select(type == "string")' <<<"$metadata")" == "$HEAD_SHA" ]]
+          [[ "$(jq -er '.changed_files | select(type == "number")' <<<"$metadata")" == "$CHANGED_FILES" ]]
+          [[ "$(gh api "repos/$REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)" == "$MERGE_BASE_SHA" ]]
+
+      - name: Checkout trusted component revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: components
+
+      - name: Fetch exact Git objects
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          git init repository
+          git -C repository remote add origin "https://github.com/$REPOSITORY.git"
+          git -C repository fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Capture normalized metadata
+        env:
+          PR_NUMBER: ${{ inputs.pull_request }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --repo "$REPOSITORY" \
+            --json author,baseRefName,body,changedFiles,headLabel,headRepository,isCrossRepository,isDraft,labels,title \
+            --jq '{author: .author.login, base_ref: .baseRefName, body, changed_files: .changedFiles, draft: .isDraft, head_label: .headLabel, head_repository: .headRepository.nameWithOwner, is_cross_repository: .isCrossRepository, labels: [.labels[].name], title}' \
+            > metadata.json
+
+      - name: Build immutable review context
+        id: build
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          MERGE_BASE_SHA: ${{ inputs.merge_base_sha }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          REPOSITORY: ${{ inputs.repository }}
+          REVIEW_ID: ${{ inputs.review_id }}
+          REVIEW_MODE: ${{ inputs.review_mode }}
+        run: |
+          set -euo pipefail
+          python3 components/.github/actions/isolated-claude-review/review_components.py build-context \
+            --repository-dir repository --repository "$REPOSITORY" --pr-number "$PR_NUMBER" \
+            --review-id "$REVIEW_ID" --review-mode "$REVIEW_MODE" \
+            --base-sha "$BASE_SHA" --merge-base-sha "$MERGE_BASE_SHA" --head-sha "$HEAD_SHA" \
+            --metadata metadata.json --output review-context
+          echo "context_digest=$(jq -r .context_digest review-context/manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Name immutable artifact
+        id: names
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_ID: ${{ inputs.review_id }}
+        run: echo "artifact_name=isolated-review-context-${REVIEW_ID}-${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable context
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.artifact_name }}
+          path: review-context
+          if-no-files-found: error
+          retention-days: 1

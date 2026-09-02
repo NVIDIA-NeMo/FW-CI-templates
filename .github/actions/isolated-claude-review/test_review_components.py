@@ -1,0 +1,493 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import importlib.util
+import io
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+MODULE_PATH = Path(__file__).with_name("review_components.py")
+SPEC = importlib.util.spec_from_file_location("review_components", MODULE_PATH)
+review_components = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = review_components
+SPEC.loader.exec_module(review_components)
+
+
+class RepositoryFixture(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temporary.name) / "repository"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.name", "test")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
+        (self.repo / "kept.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
+        (self.repo / "deleted.txt").write_text("old\n", encoding="utf-8")
+        (self.repo / "binary.bin").write_bytes(b"old\x00bytes")
+        (self.repo / "link").symlink_to("kept.txt")
+        (self.repo / "changed-link").symlink_to("kept.txt")
+        (self.repo / "AGENTS.md").write_text("trusted instructions\n", encoding="utf-8")
+        (self.repo / "CLAUDE.md").symlink_to("AGENTS.md")
+        (self.repo / "unchanged.py").write_text("unchanged definition\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        (self.repo / "kept.txt").write_text("one\nchanged\nthree\n", encoding="utf-8")
+        (self.repo / "deleted.txt").unlink()
+        (self.repo / "binary.bin").write_bytes(b"new\x00bytes")
+        (self.repo / "added.txt").write_text("new\n", encoding="utf-8")
+        (self.repo / "changed-link").unlink()
+        (self.repo / "changed-link").symlink_to("added.txt")
+        self.git("mv", "kept.txt", "renamed.txt")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "head")
+        self.head = self.git("rev-parse", "HEAD").strip()
+        self.metadata = Path(self.temporary.name) / "metadata.json"
+        self.metadata.write_text(json.dumps({
+            "author": "contributor", "title": "change", "body": "body",
+            "head_repository": "example/fork", "is_cross_repository": True,
+            "changed_files": 5,
+        }), encoding="utf-8")
+        self.context = Path(self.temporary.name) / "context"
+        self.build(self.context)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def git(self, *arguments, input=None):
+        return subprocess.check_output(["git", "-C", str(self.repo), *arguments], text=True, input=input)
+
+    def build(self, output, **overrides):
+        values = dict(
+            repository_dir=str(self.repo), repository="example/repository", pr_number=7,
+            review_id="review-1", review_mode="manual", base_sha=self.base,
+            merge_base_sha=self.base, head_sha=self.head, metadata=str(self.metadata),
+            output=str(output), max_files=500, max_diff_bytes=4_000_000,
+        )
+        values.update(overrides)
+        with redirect_stdout(io.StringIO()):
+            review_components.build_context(SimpleNamespace(**values))
+
+    def manifest(self):
+        return review_components.validate_manifest(self.context)
+
+    def output(self, **overrides):
+        manifest = self.manifest()
+        changed = json.loads((self.context / "changed-files.json").read_text())
+        value = {
+            "schema_version": review_components.SCHEMA_VERSION,
+            "repository": manifest["repository"], "pull_request": manifest["pull_request"],
+            "review_id": manifest["review_id"], "review_mode": manifest["review_mode"],
+            "base_sha": manifest["base_sha"], "merge_base_sha": manifest["merge_base_sha"],
+            "head_sha": manifest["head_sha"], "context_digest": manifest["context_digest"],
+            "status": "complete",
+            "coverage": {"changed_files_reviewed": len(changed), "changed_files_total": len(changed), "diff_complete": True, "notes": ""},
+            "inline_findings": [], "general_findings": [], "summary": "No findings.",
+            "clean_review": True,
+        }
+        value.update(overrides)
+        return value, manifest, changed
+
+
+class AnalyzerTests(RepositoryFixture):
+    def test_direct_analyzer_submits_structured_output_without_action_runtime(self):
+        output, manifest, _ = self.output()
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        destination = Path(self.temporary.name) / "analysis.json"
+        audit = self.context / "analysis-audit.jsonl"
+        response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "submit-1",
+                    "name": "submit_review",
+                    "input": output,
+                }
+            ]
+        }
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(audit),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(destination),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", return_value=response
+        ):
+            review_components.analyze(args)
+        self.assertEqual(json.loads(destination.read_text()), output)
+        self.assertEqual(manifest["head_sha"], output["head_sha"])
+
+    def test_direct_analyzer_services_audited_retrieval(self):
+        output, _, _ = self.output()
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        destination = Path(self.temporary.name) / "analysis.json"
+        audit = self.context / "analysis-audit.jsonl"
+        responses = [
+            {"content": [{"type": "tool_use", "id": "metadata-1", "name": "metadata", "input": {}}]},
+            {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "submit-1",
+                        "name": "submit_review",
+                        "input": output,
+                    }
+                ]
+            },
+        ]
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(audit),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(destination),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", side_effect=responses
+        ) as request:
+            review_components.analyze(args)
+        second_payload = request.call_args_list[1].args[2].copy()
+        second_messages = second_payload["messages"]
+        self.assertEqual(second_messages[-1]["role"], "user")
+        tool_result = second_messages[-1]["content"][0]
+        self.assertEqual(tool_result["type"], "tool_result")
+        self.assertEqual(json.loads(tool_result["content"])["head_sha"], self.head)
+        self.assertEqual(json.loads(audit.read_text().splitlines()[0])["operation"], "metadata")
+
+    def test_direct_analyzer_disables_cross_origin_redirects(self):
+        request = mock.MagicMock()
+        with mock.patch.object(review_components.analyzer.urllib.request, "Request", return_value=request), mock.patch.object(
+            review_components.analyzer.urllib.request, "build_opener"
+        ) as build_opener:
+            response = mock.MagicMock()
+            response.read.return_value = b'{"content":[]}'
+            response.__enter__.return_value = response
+            build_opener.return_value.open.return_value = response
+            value = review_components.analyzer._request(
+                "https://inference.example.invalid/base", "test-key", {"messages": []}
+            )
+        self.assertEqual(value, {"content": []})
+        self.assertIs(build_opener.call_args.args[0], review_components.analyzer._NoRedirect)
+        build_opener.return_value.open.assert_called_once_with(
+            request, timeout=review_components.analyzer.REQUEST_TIMEOUT_SECONDS
+        )
+
+    def test_direct_analyzer_rejects_non_https_and_userinfo_endpoints(self):
+        for value in (
+            "http://inference.example.invalid",
+            "https://user@inference.example.invalid",
+            "https://user:password@inference.example.invalid",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                review_components.ReviewError, "credential-free HTTPS authority"
+            ):
+                review_components.analyzer._request(value, "test-key", {"messages": []})
+
+    def test_direct_analyzer_rejects_non_tool_final_response(self):
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(self.context / "analysis-audit.jsonl"),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(Path(self.temporary.name) / "analysis.json"),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", return_value={"content": [{"type": "text", "text": "done"}]}
+        ), self.assertRaisesRegex(review_components.ReviewError, "neither retrieved context nor submitted"):
+            review_components.analyze(args)
+
+
+class ContextTests(RepositoryFixture):
+    def test_captures_revisions_metadata_and_special_objects(self):
+        manifest = self.manifest()
+        metadata = json.loads((self.context / "metadata.json").read_text())
+        changed = json.loads((self.context / "changed-files.json").read_text())
+        self.assertEqual((manifest["base_sha"], manifest["merge_base_sha"], manifest["head_sha"]), (self.base, self.base, self.head))
+        self.assertTrue(metadata["is_cross_repository"])
+        records = {record["new_path"] or record["old_path"]: record for record in changed}
+        self.assertEqual(records["binary.bin"]["head"]["reason"], "binary")
+        self.assertEqual(records["changed-link"]["base"]["reason"], "symlink")
+
+    def test_rejects_incorrect_merge_base(self):
+        with self.assertRaisesRegex(review_components.ReviewError, "MERGE_BASE_SHA"):
+            self.build(Path(self.temporary.name) / "bad", base_sha=self.head)
+
+    def test_rejects_large_context(self):
+        with self.assertRaisesRegex(review_components.ReviewError, "limits"):
+            self.build(Path(self.temporary.name) / "large", max_files=1)
+
+    def test_context_tools_package_is_self_contained_and_digested(self):
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        implementation = [
+            "tools/review_components.py",
+            "tools/reviewlib/__init__.py",
+            "tools/reviewlib/contracts.py",
+            "tools/reviewlib/utils.py",
+            "tools/reviewlib/context.py",
+            "tools/reviewlib/retrieval.py",
+            "tools/reviewlib/mcp.py",
+            "tools/reviewlib/analyzer.py",
+            "tools/reviewlib/validation.py",
+            "tools/reviewlib/publisher.py",
+            "tools/reviewlib/cli.py",
+        ]
+        for path in implementation:
+            self.assertIn(path, manifest["artifacts"])
+            self.assertTrue((self.context / path).is_file())
+        result = subprocess.run(
+            [sys.executable, str(self.context / "tools/review_components.py"), "--help"],
+            cwd=self.context,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+    def test_context_tampering_is_rejected(self):
+        (self.context / "review.diff").write_text("changed", encoding="utf-8")
+        with self.assertRaisesRegex(review_components.ReviewError, "digest"):
+            review_components.validate_manifest(self.context)
+
+
+class RetrieverTests(RepositoryFixture):
+    def retrieve(self, **overrides):
+        values = dict(context=str(self.context), audit=str(self.context / "audit.jsonl"), operation="changed-files", snapshot=None, path=None, query=None, offset=0, limit=100, byte_limit=65536)
+        values.update(overrides)
+        with mock.patch.object(sys, "stdout", mock.MagicMock()) as stdout:
+            stdout.buffer = io.BytesIO()
+            review_components.retriever(SimpleNamespace(**values))
+            return stdout.buffer.getvalue()
+
+    def test_changed_files_are_paginated_and_audited(self):
+        value = json.loads(self.retrieve(limit=2))
+        self.assertEqual(len(value["entries"]), 2)
+        self.assertTrue((self.context / "audit.jsonl").is_file())
+
+    def test_traversal_is_rejected(self):
+        with self.assertRaises(review_components.ReviewError):
+            self.retrieve(operation="read", snapshot="head", path="../outside")
+
+    def test_symlink_and_binary_are_not_retrievable(self):
+        for snapshot, path in (("base", "link"), ("head", "binary.bin")):
+            with self.assertRaises(review_components.ReviewError):
+                self.retrieve(operation="read", snapshot=snapshot, path=path)
+
+    def test_search_is_literal_and_bounded(self):
+        value = json.loads(self.retrieve(operation="search", snapshot="head", query="changed", limit=2))
+        self.assertEqual(value["matches"][0]["path"], "renamed.txt")
+
+
+    def test_text_diff_trusted_base_and_audited_coverage(self):
+        json.loads(self.retrieve(operation="changed-files", limit=100))
+        diff = json.loads(self.retrieve(operation="diff", byte_limit=1_000_000))
+        self.assertIn("changed", diff["content"])
+        self.assertNotIn("encoding", diff)
+        governed = json.loads(self.retrieve(operation="governing-base", limit=100))
+        self.assertEqual(governed["entries"][0]["path"], "AGENTS.md")
+        value = json.loads(self.retrieve(operation="trusted-base-read", path="AGENTS.md", byte_limit=1024))
+        self.assertIn("trusted instructions", value["content"])
+        alias = json.loads(self.retrieve(operation="trusted-base-read", path="CLAUDE.md", byte_limit=1024))
+        self.assertEqual(alias["content"], value["content"])
+        coverage = review_components.retrieval_coverage(self.context, self.context / "audit.jsonl")
+        self.assertTrue(coverage["diff_complete"])
+        self.assertTrue(coverage["changed_files_list_complete"])
+        self.assertTrue(coverage["governing_base_complete"])
+        self.assertTrue(coverage["complete"])
+
+
+    def test_trusted_symlink_rejects_escape_cycle_and_depth(self):
+        tree = {
+            "escape": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="../../outside").strip(), "size": 13},
+        }
+        with self.assertRaisesRegex(review_components.ReviewError, "escapes"):
+            review_components.resolve_trusted_symlink(self.repo, "escape", tree)
+        tree = {
+            "a": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="b").strip(), "size": 1},
+            "b": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="a").strip(), "size": 1},
+        }
+        with self.assertRaisesRegex(review_components.ReviewError, "cycle"):
+            review_components.resolve_trusted_symlink(self.repo, "a", tree)
+        oid = self.git("hash-object", "-w", "--stdin", input="next").strip()
+        tree = {f"p{i}": {"mode": "120000", "type": "blob", "oid": oid, "size": 4} for i in range(10)}
+        # Build a real bounded chain with distinct target blobs.
+        tree = {}
+        for i in range(10):
+            target = f"p{i + 1}" if i < 9 else "target"
+            tree[f"p{i}"] = {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input=target).strip(), "size": len(target)}
+        tree["target"] = {"mode": "100644", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="content").strip(), "size": 7}
+        with self.assertRaisesRegex(review_components.ReviewError, "depth"):
+            review_components.resolve_trusted_symlink(self.repo, "p0", tree, max_depth=8)
+
+    def test_trusted_base_search_reports_complete_scope(self):
+        value = json.loads(self.retrieve(operation="trusted-base-search", path="unchanged.py", query="unchanged definition", limit=10))
+        self.assertEqual(value["matches"][0]["path"], "unchanged.py")
+        self.assertEqual(value["files_searched"], value["files_total"])
+        self.assertEqual(value["files_unavailable_count"], 0)
+        self.assertEqual(value["files_unavailable_by_reason"], {})
+        self.assertEqual(value["files_unavailable_sample"], [])
+        self.assertTrue(value["scope_complete"])
+
+    def test_trusted_base_search_reports_unavailable_and_truncated_scope(self):
+        repository = json.loads((self.context / "base-repository.json").read_text())
+        repository["missing.txt"] = {"available": False, "reason": "context_budget"}
+        review_components.write_json(self.context / "base-repository.json", repository)
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        manifest["artifacts"]["base-repository.json"] = review_components.sha256_bytes(
+            (self.context / "base-repository.json").read_bytes()
+        )
+        manifest.pop("context_digest")
+        manifest["context_digest"] = review_components.sha256_bytes(review_components.canonical_json(manifest))
+        review_components.write_json(self.context / "manifest.json", manifest)
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="not present", limit=10))
+        self.assertFalse(value["scope_complete"])
+        self.assertEqual(value["files_unavailable_count"], 2)
+        self.assertEqual(value["files_unavailable_by_reason"], {"binary": 1, "context_budget": 1})
+        self.assertIn({"path": "binary.bin", "reason": "binary"}, value["files_unavailable_sample"])
+        self.assertIn({"path": "missing.txt", "reason": "context_budget"}, value["files_unavailable_sample"])
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="trusted", limit=1))
+        self.assertTrue(value["truncated"])
+        self.assertFalse(value["scope_complete"])
+
+
+
+    def test_trusted_base_search_unavailable_metadata_is_bounded(self):
+        repository = json.loads((self.context / "base-repository.json").read_text())
+        for index in range(2_000):
+            repository[f"unavailable/{index:04d}-{'x' * 180}.txt"] = {
+                "available": False,
+                "reason": "context_budget",
+            }
+        review_components.write_json(self.context / "base-repository.json", repository)
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        manifest["artifacts"]["base-repository.json"] = review_components.sha256_bytes(
+            (self.context / "base-repository.json").read_bytes()
+        )
+        manifest.pop("context_digest")
+        manifest["context_digest"] = review_components.sha256_bytes(review_components.canonical_json(manifest))
+        review_components.write_json(self.context / "manifest.json", manifest)
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="absent", limit=10))
+        encoded = review_components.canonical_json(value)
+        self.assertEqual(value["files_unavailable_count"], 2_001)
+        self.assertEqual(len(value["files_unavailable_sample"]), 100)
+        self.assertLess(len(encoded), 64 * 1024)
+        self.assertFalse(value["scope_complete"])
+
+
+class OutputTests(RepositoryFixture):
+    def test_accepts_complete_clean_output(self):
+        output, manifest, changed = self.output()
+        self.assertIs(review_components.validate_output_document(output, manifest, changed), output)
+
+    def test_rejects_unknown_field_and_incomplete_coverage(self):
+        output, manifest, changed = self.output(unexpected=True)
+        with self.assertRaises(review_components.ReviewError):
+            review_components.validate_output_document(output, manifest, changed)
+        output, manifest, changed = self.output()
+        output["coverage"]["changed_files_reviewed"] = 0
+        with self.assertRaises(review_components.ReviewError):
+            review_components.validate_output_document(output, manifest, changed)
+
+    def test_validates_deletion_side_and_lines(self):
+        output, manifest, changed = self.output()
+        output["inline_findings"] = [{"path": "deleted.txt", "side": "LEFT", "line": 1, "severity": "medium", "category": "correctness", "body": "Finding"}]
+        output["clean_review"] = False
+        review_components.validate_output_document(output, manifest, changed)
+        output["inline_findings"][0]["line"] = 999
+        with self.assertRaises(review_components.ReviewError):
+            review_components.validate_output_document(output, manifest, changed)
+
+    def test_rejects_duplicate_and_oversized_findings(self):
+        output, manifest, changed = self.output()
+        finding = {"path": "deleted.txt", "side": "LEFT", "line": 1, "severity": "medium", "category": "correctness", "body": "Finding"}
+        output["inline_findings"] = [finding, finding]
+        output["clean_review"] = False
+        with self.assertRaises(review_components.ReviewError):
+            review_components.validate_output_document(output, manifest, changed)
+
+
+    def test_complete_output_requires_audited_retrieval(self):
+        output, manifest, changed = self.output()
+        incomplete = {"changed_files_reviewed": 0, "changed_files_total": len(changed), "diff_complete": False, "complete": False}
+        with self.assertRaisesRegex(review_components.ReviewError, "retrieval audit"):
+            review_components.validate_output_document(output, manifest, changed, incomplete)
+
+    def test_incomplete_output_cannot_carry_findings(self):
+        output, manifest, changed = self.output(status="incomplete", clean_review=False, failure_reason="budget")
+        output["general_findings"] = [{"severity": "medium", "category": "correctness", "body": "Partial"}]
+        with self.assertRaisesRegex(review_components.ReviewError, "incomplete output"):
+            review_components.validate_output_document(output, manifest, changed)
+
+
+
+class PublisherContractTests(unittest.TestCase):
+    def test_exchange_masks_token(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({"token": "app-token"}).encode()
+        from reviewlib import publisher
+
+        with mock.patch.object(publisher.urllib.request, "urlopen", return_value=response) as urlopen, mock.patch("builtins.print") as printing:
+            token = review_components.exchange_publisher_token("oidc")
+        self.assertEqual(token, "app-token")
+        self.assertEqual(json.loads(urlopen.call_args.args[0].data), {"permissions": {"contents": "read", "pull_requests": "write", "issues": "write"}})
+        printing.assert_called_with("::add-mask::app-token")
+
+
+    def test_review_payload_is_one_comment_review_request(self):
+        output = {"status": "complete", "summary": "Summary", "general_findings": [], "clean_review": False,
+                  "inline_findings": [{"path": "file.py", "side": "RIGHT", "line": 3, "body": "Fix"}]}
+        manifest = {"head_sha": "a" * 40}
+        self.assertEqual(review_components.review_payload(output, manifest), {
+            "commit_id": "a" * 40, "event": "COMMENT", "body": "Summary",
+            "comments": [{"path": "file.py", "side": "RIGHT", "line": 3, "body": "Fix"}],
+        })
+
+    def test_review_payload_preflight_rejects_oversized_body(self):
+        output = {"status": "complete", "summary": "x" * (review_components.MAX_REVIEW_BODY_BYTES + 1),
+                  "general_findings": [], "clean_review": False, "inline_findings": []}
+        with self.assertRaisesRegex(review_components.ReviewError, "comment limit"):
+            review_components.review_payload(output, {"head_sha": "a" * 40})
+
+
+
+if __name__ == "__main__":
+    unittest.main()

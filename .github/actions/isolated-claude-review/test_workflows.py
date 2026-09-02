@@ -13,6 +13,10 @@
 # limitations under the License.
 
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -58,6 +62,55 @@ class WorkflowBoundaryTests(unittest.TestCase):
             value = self.text(name)
             self.assertIn(FULL_HEADER, value)
             self.assertRegex(value, r"timeout-minutes: [1-9]")
+
+
+    def test_trusted_tool_artifact_round_trip_layout_is_executable(self):
+        composition = self.text("_claude_review.yml")
+        publisher = self.text("_isolated_review_publish.yml")
+        self.assertIn("mkdir trusted-tools", composition)
+        self.assertIn("cp components/.github/actions/isolated-claude-review/review_components.py trusted-tools/", composition)
+        self.assertIn("cp -R components/.github/actions/isolated-claude-review/reviewlib trusted-tools/", composition)
+        self.assertIn("path: trusted-tools", composition)
+        self.assertIn("python3 trusted-tools/review_components.py publish", publisher)
+        self.assertNotIn("trusted-tools/components/.github", publisher)
+
+        component_root = ROOT / ".github/actions/isolated-claude-review"
+        with tempfile.TemporaryDirectory() as directory:
+            staging = Path(directory) / "staging"
+            download = Path(directory) / "download" / "trusted-tools"
+            staging.mkdir()
+            shutil.copy2(component_root / "review_components.py", staging)
+            shutil.copy2(component_root / "review-output-v1.schema.json", staging)
+            shutil.copytree(component_root / "reviewlib", staging / "reviewlib")
+            shutil.copytree(staging, download)
+            result = subprocess.run(
+                [sys.executable, str(download / "review_components.py"), "--help"],
+                cwd=download.parent,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+    def test_review_modules_are_focused_and_acyclic(self):
+        component_root = ROOT / ".github/actions/isolated-claude-review"
+        wrapper = (component_root / "review_components.py").read_text()
+        self.assertLess(len(wrapper.splitlines()), 60)
+        dependencies = {
+            "contracts.py": [],
+            "context.py": ["contracts"],
+            "retrieval.py": ["contracts", "context"],
+            "mcp.py": ["contracts", "retrieval"],
+            "validation.py": ["contracts", "context", "retrieval"],
+            "publisher.py": ["contracts", "context", "validation"],
+            "cli.py": ["contracts", "context", "mcp", "publisher", "retrieval", "validation"],
+        }
+        for name, imports in dependencies.items():
+            text = (component_root / "reviewlib" / name).read_text()
+            for dependency in imports:
+                self.assertIn(f"from .{dependency} import", text)
+        self.assertNotIn("urllib", (component_root / "reviewlib/retrieval.py").read_text())
+        self.assertNotIn("subprocess", (component_root / "reviewlib/publisher.py").read_text())
 
     def test_reference_composition_supports_manual_and_automatic_modes(self):
         value = self.text("_claude_review.yml")

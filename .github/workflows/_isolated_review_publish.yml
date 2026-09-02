@@ -63,7 +63,7 @@ jobs:
         if: inputs.publication_mode == 'result'
         run: |
           set -euo pipefail
-          python3 trusted-tools/components/.github/actions/isolated-claude-review/review_components.py publish \
+          python3 trusted-tools/review_components.py publish \
             --context review-context --audit review-result/retrieval-audit.jsonl \
             --output review-result/validated-review-output.json
 
@@ -77,6 +77,6 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
         run: |
           set -euo pipefail
-          python3 trusted-tools/components/.github/actions/isolated-claude-review/review_components.py publish-incomplete \
+          python3 trusted-tools/review_components.py publish-incomplete \
             --repository "$REPOSITORY" --pr-number "$PR_NUMBER" --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" --reason "$REASON"

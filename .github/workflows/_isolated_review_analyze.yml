@@ -63,6 +63,8 @@ jobs:
              including AGENTS.md, CLAUDE.md, CONTRIBUTING.md, CODEOWNERS, and skills/*/SKILL.md.
           5. Use trusted_base_read and trusted_base_search as needed for unchanged definitions,
              callers, tests, and performance configurations. Use read/search for changed snapshots.
+             A search with scope_complete=false is partial evidence: do not infer absence from it;
+             narrow the scope or return status=incomplete if the missing scope affects the review.
           6. Call coverage. A complete result is allowed only when coverage.complete is true.
              Otherwise return status=incomplete, explain the missing coverage, publish no findings,
              and do not claim a clean review.

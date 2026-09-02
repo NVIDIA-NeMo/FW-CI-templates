@@ -47,6 +47,7 @@ class RepositoryFixture(unittest.TestCase):
         (self.repo / "link").symlink_to("kept.txt")
         (self.repo / "changed-link").symlink_to("kept.txt")
         (self.repo / "AGENTS.md").write_text("trusted instructions\n", encoding="utf-8")
+        (self.repo / "CLAUDE.md").symlink_to("AGENTS.md")
         (self.repo / "unchanged.py").write_text("unchanged definition\n", encoding="utf-8")
         self.git("add", "-A")
         self.git("commit", "-qm", "base")
@@ -73,8 +74,8 @@ class RepositoryFixture(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def git(self, *arguments):
-        return subprocess.check_output(["git", "-C", str(self.repo), *arguments], text=True)
+    def git(self, *arguments, input=None):
+        return subprocess.check_output(["git", "-C", str(self.repo), *arguments], text=True, input=input)
 
     def build(self, output, **overrides):
         values = dict(
@@ -127,6 +128,31 @@ class ContextTests(RepositoryFixture):
         with self.assertRaisesRegex(review_components.ReviewError, "limits"):
             self.build(Path(self.temporary.name) / "large", max_files=1)
 
+    def test_context_tools_package_is_self_contained_and_digested(self):
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        implementation = [
+            "tools/review_components.py",
+            "tools/reviewlib/__init__.py",
+            "tools/reviewlib/contracts.py",
+            "tools/reviewlib/context.py",
+            "tools/reviewlib/retrieval.py",
+            "tools/reviewlib/mcp.py",
+            "tools/reviewlib/validation.py",
+            "tools/reviewlib/publisher.py",
+            "tools/reviewlib/cli.py",
+        ]
+        for path in implementation:
+            self.assertIn(path, manifest["artifacts"])
+            self.assertTrue((self.context / path).is_file())
+        result = subprocess.run(
+            [sys.executable, str(self.context / "tools/review_components.py"), "--help"],
+            cwd=self.context,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
     def test_context_tampering_is_rejected(self):
         (self.context / "review.diff").write_text("changed", encoding="utf-8")
         with self.assertRaisesRegex(review_components.ReviewError, "digest"):
@@ -170,15 +196,63 @@ class RetrieverTests(RepositoryFixture):
         self.assertEqual(governed["entries"][0]["path"], "AGENTS.md")
         value = json.loads(self.retrieve(operation="trusted-base-read", path="AGENTS.md", byte_limit=1024))
         self.assertIn("trusted instructions", value["content"])
+        alias = json.loads(self.retrieve(operation="trusted-base-read", path="CLAUDE.md", byte_limit=1024))
+        self.assertEqual(alias["content"], value["content"])
         coverage = review_components.retrieval_coverage(self.context, self.context / "audit.jsonl")
         self.assertTrue(coverage["diff_complete"])
         self.assertTrue(coverage["changed_files_list_complete"])
         self.assertTrue(coverage["governing_base_complete"])
         self.assertTrue(coverage["complete"])
 
-    def test_trusted_base_search_includes_unchanged_source(self):
-        value = json.loads(self.retrieve(operation="trusted-base-search", query="unchanged definition", limit=10))
+
+    def test_trusted_symlink_rejects_escape_cycle_and_depth(self):
+        tree = {
+            "escape": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="../../outside").strip(), "size": 13},
+        }
+        with self.assertRaisesRegex(review_components.ReviewError, "escapes"):
+            review_components.resolve_trusted_symlink(self.repo, "escape", tree)
+        tree = {
+            "a": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="b").strip(), "size": 1},
+            "b": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="a").strip(), "size": 1},
+        }
+        with self.assertRaisesRegex(review_components.ReviewError, "cycle"):
+            review_components.resolve_trusted_symlink(self.repo, "a", tree)
+        oid = self.git("hash-object", "-w", "--stdin", input="next").strip()
+        tree = {f"p{i}": {"mode": "120000", "type": "blob", "oid": oid, "size": 4} for i in range(10)}
+        # Build a real bounded chain with distinct target blobs.
+        tree = {}
+        for i in range(10):
+            target = f"p{i + 1}" if i < 9 else "target"
+            tree[f"p{i}"] = {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input=target).strip(), "size": len(target)}
+        tree["target"] = {"mode": "100644", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="content").strip(), "size": 7}
+        with self.assertRaisesRegex(review_components.ReviewError, "depth"):
+            review_components.resolve_trusted_symlink(self.repo, "p0", tree, max_depth=8)
+
+    def test_trusted_base_search_reports_complete_scope(self):
+        value = json.loads(self.retrieve(operation="trusted-base-search", path="unchanged.py", query="unchanged definition", limit=10))
         self.assertEqual(value["matches"][0]["path"], "unchanged.py")
+        self.assertEqual(value["files_searched"], value["files_total"])
+        self.assertEqual(value["files_unavailable"], [])
+        self.assertTrue(value["scope_complete"])
+
+    def test_trusted_base_search_reports_unavailable_and_truncated_scope(self):
+        repository = json.loads((self.context / "base-repository.json").read_text())
+        repository["missing.txt"] = {"available": False, "reason": "context_budget"}
+        review_components.write_json(self.context / "base-repository.json", repository)
+        manifest = json.loads((self.context / "manifest.json").read_text())
+        manifest["artifacts"]["base-repository.json"] = review_components.sha256_bytes(
+            (self.context / "base-repository.json").read_bytes()
+        )
+        manifest.pop("context_digest")
+        manifest["context_digest"] = review_components.sha256_bytes(review_components.canonical_json(manifest))
+        review_components.write_json(self.context / "manifest.json", manifest)
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="not present", limit=10))
+        self.assertFalse(value["scope_complete"])
+        self.assertIn({"path": "binary.bin", "reason": "binary"}, value["files_unavailable"])
+        self.assertIn({"path": "missing.txt", "reason": "context_budget"}, value["files_unavailable"])
+        value = json.loads(self.retrieve(operation="trusted-base-search", query="trusted", limit=1))
+        self.assertTrue(value["truncated"])
+        self.assertFalse(value["scope_complete"])
 
 
 

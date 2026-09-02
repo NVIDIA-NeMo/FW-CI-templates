@@ -139,13 +139,18 @@ jobs:
           path: components
       - id: name
         run: echo "artifact_name=isolated-review-tools-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
-      - name: Upload trusted publisher tool
+      - name: Stage trusted publisher tools
+        run: |
+          set -euo pipefail
+          mkdir trusted-tools
+          cp components/.github/actions/isolated-claude-review/review_components.py trusted-tools/
+          cp components/.github/actions/isolated-claude-review/review-output-v1.schema.json trusted-tools/
+          cp -R components/.github/actions/isolated-claude-review/reviewlib trusted-tools/
+      - name: Upload trusted publisher tools
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.name.outputs.artifact_name }}
-          path: |
-            components/.github/actions/isolated-claude-review/review_components.py
-            components/.github/actions/isolated-claude-review/review-output-v1.schema.json
+          path: trusted-tools
           if-no-files-found: error
           retention-days: 1
 

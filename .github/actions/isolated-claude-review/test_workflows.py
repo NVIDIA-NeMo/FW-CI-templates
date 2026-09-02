@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
 import shutil
 import subprocess
 import sys
@@ -34,12 +33,14 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertIn("permissions: {}", value)
         self.assertNotIn("id-token: write", value)
         self.assertNotIn("pull-requests: write", value)
-        self.assertIn("show_full_output: false", value)
+        self.assertNotIn("claude-code-action", value)
+        self.assertNotIn("uses: anthropics/", value)
+        self.assertIn("review_components.py analyze", value)
         self.assertIn("--max-turns 128", value)
         self.assertIn("governing_base", value)
         self.assertIn("trusted_base_read", value)
         self.assertIn("retrieval-audit.jsonl", value)
-        self.assertIn("claude-code-action/base-action@536f2c32a39763739000b0e1ac69ca2647d97ce9", value)
+        self.assertIn("ANTHROPIC_API_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}", value)
 
     def test_publisher_has_no_model_or_checkout(self):
         value = self.text("_isolated_review_publish.yml")
@@ -128,10 +129,8 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertIn("Return only the requested structured JSON", value)
         self.assertNotIn("gh pr comment", value)
         self.assertNotIn("github_inline_comment", value)
-        allowed = re.search(r'--allowedTools "([^"]+)"', value)
-        self.assertIsNotNone(allowed)
-        self.assertNotIn("Bash", allowed.group(1))
-        self.assertNotIn("Read", allowed.group(1))
+        self.assertNotIn("--allowedTools", value)
+        self.assertNotIn("Bash", value)
 
 
 if __name__ == "__main__":

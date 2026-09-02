@@ -74,34 +74,29 @@ jobs:
           CALLER-OWNED REVIEW POLICY (trusted workflow input):
           PROMPT
           printf '%s\n' "$CONSUMER_POLICY" >> analysis-input/prompt.txt
-          cat > analysis-input/mcp.json <<'JSON'
-          {"mcpServers":{"review_context":{"command":"python3","args":["review-context/tools/review_components.py","mcp-server","--context","review-context","--audit","review-context/retrieval-audit.jsonl"]}}}
-          JSON
-
       - name: Run schema-constrained analysis
         id: analyze
-        uses: anthropics/claude-code-action/base-action@536f2c32a39763739000b0e1ac69ca2647d97ce9 # v1.0.170
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.NVIDIA_INFERENCE_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
+          ANTHROPIC_MODEL: ${{ inputs.model }}
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
           DISABLE_PROMPT_CACHING: "1"
-        with:
-          anthropic_api_key: ${{ secrets.NVIDIA_INFERENCE_KEY }}
-          show_full_output: false
-          prompt_file: analysis-input/prompt.txt
-          claude_args: |
-            --model "${{ inputs.model }}"
-            --max-turns 128
-            --mcp-config "analysis-input/mcp.json"
-            --allowedTools "mcp__review_context__metadata,mcp__review_context__changed_files,mcp__review_context__governing_base,mcp__review_context__tree,mcp__review_context__read,mcp__review_context__search,mcp__review_context__diff,mcp__review_context__trusted_base_read,mcp__review_context__trusted_base_search,mcp__review_context__coverage,mcp__review_context__diff_hunks,mcp__review_context__history"
-            --json-schema "$(cat review-context/tools/review-output-v1.schema.json)"
-
-      - name: Validate structured result against retrieval audit
-        env:
-          STRUCTURED_OUTPUT: ${{ steps.analyze.outputs.structured_output }}
         run: |
           set -euo pipefail
-          printf '%s' "$STRUCTURED_OUTPUT" > review-output.json
+          python3 review-context/tools/review_components.py analyze \
+            --context review-context \
+            --audit review-context/retrieval-audit.jsonl \
+            --prompt analysis-input/prompt.txt \
+            --schema review-context/tools/review-output-v1.schema.json \
+            --output review-output.json \
+            --base-url "$ANTHROPIC_BASE_URL" \
+            --model "$ANTHROPIC_MODEL" \
+            --max-turns 128
+
+      - name: Validate structured result against retrieval audit
+        run: |
+          set -euo pipefail
           python3 review-context/tools/review_components.py validate-output \
             --context review-context --audit review-context/retrieval-audit.jsonl \
             --output review-output.json --validated-output validated-review-output.json

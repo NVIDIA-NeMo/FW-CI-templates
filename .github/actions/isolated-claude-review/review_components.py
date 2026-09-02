@@ -24,6 +24,8 @@ _TOOL_ROOT = Path(__file__).resolve().parent
 if str(_TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOL_ROOT))
 
+from reviewlib import analyzer  # noqa: E402,F401
+from reviewlib.analyzer import analyze  # noqa: E402,F401
 from reviewlib.cli import main  # noqa: E402,F401
 from reviewlib.context import build_context, resolve_trusted_symlink, validate_manifest  # noqa: E402,F401
 from reviewlib.contracts import MAX_REVIEW_BODY_BYTES, SCHEMA_VERSION, ReviewError  # noqa: E402,F401

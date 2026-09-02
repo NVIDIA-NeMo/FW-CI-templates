@@ -108,6 +108,135 @@ class RepositoryFixture(unittest.TestCase):
         return value, manifest, changed
 
 
+class AnalyzerTests(RepositoryFixture):
+    def test_direct_analyzer_submits_structured_output_without_action_runtime(self):
+        output, manifest, _ = self.output()
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        destination = Path(self.temporary.name) / "analysis.json"
+        audit = self.context / "analysis-audit.jsonl"
+        response = {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "submit-1",
+                    "name": "submit_review",
+                    "input": output,
+                }
+            ]
+        }
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(audit),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(destination),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", return_value=response
+        ):
+            review_components.analyze(args)
+        self.assertEqual(json.loads(destination.read_text()), output)
+        self.assertEqual(manifest["head_sha"], output["head_sha"])
+
+    def test_direct_analyzer_services_audited_retrieval(self):
+        output, _, _ = self.output()
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        destination = Path(self.temporary.name) / "analysis.json"
+        audit = self.context / "analysis-audit.jsonl"
+        responses = [
+            {"content": [{"type": "tool_use", "id": "metadata-1", "name": "metadata", "input": {}}]},
+            {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "submit-1",
+                        "name": "submit_review",
+                        "input": output,
+                    }
+                ]
+            },
+        ]
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(audit),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(destination),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", side_effect=responses
+        ) as request:
+            review_components.analyze(args)
+        second_payload = request.call_args_list[1].args[2].copy()
+        second_messages = second_payload["messages"]
+        self.assertEqual(second_messages[-1]["role"], "user")
+        tool_result = second_messages[-1]["content"][0]
+        self.assertEqual(tool_result["type"], "tool_result")
+        self.assertEqual(json.loads(tool_result["content"])["head_sha"], self.head)
+        self.assertEqual(json.loads(audit.read_text().splitlines()[0])["operation"], "metadata")
+
+    def test_direct_analyzer_disables_cross_origin_redirects(self):
+        request = mock.MagicMock()
+        with mock.patch.object(review_components.analyzer.urllib.request, "Request", return_value=request), mock.patch.object(
+            review_components.analyzer.urllib.request, "build_opener"
+        ) as build_opener:
+            response = mock.MagicMock()
+            response.read.return_value = b'{"content":[]}'
+            response.__enter__.return_value = response
+            build_opener.return_value.open.return_value = response
+            value = review_components.analyzer._request(
+                "https://inference.example.invalid/base", "test-key", {"messages": []}
+            )
+        self.assertEqual(value, {"content": []})
+        self.assertIs(build_opener.call_args.args[0], review_components.analyzer._NoRedirect)
+        build_opener.return_value.open.assert_called_once_with(
+            request, timeout=review_components.analyzer.REQUEST_TIMEOUT_SECONDS
+        )
+
+    def test_direct_analyzer_rejects_non_https_and_userinfo_endpoints(self):
+        for value in (
+            "http://inference.example.invalid",
+            "https://user@inference.example.invalid",
+            "https://user:password@inference.example.invalid",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                review_components.ReviewError, "credential-free HTTPS authority"
+            ):
+                review_components.analyzer._request(value, "test-key", {"messages": []})
+
+    def test_direct_analyzer_rejects_non_tool_final_response(self):
+        schema = Path(self.temporary.name) / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        prompt = Path(self.temporary.name) / "prompt.txt"
+        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
+        args = SimpleNamespace(
+            context=str(self.context),
+            audit=str(self.context / "analysis-audit.jsonl"),
+            prompt=str(prompt),
+            schema=str(schema),
+            output=str(Path(self.temporary.name) / "analysis.json"),
+            base_url="https://inference.example.invalid",
+            model="aws/anthropic/bedrock-claude-opus-4-8",
+            max_turns=2,
+        )
+        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
+            review_components.analyzer, "_request", return_value={"content": [{"type": "text", "text": "done"}]}
+        ), self.assertRaisesRegex(review_components.ReviewError, "neither retrieved context nor submitted"):
+            review_components.analyze(args)
+
+
 class ContextTests(RepositoryFixture):
     def test_captures_revisions_metadata_and_special_objects(self):
         manifest = self.manifest()
@@ -137,6 +266,7 @@ class ContextTests(RepositoryFixture):
             "tools/reviewlib/context.py",
             "tools/reviewlib/retrieval.py",
             "tools/reviewlib/mcp.py",
+            "tools/reviewlib/analyzer.py",
             "tools/reviewlib/validation.py",
             "tools/reviewlib/publisher.py",
             "tools/reviewlib/cli.py",

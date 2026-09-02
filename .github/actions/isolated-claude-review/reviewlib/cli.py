@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .analyzer import analyze
 from .context import build_context
 from .contracts import ReviewError
 from .mcp import mcp_server
@@ -47,7 +48,21 @@ def build_parser() -> argparse.ArgumentParser:
     retrieve.add_argument("--context", required=True)
     retrieve.add_argument("--audit", required=True)
     retrieve.add_argument(
-        "operation", choices=["metadata", "changed-files", "governing-base", "tree", "read", "search", "diff", "trusted-base-read", "trusted-base-search", "coverage", "diff-hunks", "history"]
+        "operation",
+        choices=[
+            "metadata",
+            "changed-files",
+            "governing-base",
+            "tree",
+            "read",
+            "search",
+            "diff",
+            "trusted-base-read",
+            "trusted-base-search",
+            "coverage",
+            "diff-hunks",
+            "history",
+        ],
     )
     retrieve.add_argument("--snapshot", choices=["base", "head"])
     retrieve.add_argument("--path")
@@ -56,6 +71,17 @@ def build_parser() -> argparse.ArgumentParser:
     retrieve.add_argument("--limit", type=int, default=100)
     retrieve.add_argument("--byte-limit", type=int, default=64 * 1024)
     retrieve.set_defaults(func=retriever)
+
+    analyze_command = commands.add_parser("analyze")
+    analyze_command.add_argument("--context", required=True)
+    analyze_command.add_argument("--audit", required=True)
+    analyze_command.add_argument("--prompt", required=True)
+    analyze_command.add_argument("--schema", required=True)
+    analyze_command.add_argument("--output", required=True)
+    analyze_command.add_argument("--base-url", required=True)
+    analyze_command.add_argument("--model", required=True)
+    analyze_command.add_argument("--max-turns", type=int, default=128)
+    analyze_command.set_defaults(func=analyze)
 
     mcp = commands.add_parser("mcp-server")
     mcp.add_argument("--context", required=True)

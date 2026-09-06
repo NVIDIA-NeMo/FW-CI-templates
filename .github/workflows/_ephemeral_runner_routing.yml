@@ -34,6 +34,9 @@ on:
         required: true
         type: string
     outputs:
+      runner_label_base:
+        description: "Resolved runner label without the run attempt suffix"
+        value: ${{ jobs.resolve.outputs.runner_label_base }}
       runner_label:
         description: "Resolved runner label"
         value: ${{ jobs.resolve.outputs.runner_label }}
@@ -51,6 +54,7 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
+      runner_label_base: ${{ steps.route.outputs.runner_label_base }}
       runner_label: ${{ steps.route.outputs.runner_label }}
       legacy_cleanup_required: ${{ steps.route.outputs.legacy_cleanup_required }}
     steps:
@@ -105,11 +109,13 @@ jobs:
 
           case "$LANE" in
             "")
+              runner_label_base=$LEGACY_LABEL
               runner_label=$LEGACY_LABEL
               legacy_cleanup_required=true
               ;;
             ephemeral-v2)
-              runner_label="${route_prefix}-p${REPOSITORY_ID}-r${RUN_ID}-a${RUN_ATTEMPT}"
+              runner_label_base="${route_prefix}-p${REPOSITORY_ID}-r${RUN_ID}"
+              runner_label="${runner_label_base}-a${RUN_ATTEMPT}"
               legacy_cleanup_required=false
               ;;
             *)
@@ -118,5 +124,6 @@ jobs:
               ;;
           esac
 
+          printf 'runner_label_base=%s\n' "$runner_label_base" >> "$GITHUB_OUTPUT"
           printf 'runner_label=%s\n' "$runner_label" >> "$GITHUB_OUTPUT"
           printf 'legacy_cleanup_required=%s\n' "$legacy_cleanup_required" >> "$GITHUB_OUTPUT"

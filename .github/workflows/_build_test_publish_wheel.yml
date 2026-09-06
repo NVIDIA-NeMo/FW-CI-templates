@@ -166,6 +166,10 @@ jobs:
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
+      - name: Install uv
+        if: inputs.packaging == 'uv'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
       - name: Build wheel
         id: build
         env:
@@ -185,9 +189,6 @@ jobs:
 
           # Install the package to import and check the version in a later step
           if [[ "$PACKAGING" == "uv" ]]; then
-            # Install uv
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH="$HOME/.local/bin:$PATH"
             uv venv --system-site-packages .venv
             source .venv/bin/activate
             if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
@@ -296,12 +297,13 @@ jobs:
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
+      - name: Install uv
+        if: inputs.packaging == 'uv'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
       - name: Install wheel
         run: |
           if [[ "$PACKAGING" == "uv" ]]; then
-            # Install uv
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-
             # Create and activate virtual environment
             uv venv .venv
             source .venv/bin/activate

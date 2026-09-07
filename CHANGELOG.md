@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.1...v1.9.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* expose attempt-independent runner label base ([#567](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/567)) ([2f35537](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2f3553721a14d3ba6b48d72383b7c39224c6539a))
+
 ## [1.9.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.0...v1.9.1) (2026-08-27)
 
 

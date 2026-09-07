@@ -19,7 +19,7 @@ These components separate immutable pull-request context, bounded analysis, and 
 ## Reference workflows
 
 - `_isolated_review_context.yml` constructs the public, immutable context artifact.
-- `_isolated_review_analyze.yml` runs schema-constrained model analysis without GitHub/OIDC permission or publication tools. Its repository-owned Python client sends only the prompt, bounded audited tool results, schema, and model identifier to the configured HTTPS inference endpoint; it does not execute a third-party action or general-purpose model tool runtime.
+- `_isolated_review_analyze.yml` runs a full-SHA-pinned Claude Code Base Action without GitHub/OIDC permission, a proposed-code checkout, or publication tools. The action starts in an empty trusted directory, disables project/local settings and built-in shell, filesystem, web, and mutation tools, and exposes only the bounded audited `review_context` MCP server. Only the validated schema-constrained result and retrieval audit are uploaded; the execution transcript is not published.
 - `_isolated_review_publish.yml` validates and publishes without model access or a proposed-code checkout.
 - `_claude_review.yml` is the Megatron-Bridge-compatible manual/automatic composition with exact manual command parsing, acknowledgment, profile-aware whole-run concurrency, and explicit budgets.
 

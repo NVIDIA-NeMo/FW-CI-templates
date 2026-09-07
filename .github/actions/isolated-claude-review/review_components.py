@@ -24,10 +24,13 @@ _TOOL_ROOT = Path(__file__).resolve().parent
 if str(_TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOL_ROOT))
 
-from reviewlib import analyzer  # noqa: E402,F401
-from reviewlib.analyzer import analyze  # noqa: E402,F401
 from reviewlib.cli import main  # noqa: E402,F401
-from reviewlib.context import build_context, resolve_trusted_symlink, validate_manifest  # noqa: E402,F401
+from reviewlib.context import (  # noqa: E402,F401
+    build_context,
+    is_governing_base_path,
+    resolve_trusted_symlink,
+    validate_manifest,
+)
 from reviewlib.contracts import MAX_REVIEW_BODY_BYTES, SCHEMA_VERSION, ReviewError  # noqa: E402,F401
 from reviewlib.publisher import exchange_publisher_token, review_payload  # noqa: E402,F401
 from reviewlib.retrieval import retrieval_coverage, retriever  # noqa: E402,F401

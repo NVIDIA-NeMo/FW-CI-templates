@@ -134,145 +134,6 @@ class RepositoryFixture(unittest.TestCase):
         return value, manifest, changed
 
 
-class AnalyzerTests(RepositoryFixture):
-    """Test the credential-minimal analyzer loop directly."""
-    def test_direct_analyzer_submits_structured_output_without_action_runtime(self):
-        """Verify that direct analyzer submits structured output without action runtime.
-        """
-        output, manifest, _ = self.output()
-        schema = Path(self.temporary.name) / "schema.json"
-        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
-        prompt = Path(self.temporary.name) / "prompt.txt"
-        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
-        destination = Path(self.temporary.name) / "analysis.json"
-        audit = self.context / "analysis-audit.jsonl"
-        response = {
-            "content": [
-                {
-                    "type": "tool_use",
-                    "id": "submit-1",
-                    "name": "submit_review",
-                    "input": output,
-                }
-            ]
-        }
-        args = SimpleNamespace(
-            context=str(self.context),
-            audit=str(audit),
-            prompt=str(prompt),
-            schema=str(schema),
-            output=str(destination),
-            base_url="https://inference.example.invalid",
-            model="aws/anthropic/bedrock-claude-opus-4-8",
-            max_turns=2,
-        )
-        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
-            review_components.analyzer, "_request", return_value=response
-        ):
-            review_components.analyze(args)
-        self.assertEqual(json.loads(destination.read_text()), output)
-        self.assertEqual(manifest["head_sha"], output["head_sha"])
-
-    def test_direct_analyzer_services_audited_retrieval(self):
-        """Verify that direct analyzer services audited retrieval.
-        """
-        output, _, _ = self.output()
-        schema = Path(self.temporary.name) / "schema.json"
-        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
-        prompt = Path(self.temporary.name) / "prompt.txt"
-        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
-        destination = Path(self.temporary.name) / "analysis.json"
-        audit = self.context / "analysis-audit.jsonl"
-        responses = [
-            {"content": [{"type": "tool_use", "id": "metadata-1", "name": "metadata", "input": {}}]},
-            {
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": "submit-1",
-                        "name": "submit_review",
-                        "input": output,
-                    }
-                ]
-            },
-        ]
-        args = SimpleNamespace(
-            context=str(self.context),
-            audit=str(audit),
-            prompt=str(prompt),
-            schema=str(schema),
-            output=str(destination),
-            base_url="https://inference.example.invalid",
-            model="aws/anthropic/bedrock-claude-opus-4-8",
-            max_turns=2,
-        )
-        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
-            review_components.analyzer, "_request", side_effect=responses
-        ) as request:
-            review_components.analyze(args)
-        second_payload = request.call_args_list[1].args[2].copy()
-        second_messages = second_payload["messages"]
-        self.assertEqual(second_messages[-1]["role"], "user")
-        tool_result = second_messages[-1]["content"][0]
-        self.assertEqual(tool_result["type"], "tool_result")
-        self.assertEqual(json.loads(tool_result["content"])["head_sha"], self.head)
-        self.assertEqual(json.loads(audit.read_text().splitlines()[0])["operation"], "metadata")
-
-    def test_direct_analyzer_disables_cross_origin_redirects(self):
-        """Verify that direct analyzer disables cross origin redirects.
-        """
-        request = mock.MagicMock()
-        with mock.patch.object(review_components.analyzer.urllib.request, "Request", return_value=request), mock.patch.object(
-            review_components.analyzer.urllib.request, "build_opener"
-        ) as build_opener:
-            response = mock.MagicMock()
-            response.read.return_value = b'{"content":[]}'
-            response.__enter__.return_value = response
-            build_opener.return_value.open.return_value = response
-            value = review_components.analyzer._request(
-                "https://inference.example.invalid/base", "test-key", {"messages": []}
-            )
-        self.assertEqual(value, {"content": []})
-        self.assertIs(build_opener.call_args.args[0], review_components.analyzer._NoRedirect)
-        build_opener.return_value.open.assert_called_once_with(
-            request, timeout=review_components.analyzer.REQUEST_TIMEOUT_SECONDS
-        )
-
-    def test_direct_analyzer_rejects_non_https_and_userinfo_endpoints(self):
-        """Verify that direct analyzer rejects non https and userinfo endpoints.
-        """
-        for value in (
-            "http://inference.example.invalid",
-            "https://user@inference.example.invalid",
-            "https://user:password@inference.example.invalid",  # pragma: allowlist secret
-        ):
-            with self.subTest(value=value), self.assertRaisesRegex(
-                review_components.ReviewError, "credential-free HTTPS authority"
-            ):
-                review_components.analyzer._request(value, "test-key", {"messages": []})
-
-    def test_direct_analyzer_rejects_non_tool_final_response(self):
-        """Verify that direct analyzer rejects non tool final response.
-        """
-        schema = Path(self.temporary.name) / "schema.json"
-        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
-        prompt = Path(self.temporary.name) / "prompt.txt"
-        prompt.write_text("Review only through bounded tools.", encoding="utf-8")
-        args = SimpleNamespace(
-            context=str(self.context),
-            audit=str(self.context / "analysis-audit.jsonl"),
-            prompt=str(prompt),
-            schema=str(schema),
-            output=str(Path(self.temporary.name) / "analysis.json"),
-            base_url="https://inference.example.invalid",
-            model="aws/anthropic/bedrock-claude-opus-4-8",
-            max_turns=2,
-        )
-        with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}), mock.patch.object(
-            review_components.analyzer, "_request", return_value={"content": [{"type": "text", "text": "done"}]}
-        ), self.assertRaisesRegex(review_components.ReviewError, "neither retrieved context nor submitted"):
-            review_components.analyze(args)
-
 
 class ContextTests(RepositoryFixture):
     """Test immutable context construction and validation directly."""
@@ -300,6 +161,28 @@ class ContextTests(RepositoryFixture):
         with self.assertRaisesRegex(review_components.ReviewError, "limits"):
             self.build(Path(self.temporary.name) / "large", max_files=1)
 
+    def test_governing_paths_use_only_explicit_base_instruction_names(self):
+        """Verify only approved BASE_SHA instructions can govern a review."""
+        approved = (
+            "AGENTS.md",
+            "docs/CLAUDE.md",
+            ".github/CODEOWNERS",
+            "CONTRIBUTING.md",
+            "skills/security/SKILL.md",
+        )
+        rejected = (
+            ".github/copilot-instructions.md",
+            ".github/instructions.md",
+            ".claude/review/SKILL.md",
+            "skills/security/README.md",
+        )
+        for candidate in approved:
+            with self.subTest(candidate=candidate):
+                self.assertTrue(review_components.is_governing_base_path(candidate))
+        for candidate in rejected:
+            with self.subTest(candidate=candidate):
+                self.assertFalse(review_components.is_governing_base_path(candidate))
+
     def test_context_tools_package_is_self_contained_and_digested(self):
         """Verify that context tools package is self contained and digested.
         """
@@ -312,7 +195,6 @@ class ContextTests(RepositoryFixture):
             "tools/reviewlib/context.py",
             "tools/reviewlib/retrieval.py",
             "tools/reviewlib/mcp.py",
-            "tools/reviewlib/analyzer.py",
             "tools/reviewlib/validation.py",
             "tools/reviewlib/publisher.py",
             "tools/reviewlib/cli.py",
@@ -541,6 +423,84 @@ class OutputTests(RepositoryFixture):
         output["general_findings"] = [{"severity": "medium", "category": "correctness", "body": "Partial"}]
         with self.assertRaisesRegex(review_components.ReviewError, "incomplete output"):
             review_components.validate_output_document(output, manifest, changed)
+
+
+
+class WorkflowIsolationTests(RepositoryFixture):
+    """Test Base Action isolation and authorization workflow contracts."""
+
+    @staticmethod
+    def workflow(name):
+        """Read one repository workflow as trusted test input.
+
+        Args:
+            name: Workflow file name under ``.github/workflows``.
+
+        Returns:
+            Complete UTF-8 workflow text.
+        """
+        return (Path(__file__).resolve().parents[2] / "workflows" / name).read_text(encoding="utf-8")
+
+    def test_base_action_is_pinned_and_exposes_only_review_context_tools(self):
+        """Verify the Base Action receives only the bounded review MCP surface."""
+        value = self.workflow("_isolated_review_analyze.yml")
+        self.assertIn(
+            "uses: anthropics/claude-code-base-action@646b4a772085257c35182cd167bdd6b3b1017675",
+            value,
+        )
+        self.assertIn("permissions: {}", value)
+        self.assertIn("--mcp-config", value)
+        self.assertIn('"mcpServers":{"review_context"', value)
+        for tool in (
+            "Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task"
+        ):
+            self.assertIn(tool, value.split("--disallowedTools", 1)[1])
+            self.assertNotIn(f"mcp__review_context__{tool}", value)
+        self.assertIn("--setting-sources user", value)
+        self.assertIn('plugins: ""', value)
+        self.assertIn('plugin_marketplaces: ""', value)
+        self.assertIn("show_full_output: false", value)
+
+    def test_base_action_workdir_excludes_context_and_proposed_instructions(self):
+        """Verify model configuration is separated from every captured PR snapshot."""
+        value = self.workflow("_isolated_review_analyze.yml")
+        self.assertIn('action_workdir="$RUNNER_TEMP/claude-analysis"', value)
+        self.assertIn('context_dir="$RUNNER_TEMP/review-context"', value)
+        self.assertIn('test -z "$(find "$action_workdir" -mindepth 1 -print -quit)"', value)
+        self.assertIn("CLAUDE_WORKING_DIR: ${{ runner.temp }}/claude-analysis", value)
+        self.assertNotIn("CLAUDE_WORKING_DIR: ${{ github.workspace }}", value)
+        self.assertNotIn("path: pr-head", value)
+        self.assertNotIn("actions/checkout", value)
+        self.assertNotIn("--add-dir", value)
+
+    def test_unauthorized_triggers_cannot_reach_analysis(self):
+        """Verify exact command, permission, and revision checks gate analysis."""
+        value = self.workflow("_claude_review.yml")
+        self.assertIn("needs.authorize.outputs.authorized == 'true'", value)
+        self.assertIn('"$first_line" == "$TRIGGER_PHRASE"', value)
+        self.assertIn('"$permission" == admin', value)
+        self.assertIn('"$permission" == maintain', value)
+        self.assertIn('"$permission" == write', value)
+        self.assertIn('"$expected_head" == "$head_sha"', value)
+        self.assertIn('"$cross_repository" == false', value)
+        analyze_job = value.split("  analyze:\n", 1)[1].split("\n  publish:\n", 1)[0]
+        self.assertIn("needs: [authorize, context]", analyze_job)
+        self.assertIn("needs.authorize.outputs.authorized == 'true'", analyze_job)
+
+    def test_invalid_structured_output_blocks_result_upload(self):
+        """Verify validation is the mandatory predecessor of artifact upload."""
+        value = self.workflow("_isolated_review_analyze.yml")
+        write_index = value.index("- name: Write schema-constrained result")
+        validate_index = value.index("- name: Validate structured result against retrieval audit")
+        upload_index = value.index("- name: Upload validated result and audit")
+        self.assertLess(write_index, validate_index)
+        self.assertLess(validate_index, upload_index)
+        upload = value[upload_index:]
+        upload_paths = upload.split("path: |", 1)[1].split("if-no-files-found:", 1)[0]
+        self.assertIn("validated-review-output.json", upload_paths)
+        self.assertIn("retrieval-audit.jsonl", upload_paths)
+        self.assertNotIn("\n            review-output.json\n", upload_paths)
+        self.assertNotIn("execution_file", value)
 
 
 

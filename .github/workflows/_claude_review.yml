@@ -110,6 +110,7 @@ jobs:
           [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$merge_base_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$changed_files" =~ ^[0-9]+$ ]]
+          [[ "$cross_repository" == false ]]
           [[ -z "$expected_head" || "$expected_head" == "$head_sha" ]]
           {
             echo "authorized=true"

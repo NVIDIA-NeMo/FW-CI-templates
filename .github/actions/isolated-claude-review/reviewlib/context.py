@@ -207,9 +207,7 @@ def is_governing_base_path(path: str) -> bool:
     name = parts[-1].lower() if parts else ""
     if name in {"agents.md", "claude.md", "codeowners", "contributing.md"}:
         return True
-    if path in {".github/copilot-instructions.md", ".github/instructions.md"}:
-        return True
-    return len(parts) >= 2 and parts[-1] == "SKILL.md" and ("skills" in parts or ".claude" in parts)
+    return len(parts) >= 2 and parts[-1] == "SKILL.md" and "skills" in parts
 
 
 def resolve_trusted_symlink(

@@ -42,6 +42,18 @@ from .utils import canonical_json, read_json, require_repository, require_sha
 from .validation import validate_output_document, validate_text
 
 def github_request(method: str, url: str, token: str, payload: Any | None = None, *, timeout: int = 20) -> Any:
+    """Send one bounded GitHub API request.
+
+    Args:
+        method: HTTP method for the request.
+        url: GitHub API URL.
+        token: Short-lived token used only for the API request.
+        payload: JSON request body, when the request has one.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Decoded JSON response, or None for an empty response.
+    """
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
@@ -64,6 +76,11 @@ def github_request(method: str, url: str, token: str, payload: Any | None = None
 
 
 def get_oidc_token() -> str:
+    """Request the publisher OIDC identity token.
+
+    Returns:
+        OIDC token value.
+    """
     request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
     request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
     if not request_url or not request_token:
@@ -85,6 +102,14 @@ def get_oidc_token() -> str:
 def exchange_publisher_token(oidc_token: str) -> str:
     # This is intentionally publisher-only. It mirrors the exact exchange used by the
     # reviewed Claude Code Action revision and is covered by mocked contract tests.
+    """Exchange an OIDC token for a short-lived publisher token.
+
+    Args:
+        oidc_token: OIDC identity token to exchange.
+
+    Returns:
+        Short-lived GitHub publisher token.
+    """
     request = urllib.request.Request(
         CLAUDE_TOKEN_EXCHANGE_URL,
         data=canonical_json({"permissions": {"contents": "read", "pull_requests": "write", "issues": "write"}}),
@@ -107,6 +132,17 @@ def exchange_publisher_token(oidc_token: str) -> str:
 
 
 def live_revision(api_url: str, repository: str, pr_number: int, token: str) -> tuple[str, str]:
+    """Read the current base and head revisions for a pull request.
+
+    Args:
+        api_url: Trusted GitHub API base URL.
+        repository: Canonical owner and repository name.
+        pr_number: Positive pull-request number.
+        token: Short-lived token used only for the API request.
+
+    Returns:
+        Current base and head commit identifiers.
+    """
     value = github_request("GET", f"{api_url}/repos/{repository}/pulls/{pr_number}", token)
     if not isinstance(value, dict):
         raise ReviewError("pull request response is not an object")
@@ -116,6 +152,14 @@ def live_revision(api_url: str, repository: str, pr_number: int, token: str) -> 
 
 
 def fixed_result_body(output: ReviewOutput) -> str:
+    """Render the bounded top-level review status body.
+
+    Args:
+        output: Validated structured review document.
+
+    Returns:
+        Bounded Markdown status body.
+    """
     if output["status"] == "incomplete":
         return f"Review incomplete: {output['failure_reason']}"
     body_parts = [output["summary"].strip()]
@@ -131,6 +175,15 @@ def fixed_result_body(output: ReviewOutput) -> str:
 
 
 def review_payload(output: ReviewOutput, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Build one preflighted GitHub review request.
+
+    Args:
+        output: Validated structured review document.
+        manifest: Validated immutable context manifest.
+
+    Returns:
+        GitHub COMMENT review request payload.
+    """
     payload = {
         "commit_id": manifest["head_sha"],
         "event": "COMMENT",
@@ -146,6 +199,11 @@ def review_payload(output: ReviewOutput, manifest: dict[str, Any]) -> dict[str, 
 
 
 def publish(args: argparse.Namespace) -> None:
+    """Validate and atomically publish a completed review.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     root = Path(args.context).resolve()
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)
@@ -183,6 +241,11 @@ def publish(args: argparse.Namespace) -> None:
 
 
 def publish_incomplete(args: argparse.Namespace) -> None:
+    """Publish a fixed incomplete-review status.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     repository = require_repository(args.repository)
     if args.pr_number <= 0:
         raise ReviewError("pr_number must be positive")

@@ -39,18 +39,45 @@ from .retrieval import retrieval_coverage
 from .utils import normalize_repo_path, read_json, write_json
 
 def reject_unknown(value: dict[str, Any], allowed: set[str], location: str) -> None:
+    """Reject object fields outside an explicit allowlist.
+
+    Args:
+        value: Value to serialize or validate.
+        allowed: Allowed object field names.
+        location: Human-readable location used in errors.
+    """
     unknown = set(value) - allowed
     if unknown:
         raise ReviewError(f"unknown fields at {location}: {sorted(unknown)}")
 
 
 def validate_text(name: str, value: Any, max_bytes: int, *, allow_empty: bool = False) -> str:
+    """Validate a bounded UTF-8 text field.
+
+    Args:
+        name: Field, command, or operation name.
+        value: Value to serialize or validate.
+        max_bytes: Maximum number of bytes accepted or returned.
+        allow_empty: Whether an empty string is accepted.
+
+    Returns:
+        Validated text value.
+    """
     if not isinstance(value, str) or (not allow_empty and not value) or len(value.encode("utf-8")) > max_bytes:
         raise ReviewError(f"{name} must be a bounded string")
     return value
 
 
 def line_in_ranges(line: int, ranges: list[list[int]]) -> bool:
+    """Check whether a line belongs to an immutable diff range.
+
+    Args:
+        line: Positive line number to check.
+        ranges: Inclusive line ranges from the immutable diff.
+
+    Returns:
+        True when the line is inside any range.
+    """
     return any(start <= line <= end for start, end in ranges)
 
 
@@ -60,6 +87,17 @@ def validate_output_document(
     changed: list[ChangedFile],
     audited_coverage: RetrievalCoverage | None = None,
 ) -> ReviewOutput:
+    """Validate and bind a structured review document.
+
+    Args:
+        output: Structured review document or output directory.
+        manifest: Validated immutable context manifest.
+        changed: Ordered changed-file status records.
+        audited_coverage: Coverage derived from the retrieval audit, when available.
+
+    Returns:
+        Normalized structured review document.
+    """
     if not isinstance(output, dict):
         raise ReviewError("review output must be a JSON object")
     top_fields = {
@@ -184,6 +222,15 @@ def validate_output_document(
 
 
 def validate_output_data(output: Any, manifest: dict[str, Any]) -> ReviewOutput:
+    """Validate output against its captured context manifest.
+
+    Args:
+        output: Structured review document or output directory.
+        manifest: Validated immutable context manifest.
+
+    Returns:
+        Normalized structured review document.
+    """
     root_value = manifest.get("_context_root")
     if not root_value:
         raise ReviewError("context root is unavailable")
@@ -192,6 +239,11 @@ def validate_output_data(output: Any, manifest: dict[str, Any]) -> ReviewOutput:
 
 
 def validate_output(args: argparse.Namespace) -> None:
+    """Validate a review output file and write the normalized result.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     root = Path(args.context).resolve()
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)

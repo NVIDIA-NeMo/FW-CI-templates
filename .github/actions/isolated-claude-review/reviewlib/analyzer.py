@@ -37,11 +37,32 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9_.:/-]{1,256}$")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Block redirects from the configured analyzer endpoint."""
     def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        """Reject a redirect response from the analyzer endpoint.
+
+        Args:
+            request: Normalized retrieval or HTTP request.
+            file_pointer: Response stream associated with the redirect.
+            code: HTTP redirect status code.
+            message: HTTP redirect status message.
+            headers: HTTP response headers.
+            new_url: Redirect destination that must be refused.
+        """
         return None
 
 
 def _request(base_url: str, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Send one bounded request to the configured analyzer endpoint.
+
+    Args:
+        base_url: Credential-free HTTPS inference endpoint.
+        api_key: API key supplied only to the inference request.
+        payload: JSON request body, when the request has one.
+
+    Returns:
+        Decoded analyzer response object.
+    """
     url = base_url.rstrip("/") + "/v1/messages"
     parsed_url = urllib.parse.urlsplit(url)
     if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
@@ -74,6 +95,14 @@ def _request(base_url: str, api_key: str, payload: dict[str, Any]) -> dict[str, 
 
 
 def _assistant_content(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract content blocks from an analyzer response.
+
+    Args:
+        response: Decoded analyzer response object.
+
+    Returns:
+        Validated analyzer content blocks.
+    """
     content = response.get("content")
     if not isinstance(content, list) or not all(isinstance(block, dict) for block in content):
         raise ReviewError("inference response content must be an array of objects")
@@ -81,6 +110,16 @@ def _assistant_content(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _tool_result(context: str, audit: str, block: dict[str, Any]) -> dict[str, Any]:
+    """Run one audited retrieval requested by the analyzer.
+
+    Args:
+        context: Path to the immutable review context.
+        audit: Path to the append-only retrieval audit.
+        block: Analyzer tool-use content block.
+
+    Returns:
+        Tool result block for the next analyzer turn.
+    """
     tool_id = block.get("id")
     name = block.get("name")
     arguments = block.get("input")
@@ -91,6 +130,14 @@ def _tool_result(context: str, audit: str, block: dict[str, Any]) -> dict[str, A
 
 
 def _structured_output(content: list[dict[str, Any]]) -> Any:
+    """Extract the submitted structured review document.
+
+    Args:
+        content: Analyzer content blocks to inspect.
+
+    Returns:
+        Structured review document submitted by the analyzer.
+    """
     tools = [block for block in content if block.get("type") == "tool_use"]
     if len(tools) != 1 or tools[0].get("name") != "submit_review":
         raise ReviewError("final inference response must call submit_review exactly once")
@@ -98,6 +145,11 @@ def _structured_output(content: list[dict[str, Any]]) -> Any:
 
 
 def analyze(args: argparse.Namespace) -> None:
+    """Run the bounded analyzer loop and write its structured result.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     context = Path(args.context).resolve()
     validate_manifest(context)
     try:

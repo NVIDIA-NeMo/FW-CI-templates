@@ -52,6 +52,7 @@ class ReviewError(RuntimeError):
 
 
 class TreeEntry(TypedDict):
+    """Describe one immutable Git tree object."""
     mode: str
     type: str
     oid: str
@@ -59,6 +60,7 @@ class TreeEntry(TypedDict):
 
 
 class SnapshotInfo(TypedDict, total=False):
+    """Describe one captured file snapshot."""
     available: bool
     reason: str | None
     mode: str
@@ -72,23 +74,27 @@ class SnapshotInfo(TypedDict, total=False):
 
 
 class ChangedStatus(TypedDict):
+    """Describe one Git change status."""
     status: str
     old_path: str | None
     new_path: str | None
 
 
 class LineRanges(TypedDict):
+    """Map GitHub diff sides to inclusive line ranges."""
     LEFT: list[list[int]]
     RIGHT: list[list[int]]
 
 
 class ChangedFile(ChangedStatus):
+    """Describe one changed file and its immutable ranges."""
     base: SnapshotInfo
     head: SnapshotInfo
     line_ranges: LineRanges
 
 
 class DiffHunk(TypedDict):
+    """Describe one parsed unified diff hunk."""
     file_index: int
     left_start: int
     left_count: int
@@ -97,6 +103,7 @@ class DiffHunk(TypedDict):
 
 
 class RetrievalCoverage(TypedDict):
+    """Describe coverage proven by the retrieval audit."""
     changed_files_reviewed: int
     changed_files_total: int
     diff_complete: bool
@@ -109,6 +116,7 @@ class RetrievalCoverage(TypedDict):
 
 
 class ModelCoverage(TypedDict):
+    """Describe coverage claimed by structured model output."""
     changed_files_reviewed: int
     changed_files_total: int
     diff_complete: bool
@@ -116,6 +124,7 @@ class ModelCoverage(TypedDict):
 
 
 class InlineFinding(TypedDict):
+    """Describe one validated inline review finding."""
     path: str
     side: str
     line: int
@@ -125,12 +134,14 @@ class InlineFinding(TypedDict):
 
 
 class GeneralFinding(TypedDict):
+    """Describe one validated top-level review finding."""
     severity: str
     category: str
     body: str
 
 
 class ReviewOutput(TypedDict):
+    """Describe the complete structured review result."""
     schema_version: str
     repository: str
     pull_request: int

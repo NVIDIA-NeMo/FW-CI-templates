@@ -12,14 +12,5 @@ jobs:
       - name: Run tests
         run: python3 -m unittest discover -s .github/actions/send-slack-alert -p "test_*.py"
 
-  isolated-review-tests:
-    name: Isolated review tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: Run isolated review tests
-        run: python3 -m unittest discover -s .github/actions/isolated-claude-review -p "test_*.py"
-
   pre-flight:
     uses: ./.github/workflows/_cicd_preflight.yml

@@ -40,12 +40,19 @@ from .utils import canonical_json, contained_path, normalize_repo_path, read_jso
 
 @dataclass
 class RetrievalBudget:
+    """Track bounded retrieval calls, bytes, results, and time."""
     started: float
     calls: int = 0
     bytes: int = 0
     results: int = 0
 
     def charge(self, *, output_bytes: int, results: int) -> None:
+        """Charge one retrieval result against the remaining budget.
+
+        Args:
+            output_bytes: Number of bytes produced by the operation.
+            results: Number of logical results produced.
+        """
         if time.monotonic() - self.started > RETRIEVER_MAX_SECONDS:
             raise ReviewError("retrieval time budget exhausted")
         self.calls += 1
@@ -68,6 +75,17 @@ def audit_record(
     results: int,
     coverage: dict[str, Any] | None = None,
 ) -> None:
+    """Append one canonical retrieval audit record.
+
+    Args:
+        audit: Path to the append-only retrieval audit.
+        operation: Audited retrieval operation name.
+        request: Normalized retrieval or HTTP request.
+        outcome: Normalized operation outcome.
+        output_bytes: Number of bytes produced by the operation.
+        results: Number of logical results produced.
+        coverage: Optional coverage metadata for the audit record.
+    """
     record = {
         "operation": operation,
         "request": request,
@@ -82,6 +100,11 @@ def audit_record(
 
 
 def retriever(args: argparse.Namespace) -> None:
+    """Execute one bounded retrieval command.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     root = Path(args.context).resolve()
     manifest = validate_manifest(root)
     changed = read_json(root / "changed-files.json", max_bytes=2 * 1024 * 1024)
@@ -112,12 +135,30 @@ def retriever(args: argparse.Namespace) -> None:
         results: int,
         coverage: dict[str, Any] | None = None,
     ) -> None:
+        """Charge, audit, and emit one structured retrieval result.
+
+        Args:
+            operation: Audited retrieval operation name.
+            request: Normalized retrieval or HTTP request.
+            value: Value to serialize or validate.
+            results: Number of logical results produced.
+            coverage: Optional coverage metadata for the audit record.
+        """
         data = canonical_json(value) + b"\n"
         budget.charge(output_bytes=len(data), results=results)
         audit_record(audit, operation, request, "ok", len(data), results, coverage)
         sys.stdout.buffer.write(data)
 
     def emit_text(operation: str, request: dict[str, Any], path: str, snapshot: str, data: bytes) -> None:
+        """Emit one bounded page of textual snapshot content.
+
+        Args:
+            operation: Audited retrieval operation name.
+            request: Normalized retrieval or HTTP request.
+            path: Repository-relative path or filesystem path to process.
+            snapshot: Immutable base or head snapshot name.
+            data: Snapshot bytes to page and emit.
+        """
         if b"\0" in data[:8_000]:
             raise ReviewError("text retrieval refused binary content")
         offset = max(args.offset, 0)
@@ -323,6 +364,15 @@ def retriever(args: argparse.Namespace) -> None:
 
 
 def _covered_length(intervals: list[tuple[int, int]], total: int) -> int:
+    """Measure the union of audited byte intervals.
+
+    Args:
+        intervals: Audited half-open byte intervals.
+        total: Maximum covered byte length.
+
+    Returns:
+        Number of uniquely covered bytes.
+    """
     cursor = covered = 0
     for start, end in sorted(intervals):
         start = max(0, min(start, total))
@@ -336,7 +386,15 @@ def _covered_length(intervals: list[tuple[int, int]], total: int) -> int:
 
 
 def retrieval_coverage(root: Path, audit: Path) -> RetrievalCoverage:
-    """Derive review completeness exclusively from successful audited retrieval."""
+    """Derive review completeness exclusively from successful audited retrieval.
+
+    Args:
+        root: Root of the validated immutable review context.
+        audit: Append-only retrieval audit to evaluate.
+
+    Returns:
+        Coverage established by successful audited retrievals.
+    """
     manifest = validate_manifest(root)
     changed_total = int(manifest["changed_files"])
     diff_total = int(manifest["coverage"]["stored_diff_bytes"])

@@ -28,6 +28,11 @@ from .retrieval import retriever
 from .validation import validate_output
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for isolated review operations.
+
+    Returns:
+        Configured argument parser.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -114,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Dispatch one isolated review command.
+
+    Args:
+        argv: Optional command-line arguments; defaults to process arguments.
+
+    Returns:
+        Process-style exit status.
+    """
     try:
         args = build_parser().parse_args(argv)
         args.func(args)

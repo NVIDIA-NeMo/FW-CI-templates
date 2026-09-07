@@ -51,6 +51,16 @@ from .utils import (
 )
 
 def parse_ls_tree(repo: Path, sha: str, limit: int) -> tuple[dict[str, TreeEntry], bool]:
+    """Parse a bounded Git tree into safe repository entries.
+
+    Args:
+        repo: Repository whose Git objects are inspected.
+        sha: Full Git commit identifier for the tree.
+        limit: Maximum number of entries to return.
+
+    Returns:
+        Mapping of normalized paths to tree entries and truncation state.
+    """
     raw = git(repo, "ls-tree", "-r", "-z", "-l", sha)
     entries: dict[str, TreeEntry] = {}
     truncated = False
@@ -77,6 +87,14 @@ def parse_ls_tree(repo: Path, sha: str, limit: int) -> tuple[dict[str, TreeEntry
 
 
 def parse_name_status(raw: bytes) -> list[ChangedStatus]:
+    """Parse NUL-delimited Git change statuses.
+
+    Args:
+        raw: NUL-delimited Git output.
+
+    Returns:
+        Ordered changed-file status records.
+    """
     fields = raw.split(b"\0")
     if fields and fields[-1] == b"":
         fields.pop()
@@ -104,6 +122,15 @@ def parse_name_status(raw: bytes) -> list[ChangedStatus]:
 
 
 def parse_hunks(diff: bytes, changed: list[ChangedStatus]) -> list[DiffHunk]:
+    """Parse unified diff headers into immutable line ranges.
+
+    Args:
+        diff: Unified diff bytes to parse.
+        changed: Ordered changed-file status records.
+
+    Returns:
+        Parsed immutable diff hunks.
+    """
     hunks: list[DiffHunk] = []
     file_index = -1
     for raw_line in diff.decode("utf-8", "replace").splitlines():
@@ -129,6 +156,16 @@ def parse_hunks(diff: bytes, changed: list[ChangedStatus]) -> list[DiffHunk]:
 
 
 def ranges_for_file(hunks: Iterable[DiffHunk], file_index: int, side: str) -> list[list[int]]:
+    """Collect changed line ranges for one file and diff side.
+
+    Args:
+        hunks: Parsed immutable diff hunks.
+        file_index: Index of the changed file in the manifest.
+        side: GitHub diff side, either LEFT or RIGHT.
+
+    Returns:
+        Inclusive changed-line ranges.
+    """
     result = []
     for hunk in hunks:
         if hunk["file_index"] != file_index:
@@ -141,6 +178,16 @@ def ranges_for_file(hunks: Iterable[DiffHunk], file_index: int, side: str) -> li
 
 
 def is_binary_blob(repo: Path, oid: str, size: int | None) -> bool:
+    """Determine whether a Git blob contains binary data.
+
+    Args:
+        repo: Repository whose Git objects are inspected.
+        oid: Git object identifier for the blob.
+        size: Known blob size, when Git reports one.
+
+    Returns:
+        True when the blob sample contains a NUL byte.
+    """
     if size == 0:
         return False
     sample = git(repo, "cat-file", "blob", oid)
@@ -148,7 +195,14 @@ def is_binary_blob(repo: Path, oid: str, size: int | None) -> bool:
 
 
 def is_governing_base_path(path: str) -> bool:
-    """Return whether a trusted-base path can govern repository review."""
+    """Return whether a trusted-base path can govern repository review.
+
+    Args:
+        path: Normalized repository-relative path.
+
+    Returns:
+        True when the path names repository instructions or a review skill.
+    """
     parts = PurePosixPath(path).parts
     name = parts[-1].lower() if parts else ""
     if name in {"agents.md", "claude.md", "codeowners", "contributing.md"}:
@@ -165,7 +219,20 @@ def resolve_trusted_symlink(
     *,
     max_depth: int = 8,
 ) -> tuple[str, TreeEntry, list[str]]:
-    """Resolve only captured, relative symlinks without touching the filesystem."""
+    """Resolve only captured, relative symlinks without touching the filesystem.
+
+    Args:
+        repo: Repository whose captured Git objects are inspected.
+        path: Normalized trusted-base path to resolve.
+        tree: Captured trusted-base tree entries.
+        max_depth: Maximum number of safe relative symlink hops.
+
+    Returns:
+        Resolved path, resolved tree entry, and ordered alias chain.
+
+    Raises:
+        ReviewError: If a link escapes the tree, cycles, or exceeds the depth bound.
+    """
     current = normalize_repo_path(path)
     seen: set[str] = set()
     chain: list[str] = []
@@ -218,6 +285,20 @@ def materialize_snapshot(
     *,
     tree: dict[str, TreeEntry] | None = None,
 ) -> SnapshotInfo:
+    """Materialize one bounded immutable Git snapshot entry.
+
+    Args:
+        repo: Repository whose Git objects are inspected.
+        output: Structured review document or output directory.
+        snapshot: Immutable base or head snapshot name.
+        path: Repository-relative path or filesystem path to process.
+        tree_entry: Captured metadata for the Git object.
+        budget: Mutable byte budget for snapshot materialization.
+        tree: Captured trusted Git tree.
+
+    Returns:
+        Manifest metadata for the materialized snapshot.
+    """
     result: SnapshotInfo = {"available": False, "reason": "missing"}
     if tree_entry is None:
         return result
@@ -272,6 +353,14 @@ def materialize_snapshot(
 
 
 def validate_manifest(root: Path) -> dict[str, Any]:
+    """Validate a context manifest and all bound file digests.
+
+    Args:
+        root: Trusted context or filesystem root.
+
+    Returns:
+        Validated manifest dictionary.
+    """
     manifest_path = root / "manifest.json"
     manifest = read_json(manifest_path, max_bytes=2 * 1024 * 1024)
     if not isinstance(manifest, dict) or manifest.get("manifest_version") != MANIFEST_VERSION:
@@ -309,6 +398,11 @@ def validate_manifest(root: Path) -> dict[str, Any]:
 
 
 def build_context(args: argparse.Namespace) -> None:
+    """Build an immutable, digest-bound pull-request context.
+
+    Args:
+        args: Parsed command-line arguments for the operation.
+    """
     repository = require_repository(args.repository)
     base_sha = require_sha("base_sha", args.base_sha)
     merge_base_sha = require_sha("merge_base_sha", args.merge_base_sha)

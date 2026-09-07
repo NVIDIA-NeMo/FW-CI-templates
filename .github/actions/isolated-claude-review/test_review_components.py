@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Direct tests for isolated review Python modules."""
+
 import importlib.util
 import io
 import json
@@ -32,7 +34,10 @@ SPEC.loader.exec_module(review_components)
 
 
 class RepositoryFixture(unittest.TestCase):
+    """Create immutable Git revisions for component tests."""
     def setUp(self):
+        """Create a disposable repository with base and head revisions.
+        """
         self.temporary = tempfile.TemporaryDirectory()
         self.repo = Path(self.temporary.name) / "repository"
         self.repo.mkdir()
@@ -71,12 +76,26 @@ class RepositoryFixture(unittest.TestCase):
         self.build(self.context)
 
     def tearDown(self):
+        """Remove the disposable repository and generated context.
+        """
         self.temporary.cleanup()
 
     def git(self, *arguments, input=None):
+        """Run one bounded Git command without repository hooks.
+
+        Args:
+            input: Optional standard input for the Git command.
+            arguments: Arguments supplied to the requested operation.
+        """
         return subprocess.check_output(["git", "-C", str(self.repo), *arguments], text=True, input=input)
 
     def build(self, output, **overrides):
+        """Build a test context with optional argument overrides.
+
+        Args:
+            output: Structured review document or output directory.
+            overrides: Values that replace valid fixture defaults.
+        """
         values = dict(
             repository_dir=str(self.repo), repository="example/repository", pr_number=7,
             review_id="review-1", review_mode="manual", base_sha=self.base,
@@ -88,9 +107,16 @@ class RepositoryFixture(unittest.TestCase):
             review_components.build_context(SimpleNamespace(**values))
 
     def manifest(self):
+        """Load and validate the generated test manifest.
+        """
         return review_components.validate_manifest(self.context)
 
     def output(self, **overrides):
+        """Build a valid structured review result for mutation tests.
+
+        Args:
+            overrides: Values that replace valid fixture defaults.
+        """
         manifest = self.manifest()
         changed = json.loads((self.context / "changed-files.json").read_text())
         value = {
@@ -109,7 +135,10 @@ class RepositoryFixture(unittest.TestCase):
 
 
 class AnalyzerTests(RepositoryFixture):
+    """Test the credential-minimal analyzer loop directly."""
     def test_direct_analyzer_submits_structured_output_without_action_runtime(self):
+        """Verify that direct analyzer submits structured output without action runtime.
+        """
         output, manifest, _ = self.output()
         schema = Path(self.temporary.name) / "schema.json"
         schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
@@ -145,6 +174,8 @@ class AnalyzerTests(RepositoryFixture):
         self.assertEqual(manifest["head_sha"], output["head_sha"])
 
     def test_direct_analyzer_services_audited_retrieval(self):
+        """Verify that direct analyzer services audited retrieval.
+        """
         output, _, _ = self.output()
         schema = Path(self.temporary.name) / "schema.json"
         schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
@@ -188,6 +219,8 @@ class AnalyzerTests(RepositoryFixture):
         self.assertEqual(json.loads(audit.read_text().splitlines()[0])["operation"], "metadata")
 
     def test_direct_analyzer_disables_cross_origin_redirects(self):
+        """Verify that direct analyzer disables cross origin redirects.
+        """
         request = mock.MagicMock()
         with mock.patch.object(review_components.analyzer.urllib.request, "Request", return_value=request), mock.patch.object(
             review_components.analyzer.urllib.request, "build_opener"
@@ -206,6 +239,8 @@ class AnalyzerTests(RepositoryFixture):
         )
 
     def test_direct_analyzer_rejects_non_https_and_userinfo_endpoints(self):
+        """Verify that direct analyzer rejects non https and userinfo endpoints.
+        """
         for value in (
             "http://inference.example.invalid",
             "https://user@inference.example.invalid",
@@ -217,6 +252,8 @@ class AnalyzerTests(RepositoryFixture):
                 review_components.analyzer._request(value, "test-key", {"messages": []})
 
     def test_direct_analyzer_rejects_non_tool_final_response(self):
+        """Verify that direct analyzer rejects non tool final response.
+        """
         schema = Path(self.temporary.name) / "schema.json"
         schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
         prompt = Path(self.temporary.name) / "prompt.txt"
@@ -238,7 +275,10 @@ class AnalyzerTests(RepositoryFixture):
 
 
 class ContextTests(RepositoryFixture):
+    """Test immutable context construction and validation directly."""
     def test_captures_revisions_metadata_and_special_objects(self):
+        """Verify that captures revisions metadata and special objects.
+        """
         manifest = self.manifest()
         metadata = json.loads((self.context / "metadata.json").read_text())
         changed = json.loads((self.context / "changed-files.json").read_text())
@@ -249,14 +289,20 @@ class ContextTests(RepositoryFixture):
         self.assertEqual(records["changed-link"]["base"]["reason"], "symlink")
 
     def test_rejects_incorrect_merge_base(self):
+        """Verify that rejects incorrect merge base.
+        """
         with self.assertRaisesRegex(review_components.ReviewError, "MERGE_BASE_SHA"):
             self.build(Path(self.temporary.name) / "bad", base_sha=self.head)
 
     def test_rejects_large_context(self):
+        """Verify that rejects large context.
+        """
         with self.assertRaisesRegex(review_components.ReviewError, "limits"):
             self.build(Path(self.temporary.name) / "large", max_files=1)
 
     def test_context_tools_package_is_self_contained_and_digested(self):
+        """Verify that context tools package is self contained and digested.
+        """
         manifest = json.loads((self.context / "manifest.json").read_text())
         implementation = [
             "tools/review_components.py",
@@ -284,13 +330,21 @@ class ContextTests(RepositoryFixture):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
 
     def test_context_tampering_is_rejected(self):
+        """Verify that context tampering is rejected.
+        """
         (self.context / "review.diff").write_text("changed", encoding="utf-8")
         with self.assertRaisesRegex(review_components.ReviewError, "digest"):
             review_components.validate_manifest(self.context)
 
 
 class RetrieverTests(RepositoryFixture):
+    """Test bounded retrieval and audit coverage directly."""
     def retrieve(self, **overrides):
+        """Run one retrieval operation and decode its JSON result.
+
+        Args:
+            overrides: Values that replace valid fixture defaults.
+        """
         values = dict(context=str(self.context), audit=str(self.context / "audit.jsonl"), operation="changed-files", snapshot=None, path=None, query=None, offset=0, limit=100, byte_limit=65536)
         values.update(overrides)
         with mock.patch.object(sys, "stdout", mock.MagicMock()) as stdout:
@@ -299,25 +353,35 @@ class RetrieverTests(RepositoryFixture):
             return stdout.buffer.getvalue()
 
     def test_changed_files_are_paginated_and_audited(self):
+        """Verify that changed files are paginated and audited.
+        """
         value = json.loads(self.retrieve(limit=2))
         self.assertEqual(len(value["entries"]), 2)
         self.assertTrue((self.context / "audit.jsonl").is_file())
 
     def test_traversal_is_rejected(self):
+        """Verify that traversal is rejected.
+        """
         with self.assertRaises(review_components.ReviewError):
             self.retrieve(operation="read", snapshot="head", path="../outside")
 
     def test_symlink_and_binary_are_not_retrievable(self):
+        """Verify that symlink and binary are not retrievable.
+        """
         for snapshot, path in (("base", "link"), ("head", "binary.bin")):
             with self.assertRaises(review_components.ReviewError):
                 self.retrieve(operation="read", snapshot=snapshot, path=path)
 
     def test_search_is_literal_and_bounded(self):
+        """Verify that search is literal and bounded.
+        """
         value = json.loads(self.retrieve(operation="search", snapshot="head", query="changed", limit=2))
         self.assertEqual(value["matches"][0]["path"], "renamed.txt")
 
 
     def test_text_diff_trusted_base_and_audited_coverage(self):
+        """Verify that text diff trusted base and audited coverage.
+        """
         json.loads(self.retrieve(operation="changed-files", limit=100))
         diff = json.loads(self.retrieve(operation="diff", byte_limit=1_000_000))
         self.assertIn("changed", diff["content"])
@@ -336,6 +400,8 @@ class RetrieverTests(RepositoryFixture):
 
 
     def test_trusted_symlink_rejects_escape_cycle_and_depth(self):
+        """Verify that trusted symlink rejects escape cycle and depth.
+        """
         tree = {
             "escape": {"mode": "120000", "type": "blob", "oid": self.git("hash-object", "-w", "--stdin", input="../../outside").strip(), "size": 13},
         }
@@ -359,6 +425,8 @@ class RetrieverTests(RepositoryFixture):
             review_components.resolve_trusted_symlink(self.repo, "p0", tree, max_depth=8)
 
     def test_trusted_base_search_reports_complete_scope(self):
+        """Verify that trusted base search reports complete scope.
+        """
         value = json.loads(self.retrieve(operation="trusted-base-search", path="unchanged.py", query="unchanged definition", limit=10))
         self.assertEqual(value["matches"][0]["path"], "unchanged.py")
         self.assertEqual(value["files_searched"], value["files_total"])
@@ -368,6 +436,8 @@ class RetrieverTests(RepositoryFixture):
         self.assertTrue(value["scope_complete"])
 
     def test_trusted_base_search_reports_unavailable_and_truncated_scope(self):
+        """Verify that trusted base search reports unavailable and truncated scope.
+        """
         repository = json.loads((self.context / "base-repository.json").read_text())
         repository["missing.txt"] = {"available": False, "reason": "context_budget"}
         review_components.write_json(self.context / "base-repository.json", repository)
@@ -391,6 +461,8 @@ class RetrieverTests(RepositoryFixture):
 
 
     def test_trusted_base_search_unavailable_metadata_is_bounded(self):
+        """Verify that trusted base search unavailable metadata is bounded.
+        """
         repository = json.loads((self.context / "base-repository.json").read_text())
         for index in range(2_000):
             repository[f"unavailable/{index:04d}-{'x' * 180}.txt"] = {
@@ -414,11 +486,16 @@ class RetrieverTests(RepositoryFixture):
 
 
 class OutputTests(RepositoryFixture):
+    """Test structured review validation directly."""
     def test_accepts_complete_clean_output(self):
+        """Verify that accepts complete clean output.
+        """
         output, manifest, changed = self.output()
         self.assertIs(review_components.validate_output_document(output, manifest, changed), output)
 
     def test_rejects_unknown_field_and_incomplete_coverage(self):
+        """Verify that rejects unknown field and incomplete coverage.
+        """
         output, manifest, changed = self.output(unexpected=True)
         with self.assertRaises(review_components.ReviewError):
             review_components.validate_output_document(output, manifest, changed)
@@ -428,6 +505,8 @@ class OutputTests(RepositoryFixture):
             review_components.validate_output_document(output, manifest, changed)
 
     def test_validates_deletion_side_and_lines(self):
+        """Verify that validates deletion side and lines.
+        """
         output, manifest, changed = self.output()
         output["inline_findings"] = [{"path": "deleted.txt", "side": "LEFT", "line": 1, "severity": "medium", "category": "correctness", "body": "Finding"}]
         output["clean_review"] = False
@@ -437,6 +516,8 @@ class OutputTests(RepositoryFixture):
             review_components.validate_output_document(output, manifest, changed)
 
     def test_rejects_duplicate_and_oversized_findings(self):
+        """Verify that rejects duplicate and oversized findings.
+        """
         output, manifest, changed = self.output()
         finding = {"path": "deleted.txt", "side": "LEFT", "line": 1, "severity": "medium", "category": "correctness", "body": "Finding"}
         output["inline_findings"] = [finding, finding]
@@ -446,12 +527,16 @@ class OutputTests(RepositoryFixture):
 
 
     def test_complete_output_requires_audited_retrieval(self):
+        """Verify that complete output requires audited retrieval.
+        """
         output, manifest, changed = self.output()
         incomplete = {"changed_files_reviewed": 0, "changed_files_total": len(changed), "diff_complete": False, "complete": False}
         with self.assertRaisesRegex(review_components.ReviewError, "retrieval audit"):
             review_components.validate_output_document(output, manifest, changed, incomplete)
 
     def test_incomplete_output_cannot_carry_findings(self):
+        """Verify that incomplete output cannot carry findings.
+        """
         output, manifest, changed = self.output(status="incomplete", clean_review=False, failure_reason="budget")
         output["general_findings"] = [{"severity": "medium", "category": "correctness", "body": "Partial"}]
         with self.assertRaisesRegex(review_components.ReviewError, "incomplete output"):
@@ -460,7 +545,10 @@ class OutputTests(RepositoryFixture):
 
 
 class PublisherContractTests(unittest.TestCase):
+    """Test model-free publication helpers directly."""
     def test_exchange_masks_token(self):
+        """Verify that exchange masks token.
+        """
         response = mock.MagicMock()
         response.__enter__.return_value.read.return_value = json.dumps({"token": "app-token"}).encode()
         from reviewlib import publisher
@@ -473,6 +561,8 @@ class PublisherContractTests(unittest.TestCase):
 
 
     def test_review_payload_is_one_comment_review_request(self):
+        """Verify that review payload is one comment review request.
+        """
         output = {"status": "complete", "summary": "Summary", "general_findings": [], "clean_review": False,
                   "inline_findings": [{"path": "file.py", "side": "RIGHT", "line": 3, "body": "Fix"}]}
         manifest = {"head_sha": "a" * 40}
@@ -482,11 +572,108 @@ class PublisherContractTests(unittest.TestCase):
         })
 
     def test_review_payload_preflight_rejects_oversized_body(self):
+        """Verify that review payload preflight rejects oversized body.
+        """
         output = {"status": "complete", "summary": "x" * (review_components.MAX_REVIEW_BODY_BYTES + 1),
                   "general_findings": [], "clean_review": False, "inline_findings": []}
         with self.assertRaisesRegex(review_components.ReviewError, "comment limit"):
             review_components.review_payload(output, {"head_sha": "a" * 40})
 
+
+
+class UtilityAndProtocolTests(RepositoryFixture):
+    """Test low-level validation, parsing, budgeting, and MCP helpers."""
+
+    def test_utils_reject_unsafe_paths_and_oversized_json(self):
+        """Verify path containment and bounded JSON reads fail closed."""
+        from reviewlib import utils
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = root / "payload.json"
+            payload.write_text('{"ok": true}', encoding="utf-8")
+            self.assertEqual(utils.read_json(payload), {"ok": True})
+            with self.assertRaisesRegex(review_components.ReviewError, "exceeds"):
+                utils.read_json(payload, max_bytes=2)
+            with self.assertRaisesRegex(review_components.ReviewError, "unsafe repository path"):
+                utils.normalize_repo_path("../secret")
+            with self.assertRaisesRegex(review_components.ReviewError, "control character"):
+                utils.normalize_repo_path("bad\npath")
+
+    def test_context_parsers_handle_renames_hunks_and_truncation(self):
+        """Verify Git status and diff parsers preserve immutable coordinates."""
+        from reviewlib import context
+
+        changed = context.parse_name_status(b"R100\x00old.py\x00new.py\x00D\x00gone.py\x00")
+        self.assertEqual(
+            changed,
+            [
+                {"status": "R100", "old_path": "old.py", "new_path": "new.py"},
+                {"status": "D", "old_path": "gone.py", "new_path": None},
+            ],
+        )
+        diff = b"diff --git a/old.py b/new.py\n@@ -2,2 +4,3 @@\n"
+        hunks = context.parse_hunks(diff, changed)
+        self.assertEqual(context.ranges_for_file(hunks, 0, "LEFT"), [[2, 3]])
+        self.assertEqual(context.ranges_for_file(hunks, 0, "RIGHT"), [[4, 6]])
+        with self.assertRaisesRegex(review_components.ReviewError, "truncated rename"):
+            context.parse_name_status(b"R100\x00old.py\x00")
+
+    def test_retrieval_budget_and_coverage_intervals_are_bounded(self):
+        """Verify retrieval accounting rejects exhausted limits and overlaps."""
+        from reviewlib import retrieval
+
+        budget = retrieval.RetrievalBudget(started=0.0)
+        with mock.patch.object(retrieval.time, "monotonic", return_value=0.0):
+            budget.charge(output_bytes=10, results=1)
+        self.assertEqual((budget.calls, budget.bytes, budget.results), (1, 10, 1))
+        budget.calls = retrieval.RETRIEVER_MAX_CALLS
+        with mock.patch.object(retrieval.time, "monotonic", return_value=0.0):
+            with self.assertRaisesRegex(review_components.ReviewError, "call budget"):
+                budget.charge(output_bytes=0, results=0)
+        self.assertEqual(retrieval._covered_length([(0, 4), (2, 8), (9, 20)], 10), 9)
+
+    def test_mcp_tool_call_validates_arguments_and_returns_metadata(self):
+        """Verify MCP dispatch exposes only declared bounded retrieval tools."""
+        from reviewlib import mcp
+
+        audit = str(self.context / "mcp-audit.jsonl")
+        metadata = mcp.mcp_tool_call(str(self.context), audit, "metadata", {})
+        self.assertEqual(metadata["head_sha"], self.head)
+        with self.assertRaisesRegex(review_components.ReviewError, "arguments must be an object"):
+            mcp.mcp_tool_call(str(self.context), audit, "metadata", [])
+        with self.assertRaisesRegex(review_components.ReviewError, "unknown MCP"):
+            mcp.mcp_tool_call(str(self.context), audit, "metadata", {"shell": "id"})
+
+    def test_validation_helpers_reject_unknown_fields_and_invalid_text(self):
+        """Verify primitive output validators reject ambiguous values."""
+        from reviewlib import validation
+
+        with self.assertRaisesRegex(review_components.ReviewError, "unknown fields"):
+            validation.reject_unknown({"known": 1, "extra": 2}, {"known"}, "record")
+        with self.assertRaisesRegex(review_components.ReviewError, "bounded string"):
+            validation.validate_text("summary", "", 10)
+        self.assertEqual(validation.validate_text("summary", "ok", 10), "ok")
+        self.assertTrue(validation.line_in_ranges(3, [[1, 3], [8, 9]]))
+        self.assertFalse(validation.line_in_ranges(4, [[1, 3], [8, 9]]))
+
+    def test_all_python_definitions_have_human_readable_docstrings(self):
+        """Verify every added Python definition has a human-readable docstring."""
+        import ast
+
+        root = Path(__file__).resolve().parent
+        paths = [root / "review_components.py", *(root / "reviewlib").glob("*.py"), Path(__file__)]
+        missing = []
+        for python_file in paths:
+            tree = ast.parse(python_file.read_text(encoding="utf-8"))
+            if not ast.get_docstring(tree):
+                missing.append(f"{python_file}: module")
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    docstring = ast.get_docstring(node)
+                    if not docstring or len(docstring.split()) < 3:
+                        missing.append(f"{python_file}:{node.lineno}:{node.name}")
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

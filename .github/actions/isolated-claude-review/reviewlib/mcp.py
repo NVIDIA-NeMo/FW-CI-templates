@@ -44,6 +44,17 @@ MCP_TOOLS = [
 
 
 def mcp_tool_call(context: str, audit: str, name: str, arguments: Any) -> Any:
+    """Execute one validated MCP retrieval operation.
+
+    Args:
+        context: Path to the immutable review context.
+        audit: Path to the append-only retrieval audit.
+        name: Field, command, or operation name.
+        arguments: Arguments supplied to the requested operation.
+
+    Returns:
+        Decoded retrieval result.
+    """
     if not isinstance(arguments, dict):
         raise ReviewError("MCP tool arguments must be an object")
     operation = name.replace("_", "-")
@@ -74,7 +85,11 @@ def mcp_tool_call(context: str, audit: str, name: str, arguments: Any) -> Any:
 
 
 def mcp_server(args: argparse.Namespace) -> None:
-    """Serve only the audited retriever through MCP over stdio."""
+    """Serve only the audited retriever through MCP over standard I/O.
+
+    Args:
+        args: Parsed arguments containing the immutable context and audit paths.
+    """
     validate_manifest(Path(args.context).resolve())
     for line in sys.stdin:
         try:

@@ -22,12 +22,32 @@ function toRegex(pattern) {
   const dirOnly = p.endsWith('/');
   if (dirOnly) p = p.slice(0, -1);
 
-  const GLOBSTAR = '@@GLOBSTAR@@';
-  const escaped = p
+  // "**" (globstar) means zero or more path segments, per gitignore/CODEOWNERS
+  // semantics — so `/a/**/b` must also match `a/b` (zero intervening dirs),
+  // `**/docs/` must also match `docs/` at the repo root, and `docs/**` must
+  // also match `docs` itself. A literal slash immediately adjacent to `**` in
+  // the source pattern has to become optional too, not stay a mandatory
+  // literal — so these three shapes are tokenized (and the adjacent slash
+  // consumed into the token) before generic char-escaping and single-`*`
+  // handling run, then substituted for their final regex fragments after.
+  const MID = '@@GLOBSTAR_MID@@'; // "/**/" between two segments
+  const LEAD = '@@GLOBSTAR_LEAD@@'; // "**/" at the very start
+  const TRAIL = '@@GLOBSTAR_TRAIL@@'; // "/**" at the very end
+  const BARE = '@@GLOBSTAR_BARE@@'; // "**" with no adjacent "/" (e.g. pattern is just "**")
+
+  const tokenized = p
+    .replace(/\/\*\*\//g, MID)
+    .replace(/^\*\*\//, LEAD)
+    .replace(/\/\*\*$/, TRAIL)
+    .replace(/\*\*/g, BARE);
+
+  const escaped = tokenized
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, GLOBSTAR)
     .replace(/\*/g, '[^/]*')
-    .replace(new RegExp(GLOBSTAR, 'g'), '.*');
+    .replace(new RegExp(MID, 'g'), '/(?:.*/)?')
+    .replace(new RegExp(LEAD, 'g'), '(?:.*/)?')
+    .replace(new RegExp(TRAIL, 'g'), '(?:/.*)?')
+    .replace(new RegExp(BARE, 'g'), '.*');
 
   const body = dirOnly ? `${escaped}(/.*)?` : escaped;
   return anchored || p.includes('/')

@@ -180,9 +180,11 @@ jobs:
                 pull_number: context.issue.number,
               }),
             ]);
+            // A review's `user` can be null (deleted/ghost GitHub account) per
+            // GitHub's own API schema — filter those out rather than crash.
             const alreadyUsers = new Set([
               ...existingReviewRequests.users.map(u => u.login),
-              ...existingReviews.map(r => r.user.login),
+              ...existingReviews.filter(r => r.user).map(r => r.user.login),
             ]);
             const alreadyTeams = new Set(existingReviewRequests.teams.map(t => t.slug));
 

@@ -31,6 +31,29 @@ test('toRegex: unanchored directory pattern matches at any depth', () => {
   assert.ok(!re.test('my_docker_config/foo.py'));
 });
 
+test('toRegex: "**" between two segments matches zero or more intermediate directories', () => {
+  const re = toRegex('/a/**/b.py');
+  assert.ok(re.test('a/b.py'), 'globstar must match zero intermediate directories');
+  assert.ok(re.test('a/x/b.py'));
+  assert.ok(re.test('a/x/y/b.py'));
+  assert.ok(!re.test('a/x/b.py.bak'));
+});
+
+test('toRegex: leading "**/" matches at the repo root too, not just nested', () => {
+  const re = toRegex('**/docs/');
+  assert.ok(re.test('docs/README.md'), 'globstar prefix must match zero leading directories');
+  assert.ok(re.test('x/docs/README.md'));
+  assert.ok(re.test('x/y/docs/README.md'));
+});
+
+test('toRegex: trailing "/**" matches the directory itself, not just its contents', () => {
+  const re = toRegex('docs/**');
+  assert.ok(re.test('docs'), 'globstar suffix must match the bare directory too');
+  assert.ok(re.test('docs/x'));
+  assert.ok(re.test('docs/x/y'));
+  assert.ok(!re.test('other/docs'));
+});
+
 test('toRegex: bare "*" matches every path', () => {
   const re = toRegex('*');
   assert.ok(re.test('README.md'));

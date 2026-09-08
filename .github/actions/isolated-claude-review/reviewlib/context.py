@@ -516,8 +516,7 @@ def build_context(args: argparse.Namespace) -> None:
     tool_root = Path(__file__).resolve().parent.parent
     implementation_paths = [tool_root / "review_components.py", *sorted((tool_root / "reviewlib").glob("*.py"))]
     schema = tool_root / "review-output-v1.schema.json"
-    action_patch = tool_root / "base-action-show-output.patch"
-    for implementation in [*implementation_paths, schema, action_patch]:
+    for implementation in [*implementation_paths, schema]:
         relative = implementation.relative_to(tool_root)
         destination = tools_dir / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -533,7 +532,6 @@ def build_context(args: argparse.Namespace) -> None:
         "review.diff",
         *[f"tools/{path.relative_to(tool_root)}" for path in implementation_paths],
         "tools/review-output-v1.schema.json",
-        "tools/base-action-show-output.patch",
     ]
     artifact_paths.extend(
         sorted(str(path.relative_to(output)) for path in (output / "snapshots").rglob("*") if path.is_file())

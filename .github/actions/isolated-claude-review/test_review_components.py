@@ -189,7 +189,6 @@ class ContextTests(RepositoryFixture):
         manifest = json.loads((self.context / "manifest.json").read_text())
         implementation = [
             "tools/review_components.py",
-            "tools/base-action-show-output.patch",
             "tools/reviewlib/__init__.py",
             "tools/reviewlib/contracts.py",
             "tools/reviewlib/utils.py",
@@ -461,13 +460,13 @@ class WorkflowIsolationTests(RepositoryFixture):
         value = self.workflow("_isolated_review_analyze.yml")
         self.assertIn(f"checkout --detach {self.BASE_ACTION_SHA}", value)
         self.assertIn("uses: ./claude-base-action", value)
-        self.assertIn("base-action-show-output.patch", value)
-        self.assertIn("':!src/parse-sdk-options.ts'", value)
+        self.assertIn('test -z "$(git -C claude-base-action status --short)"', value)
+        self.assertNotIn("git -C claude-base-action apply", value)
         self.assertIn("permissions: {}", value)
+        self.assertIn("show_full_output: false", value)
         self.assertIn('"mcpServers":{"review_context"', value)
         for option in (
             "--bare",
-            "--safe-mode",
             "--restricted",
             "--permission-mode dontAsk",
             "--permission-prompts none",
@@ -478,6 +477,7 @@ class WorkflowIsolationTests(RepositoryFixture):
             "--no-session-persistence",
         ):
             self.assertIn(option, value)
+        self.assertNotIn("--safe-mode", value)
         self.assertNotIn("--allowedTools", value)
         self.assertNotIn("--disallowedTools", value)
         self.assertIn('"allow": []', value)
@@ -500,19 +500,6 @@ class WorkflowIsolationTests(RepositoryFixture):
         self.assertIn('"disableAllHooks": true', value)
         self.assertIn('"disableSkillShellExecution": true', value)
         self.assertIn('"enabledPlugins": {}', value)
-
-    def test_debug_mode_cannot_override_hidden_transcript(self):
-        """Verify the pinned-action patch makes explicit false authoritative."""
-        value = self.workflow("_isolated_review_analyze.yml")
-        stage_index = value.index("- name: Stage patched pinned Base Action")
-        action_index = value.index("- name: Run patched pinned Claude Code Base Action")
-        self.assertLess(stage_index, action_index)
-        patch = Path(__file__).with_name("base-action-show-output.patch").read_text(encoding="utf-8")
-        self.assertIn('const showFullOutput = options.showFullOutput === "true";', patch)
-        added = '\n'.join(line[1:] for line in patch.splitlines() if line.startswith('+') and not line.startswith('+++'))
-        self.assertNotIn('|| isDebugMode;', added)
-        self.assertIn("show_full_output: false", value)
-        self.assertNotIn("execution_file", value)
 
     def test_base_action_workdir_excludes_context_and_proposed_instructions(self):
         """Verify model configuration is separated from every captured PR snapshot."""
@@ -571,7 +558,7 @@ class WorkflowIsolationTests(RepositoryFixture):
         upload_index = value.index("- name: Upload validated result and audit")
         self.assertLess(step_index, upload_index)
         step = value[step_index:upload_index]
-        bound_index = step.index("[[ ${#STRUCTURED_OUTPUT} -le 262144 ]]")
+        bound_index = step.index("[[ ${#STRUCTURED_OUTPUT} -le 65536 ]]")
         validate_index = step.index("validate-output")
         stage_index = step.index("mkdir result-artifact")
         self.assertLess(bound_index, validate_index)

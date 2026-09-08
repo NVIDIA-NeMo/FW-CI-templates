@@ -189,6 +189,7 @@ class ContextTests(RepositoryFixture):
         manifest = json.loads((self.context / "manifest.json").read_text())
         implementation = [
             "tools/review_components.py",
+            "tools/base-action-show-output.patch",
             "tools/reviewlib/__init__.py",
             "tools/reviewlib/contracts.py",
             "tools/reviewlib/utils.py",
@@ -429,6 +430,9 @@ class OutputTests(RepositoryFixture):
 class WorkflowIsolationTests(RepositoryFixture):
     """Test Base Action isolation and authorization workflow contracts."""
 
+    BASE_ACTION_SHA = "646b4a772085257c35182cd167bdd6b3b1017675"
+    BASE_ACTION_VERSION = "2.1.263"
+
     @staticmethod
     def workflow(name):
         """Read one repository workflow as trusted test input.
@@ -441,25 +445,74 @@ class WorkflowIsolationTests(RepositoryFixture):
         """
         return (Path(__file__).resolve().parents[2] / "workflows" / name).read_text(encoding="utf-8")
 
-    def test_base_action_is_pinned_and_exposes_only_review_context_tools(self):
-        """Verify the Base Action receives only the bounded review MCP surface."""
+    def test_context_github_cli_steps_receive_workflow_token(self):
+        """Verify every context-step GitHub CLI call is explicitly authenticated."""
+        value = self.workflow("_isolated_review_context.yml")
+        for step_name in ("Validate captured revision", "Capture normalized metadata"):
+            step = value.split(f"- name: {step_name}", 1)[1].split("\n      - name:", 1)[0]
+            self.assertIn("GH_TOKEN: ${{ github.token }}", step)
+            self.assertRegex(step, r"gh (api|pr view)")
+        analyze = self.workflow("_isolated_review_analyze.yml")
+        self.assertNotIn("GH_TOKEN:", analyze)
+        self.assertNotIn("github.token", analyze)
+
+    def test_base_action_uses_pinned_restrictive_contract(self):
+        """Verify the pinned CLI contract enforces one MCP-only security policy."""
         value = self.workflow("_isolated_review_analyze.yml")
-        self.assertIn(
-            "uses: anthropics/claude-code-base-action@646b4a772085257c35182cd167bdd6b3b1017675",
-            value,
-        )
+        self.assertIn(f"checkout --detach {self.BASE_ACTION_SHA}", value)
+        self.assertIn("uses: ./claude-base-action", value)
+        self.assertIn("base-action-show-output.patch", value)
+        self.assertIn("':!src/parse-sdk-options.ts'", value)
         self.assertIn("permissions: {}", value)
-        self.assertIn("--mcp-config", value)
         self.assertIn('"mcpServers":{"review_context"', value)
-        for tool in (
-            "Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task"
+        for option in (
+            "--bare",
+            "--safe-mode",
+            "--restricted",
+            "--permission-mode dontAsk",
+            "--permission-prompts none",
+            "--setting-sources user",
+            "--strict-mcp-config",
+            "--disable-slash-commands",
+            "--no-chrome",
+            "--no-session-persistence",
         ):
-            self.assertIn(tool, value.split("--disallowedTools", 1)[1])
-            self.assertNotIn(f"mcp__review_context__{tool}", value)
-        self.assertIn("--setting-sources user", value)
+            self.assertIn(option, value)
+        self.assertNotIn("--allowedTools", value)
+        self.assertNotIn("--disallowedTools", value)
+        self.assertIn('"allow": []', value)
+        for tool in (
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "WebSearch",
+            "NotebookEdit",
+            "Task",
+            "Agent",
+        ):
+            self.assertIn(f'"{tool}"', value)
         self.assertIn('plugins: ""', value)
         self.assertIn('plugin_marketplaces: ""', value)
+        self.assertIn('"disableAllHooks": true', value)
+        self.assertIn('"disableSkillShellExecution": true', value)
+        self.assertIn('"enabledPlugins": {}', value)
+
+    def test_debug_mode_cannot_override_hidden_transcript(self):
+        """Verify the pinned-action patch makes explicit false authoritative."""
+        value = self.workflow("_isolated_review_analyze.yml")
+        stage_index = value.index("- name: Stage patched pinned Base Action")
+        action_index = value.index("- name: Run patched pinned Claude Code Base Action")
+        self.assertLess(stage_index, action_index)
+        patch = Path(__file__).with_name("base-action-show-output.patch").read_text(encoding="utf-8")
+        self.assertIn('const showFullOutput = options.showFullOutput === "true";', patch)
+        added = '\n'.join(line[1:] for line in patch.splitlines() if line.startswith('+') and not line.startswith('+++'))
+        self.assertNotIn('|| isDebugMode;', added)
         self.assertIn("show_full_output: false", value)
+        self.assertNotIn("execution_file", value)
 
     def test_base_action_workdir_excludes_context_and_proposed_instructions(self):
         """Verify model configuration is separated from every captured PR snapshot."""
@@ -487,21 +540,44 @@ class WorkflowIsolationTests(RepositoryFixture):
         self.assertIn("needs: [authorize, context]", analyze_job)
         self.assertIn("needs.authorize.outputs.authorized == 'true'", analyze_job)
 
-    def test_invalid_structured_output_blocks_result_upload(self):
-        """Verify validation is the mandatory predecessor of artifact upload."""
-        value = self.workflow("_isolated_review_analyze.yml")
-        write_index = value.index("- name: Write schema-constrained result")
-        validate_index = value.index("- name: Validate structured result against retrieval audit")
-        upload_index = value.index("- name: Upload validated result and audit")
-        self.assertLess(write_index, validate_index)
-        self.assertLess(validate_index, upload_index)
-        upload = value[upload_index:]
-        upload_paths = upload.split("path: |", 1)[1].split("if-no-files-found:", 1)[0]
-        self.assertIn("validated-review-output.json", upload_paths)
-        self.assertIn("retrieval-audit.jsonl", upload_paths)
-        self.assertNotIn("\n            review-output.json\n", upload_paths)
-        self.assertNotIn("execution_file", value)
+    def test_result_artifact_round_trip_matches_publisher_paths(self):
+        """Verify staged artifact contents download to the publisher's exact paths."""
+        analyze = self.workflow("_isolated_review_analyze.yml")
+        publish = self.workflow("_isolated_review_publish.yml")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "result-artifact"
+            staging.mkdir()
+            (staging / "validated-review-output.json").write_text("{}", encoding="utf-8")
+            (staging / "retrieval-audit.jsonl").write_text("{}\n", encoding="utf-8")
+            archive = root / "result.tar.gz"
+            subprocess.run(["tar", "-czf", archive, "-C", staging, "."], check=True)
+            downloaded = root / "review-result"
+            downloaded.mkdir()
+            subprocess.run(["tar", "-xzf", archive, "-C", downloaded], check=True)
+            self.assertEqual(
+                sorted(path.relative_to(downloaded).as_posix() for path in downloaded.iterdir()),
+                ["retrieval-audit.jsonl", "validated-review-output.json"],
+            )
+        self.assertIn("path: result-artifact", analyze)
+        self.assertIn("path: review-result", publish)
+        self.assertIn("--audit review-result/retrieval-audit.jsonl", publish)
+        self.assertIn("--output review-result/validated-review-output.json", publish)
 
+    def test_invalid_or_oversized_output_blocks_result_staging(self):
+        """Verify bounded validation is the mandatory predecessor of artifact staging."""
+        value = self.workflow("_isolated_review_analyze.yml")
+        step_index = value.index("- name: Bound and validate structured result")
+        upload_index = value.index("- name: Upload validated result and audit")
+        self.assertLess(step_index, upload_index)
+        step = value[step_index:upload_index]
+        bound_index = step.index("[[ ${#STRUCTURED_OUTPUT} -le 262144 ]]")
+        validate_index = step.index("validate-output")
+        stage_index = step.index("mkdir result-artifact")
+        self.assertLess(bound_index, validate_index)
+        self.assertLess(validate_index, stage_index)
+        self.assertNotIn("review-output.json", value[upload_index:])
+        self.assertNotIn("execution_file", value)
 
 
 class PublisherContractTests(unittest.TestCase):

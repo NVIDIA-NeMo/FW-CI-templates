@@ -98,12 +98,27 @@ jobs:
           MCP
           echo "schema=$(jq -c . "$context_dir/tools/review-output-v1.schema.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Run pinned Claude Code Base Action
+      # Security policy for Claude Code 2.1.263, pinned by the Base Action SHA below.
+      # Restricted and safe modes plus strict MCP configuration admit only review_context;
+      # dontAsk/permission-prompts=none fail closed. Empty plugin inputs, bare mode, and
+      # user-only setting sources exclude local configuration and customization.
+      - name: Stage patched pinned Base Action
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/anthropics/claude-code-base-action.git claude-base-action
+          git -C claude-base-action checkout --detach 646b4a772085257c35182cd167bdd6b3b1017675
+          git -C claude-base-action apply --check "$RUNNER_TEMP/review-context/tools/base-action-show-output.patch"
+          git -C claude-base-action apply "$RUNNER_TEMP/review-context/tools/base-action-show-output.patch"
+          test "$(git -C claude-base-action rev-parse HEAD)" = 646b4a772085257c35182cd167bdd6b3b1017675
+          test -z "$(git -C claude-base-action diff --name-only -- . ':!src/parse-sdk-options.ts')"
+
+      - name: Run patched pinned Claude Code Base Action
         id: analyze
-        uses: anthropics/claude-code-base-action@646b4a772085257c35182cd167bdd6b3b1017675
+        uses: ./claude-base-action
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
           CLAUDE_WORKING_DIR: ${{ runner.temp }}/claude-analysis
+          CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: "1"
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
           DISABLE_PROMPT_CACHING: "1"
         with:
@@ -114,36 +129,50 @@ jobs:
           plugin_marketplaces: ""
           settings: |
             {
+              "disableAllHooks": true,
+              "disableSkillShellExecution": true,
+              "enabledPlugins": {},
               "permissions": {
-                "allow": ["mcp__review_context__metadata", "mcp__review_context__changed_files", "mcp__review_context__governing_base", "mcp__review_context__tree", "mcp__review_context__read", "mcp__review_context__diff", "mcp__review_context__trusted_base_read", "mcp__review_context__trusted_base_search", "mcp__review_context__coverage", "mcp__review_context__search", "mcp__review_context__diff_hunks", "mcp__review_context__history"],
-                "deny": ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task"]
+                "allow": [],
+                "deny": ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task", "Agent"]
               }
             }
           claude_args: >-
             --model "${{ inputs.model }}"
             --max-turns 128
+            --bare
+            --safe-mode
+            --restricted
+            --permission-mode dontAsk
+            --permission-prompts none
             --setting-sources user
+            --strict-mcp-config
             --mcp-config "${{ runner.temp }}/analysis-control/mcp-config.json"
-            --allowedTools "mcp__review_context__metadata,mcp__review_context__changed_files,mcp__review_context__governing_base,mcp__review_context__tree,mcp__review_context__read,mcp__review_context__diff,mcp__review_context__trusted_base_read,mcp__review_context__trusted_base_search,mcp__review_context__coverage,mcp__review_context__search,mcp__review_context__diff_hunks,mcp__review_context__history"
-            --disallowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task"
+            --disable-slash-commands
+            --no-chrome
+            --no-session-persistence
             --json-schema '${{ steps.inputs.outputs.schema }}'
 
-      - name: Write schema-constrained result
+      - name: Bound and validate structured result
         env:
+          # The pinned action exposes structured output only as a step output. The closed
+          # schema and this 256 KiB guard keep the environment value well below runner limits.
           STRUCTURED_OUTPUT: ${{ steps.analyze.outputs.structured_output }}
         run: |
           set -euo pipefail
           test -n "$STRUCTURED_OUTPUT"
+          [[ ${#STRUCTURED_OUTPUT} -le 262144 ]]
           printf '%s' "$STRUCTURED_OUTPUT" > review-output.json
-
-      - name: Validate structured result against retrieval audit
-        run: |
-          set -euo pipefail
           python3 "$RUNNER_TEMP/review-context/tools/review_components.py" validate-output \
             --context "$RUNNER_TEMP/review-context" \
             --audit "$RUNNER_TEMP/review-context/retrieval-audit.jsonl" \
             --output review-output.json \
             --validated-output validated-review-output.json
+          mkdir result-artifact
+          mv validated-review-output.json result-artifact/validated-review-output.json
+          cp "$RUNNER_TEMP/review-context/retrieval-audit.jsonl" result-artifact/retrieval-audit.jsonl
+          test -f result-artifact/validated-review-output.json
+          test -f result-artifact/retrieval-audit.jsonl
 
       - name: Name bounded result artifact
         id: names
@@ -153,8 +182,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.names.outputs.result_artifact_name }}
-          path: |
-            validated-review-output.json
-            ${{ runner.temp }}/review-context/retrieval-audit.jsonl
+          path: result-artifact
           if-no-files-found: error
           retention-days: 1

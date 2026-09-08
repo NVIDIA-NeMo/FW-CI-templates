@@ -45,6 +45,7 @@ jobs:
         env:
           BASE_SHA: ${{ inputs.base_sha }}
           CHANGED_FILES: ${{ inputs.changed_files }}
+          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ inputs.head_sha }}
           MERGE_BASE_SHA: ${{ inputs.merge_base_sha }}
           PR_NUMBER: ${{ inputs.pull_request }}
@@ -83,6 +84,7 @@ jobs:
 
       - name: Capture normalized metadata
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request }}
           REPOSITORY: ${{ inputs.repository }}
         run: |

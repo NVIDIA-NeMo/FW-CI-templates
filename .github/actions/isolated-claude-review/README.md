@@ -4,7 +4,7 @@ These components separate immutable pull-request context, bounded analysis, and 
 
 ## Context contract
 
-`review_components.py build-context` reads Git objects by captured commit ID. It keeps `BASE_SHA` (trusted current-base context), `MERGE_BASE_SHA` (three-dot diff origin), and `HEAD_SHA` (proposed snapshot) distinct. It writes a versioned, digest-bound manifest, normalized metadata, rename-aware status, bounded diff/hunks, trees, and bounded regular-file snapshots. It does not check out or run proposed code. Symlinks, submodules, special files, binary files, oversized files, and exhausted budgets are represented without execution or dereference.
+`review_components.py build-context` reads Git objects by captured commit ID. The reference composition intentionally rejects cross-repository pull requests before context construction; fork support remains a compatibility limitation until it can preserve the same no-checkout, no-mutation, audited isolation boundary. It keeps `BASE_SHA` (trusted current-base context), `MERGE_BASE_SHA` (three-dot diff origin), and `HEAD_SHA` (proposed snapshot) distinct. It writes a versioned, digest-bound manifest, normalized metadata, rename-aware status, bounded diff/hunks, trees, and bounded regular-file snapshots. It does not check out or run proposed code. Symlinks, submodules, special files, binary files, oversized files, and exhausted budgets are represented without execution or dereference.
 
 ## Retriever contract
 
@@ -19,7 +19,7 @@ These components separate immutable pull-request context, bounded analysis, and 
 ## Reference workflows
 
 - `_isolated_review_context.yml` constructs the public, immutable context artifact.
-- `_isolated_review_analyze.yml` runs a full-SHA-pinned Claude Code Base Action without GitHub/OIDC permission, a proposed-code checkout, or publication tools. The action starts in an empty trusted directory, disables project/local settings and built-in shell, filesystem, web, and mutation tools, and exposes only the bounded audited `review_context` MCP server. Only the validated schema-constrained result and retrieval audit are uploaded; the execution transcript is not published.
+- `_isolated_review_analyze.yml` runs a full-SHA-pinned Claude Code Base Action without GitHub/OIDC permission, a proposed-code checkout, or publication tools. The action starts in an empty trusted directory, uses bare, safe, and restricted modes with strict MCP configuration, disables project/local settings, hooks, bundled skills, slash commands, plugins, session persistence, and built-in shell, filesystem, web, mutation, and subagent tools, and exposes only the bounded audited `review_context` MCP server. A minimal, version-locked patch makes explicit `show_full_output: false` authoritative even in Actions step-debug mode; the checkout is pinned and the workflow verifies that no other action source changes before invoking it. Only the validated schema-constrained result and retrieval audit are uploaded; the execution transcript is not published.
 - `_isolated_review_publish.yml` validates and publishes without model access or a proposed-code checkout.
 - `_claude_review.yml` is the Megatron-Bridge-compatible manual/automatic composition with exact manual command parsing, acknowledgment, profile-aware whole-run concurrency, and explicit budgets.
 

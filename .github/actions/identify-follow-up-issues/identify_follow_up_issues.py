@@ -48,6 +48,10 @@ WAITING_ON_CUSTOMER_DESCRIPTION = "Waiting on the original author to respond"
 APPROVED_LABEL = "Approved"
 
 SKIPPED_REPOS = {"Megatron-Bridge"}
+# Service accounts are regular `User` accounts, so the `Bot` __typename does not
+# identify them. Keep in sync with SERVICE_ACCOUNT_LOGINS in
+# .github/workflows/_community_bot.yml.
+SERVICE_ACCOUNT_LOGINS = {"svcnemo-autobot"}
 
 CLASSIFICATION_SYSTEM_PROMPT = """\
 You are classifying GitHub issues and pull requests. Based on the conversation \
@@ -194,6 +198,189 @@ def get_repo_org(repo: str, default_org: str) -> str:
     return repo_org_overrides.get(repo, default_org)
 
 
+def _is_bot_account(author: dict) -> bool:
+    """Return whether a GitHub author is a bot or known service account."""
+    return (
+        author.get("__typename", "") == "Bot"
+        or author.get("login", "") in SERVICE_ACCOUNT_LOGINS
+    )
+
+
+def _collect_non_bot_activity(
+    content: dict, *, include_bodyless_reviews: bool = False
+) -> list[tuple[str, str, str]]:
+    """Collect human comments and reviews, newest first."""
+    activity: list[tuple[str, bool, str, str]] = []
+
+    for comment in content.get("comments", {}).get("nodes", []):
+        commenter_obj = comment.get("author", {}) or {}
+        activity.append(
+            (
+                commenter_obj.get("login", ""),
+                _is_bot_account(commenter_obj),
+                comment.get("createdAt", ""),
+                comment.get("body", ""),
+            )
+        )
+
+    if content.get("__typename") == "PullRequest":
+        for thread in content.get("reviewThreads", {}).get("nodes", []):
+            for comment in thread.get("comments", {}).get("nodes", []):
+                commenter_obj = comment.get("author", {}) or {}
+                activity.append(
+                    (
+                        commenter_obj.get("login", ""),
+                        _is_bot_account(commenter_obj),
+                        comment.get("createdAt", ""),
+                        comment.get("body", ""),
+                    )
+                )
+
+        for review in content.get("reviews", {}).get("nodes", []):
+            review_body = review.get("body", "")
+            if not review_body and not include_bodyless_reviews:
+                continue
+            reviewer_obj = review.get("author", {}) or {}
+            state = review.get("state", "")
+            prefix = f"[Review: {state}] " if state else ""
+            activity.append(
+                (
+                    reviewer_obj.get("login", ""),
+                    _is_bot_account(reviewer_obj),
+                    review.get("submittedAt", ""),
+                    prefix + review_body,
+                )
+            )
+
+    activity.sort(key=lambda entry: entry[2], reverse=True)
+    return [
+        (login, date, body)
+        for login, is_bot, date, body in activity
+        if not is_bot and date
+    ]
+
+
+def _latest_human_activity(content: dict) -> tuple[str, str]:
+    """Return the newest human activity as (date, login), including bodyless reviews."""
+    newest_date = content.get("createdAt", "")
+    newest_login = (content.get("author") or {}).get("login", "")
+
+    for login, date, _ in _collect_non_bot_activity(
+        content, include_bodyless_reviews=True
+    ):
+        if date > newest_date:
+            newest_date = date
+            newest_login = login
+
+    return newest_date, newest_login
+
+
+def _latest_human_activity_date(content: dict) -> str:
+    """Return the latest human activity watermark, including bodyless reviews."""
+    return _latest_human_activity(content)[0]
+
+
+def fetch_latest_human_activity(
+    org: str, repo: str, issue_number: int, token: str
+) -> tuple[str, str]:
+    """Fetch the live human-activity watermark as (date, login)."""
+    query = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        issueOrPullRequest(number: $number) {
+          __typename
+          ... on Issue {
+            createdAt
+            comments(last: 100) {
+              nodes { author { __typename login } createdAt body }
+            }
+          }
+          ... on PullRequest {
+            createdAt
+            comments(last: 100) {
+              nodes { author { __typename login } createdAt body }
+            }
+            reviewThreads(last: 50) {
+              nodes {
+                comments(last: 30) {
+                  nodes { author { __typename login } createdAt body }
+                }
+              }
+            }
+            reviews(last: 20) {
+              nodes { author { __typename login } body state submittedAt }
+            }
+          }
+        }
+      }
+    }
+    """
+    result = run_graphql_query(
+        query,
+        {"owner": org, "repo": repo, "number": issue_number},
+        token,
+    )
+    content = (
+        result.get("data", {})
+        .get("repository", {})
+        .get("issueOrPullRequest")
+    )
+    if not content:
+        raise RuntimeError(f"Could not refresh {org}/{repo}#{issue_number}")
+    return _latest_human_activity(content)
+
+
+def _scheduled_add_is_current(issue: dict, org: str, token: str) -> bool:
+    """Reject a scheduled label add when someone new responded after its snapshot."""
+    repo = issue["repo_name"]
+    repo_org = get_repo_org(repo, org)
+    issue_number = issue["issue_id"]
+    snapshot_date = (
+        issue.get("activity_watermark_date")
+        or issue.get("last_comment_date")
+        or issue.get("issue_created_date")
+    )
+    snapshot_login = (
+        issue.get("activity_watermark_login")
+        or issue.get("last_commenter")
+        or issue.get("issue_author")
+    )
+
+    try:
+        live_date, live_login = fetch_latest_human_activity(
+            repo_org, repo, issue_number, token
+        )
+    except Exception as error:
+        print(
+            f"  Warning: could not refresh activity for "
+            f"{repo_org}/{repo}#{issue_number}: {error}; skipping stale label add"
+        )
+        return False
+
+    if not snapshot_date:
+        print(
+            f"  Skipping label add for {repo_org}/{repo}#{issue_number}: "
+            f"no activity watermark in the project snapshot"
+        )
+        return False
+
+    if live_date <= snapshot_date:
+        return True
+
+    # Further activity from the same person only reinforces the snapshot: the item is
+    # still waiting on someone else. A reply from anyone else may have answered it, so
+    # leave that item to the next sweep rather than labelling it from stale state.
+    if live_login and live_login == snapshot_login:
+        return True
+
+    print(
+        f"  Skipping stale label add for {repo_org}/{repo}#{issue_number}: "
+        f"{live_login or 'someone'} responded at {live_date}, after the "
+        f"{snapshot_date} snapshot"
+    )
+    return False
+
+
 def classify_with_llm(client: openai.OpenAI, model: str, item: dict) -> str:
     """Classify an issue/PR as waiting-on-author or waiting-on-maintainers using an LLM.
 
@@ -240,7 +427,10 @@ Recent comments (oldest to newest):
         if "waiting-on-author" in raw:
             return "waiting-on-author"
 
-        print(f"  Warning: Unexpected LLM response '{classification}' for {item['repo_name']}#{item['issue_id']}, defaulting to waiting-on-maintainers")
+        print(
+            f"  Warning: Unexpected LLM response '{raw}' for "
+            f"{item['repo_name']}#{item['issue_id']}, defaulting to waiting-on-maintainers"
+        )
         return "waiting-on-maintainers"
 
     except Exception as e:
@@ -347,13 +537,14 @@ def update_labels(issues: list[dict], org: str, token: str):
 
         # Handle waiting-on-maintainers label
         if issue["needs_attention"] and not issue["has_maintainers_label"] and not excluded:
-            if repo not in repos_with_maintainers_label:
-                if ensure_label_exists(repo_org, repo, WAITING_ON_MAINTAINERS_LABEL, WAITING_ON_MAINTAINERS_COLOR, WAITING_ON_MAINTAINERS_DESCRIPTION, token):
-                    repos_with_maintainers_label.add(repo)
-                else:
-                    continue
-            if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
-                maintainers_added += 1
+            if _scheduled_add_is_current(issue, org, token):
+                if repo not in repos_with_maintainers_label:
+                    if ensure_label_exists(repo_org, repo, WAITING_ON_MAINTAINERS_LABEL, WAITING_ON_MAINTAINERS_COLOR, WAITING_ON_MAINTAINERS_DESCRIPTION, token):
+                        repos_with_maintainers_label.add(repo)
+                    else:
+                        continue
+                if add_label_to_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
+                    maintainers_added += 1
         elif issue["has_maintainers_label"] and (not issue["needs_attention"] or excluded):
             if remove_label_from_issue(repo_org, repo, issue_number, WAITING_ON_MAINTAINERS_LABEL, token):
                 maintainers_removed += 1
@@ -471,9 +662,9 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                       body
                     }
                   }
-                  reviewThreads(first: 50) {
+                  reviewThreads(last: 50) {
                     nodes {
-                      comments(first: 30) {
+                      comments(last: 30) {
                         nodes {
                           author {
                             __typename
@@ -579,62 +770,18 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             # Get author info
             author_obj = content.get("author", {}) or {}
             author = author_obj.get("login", "")
-            author_type = author_obj.get("__typename", "")
-            author_is_bot = author_type == "Bot"
+            author_is_bot = _is_bot_account(author_obj)
             created_at = content.get("createdAt", "")
 
             # Skip items authored by bots
             if author_is_bot:
                 continue
 
-            # Collect all non-bot activity with comment bodies
-            comments = content.get("comments", {}).get("nodes", [])
-            activity = []
-            for comment in comments:
-                commenter_obj = comment.get("author", {}) or {}
-                commenter_type = commenter_obj.get("__typename", "")
-                activity.append((
-                    commenter_obj.get("login", ""),
-                    commenter_type == "Bot",
-                    comment.get("createdAt", ""),
-                    comment.get("body", ""),
-                ))
-
-            # For PRs, also include review thread (inline) comments and review bodies
-            if item_type == "PullRequest":
-                for thread in content.get("reviewThreads", {}).get("nodes", []):
-                    for comment in thread.get("comments", {}).get("nodes", []):
-                        commenter_obj = comment.get("author", {}) or {}
-                        commenter_type = commenter_obj.get("__typename", "")
-                        activity.append((
-                            commenter_obj.get("login", ""),
-                            commenter_type == "Bot",
-                            comment.get("createdAt", ""),
-                            comment.get("body", ""),
-                        ))
-
-                # Include top-level review bodies (Approve, Request changes, Comment)
-                for review in content.get("reviews", {}).get("nodes", []):
-                    review_body = review.get("body", "")
-                    if not review_body:
-                        continue
-                    reviewer_obj = review.get("author", {}) or {}
-                    reviewer_type = reviewer_obj.get("__typename", "")
-                    state = review.get("state", "")
-                    prefix = f"[Review: {state}] " if state else ""
-                    activity.append((
-                        reviewer_obj.get("login", ""),
-                        reviewer_type == "Bot",
-                        review.get("submittedAt", ""),
-                        prefix + review_body,
-                    ))
-
             # Find recent non-bot comments (last 5, chronological order)
+            non_bot_activity = _collect_non_bot_activity(content)
+            watermark_date, watermark_login = _latest_human_activity(content)
             last_commenter = author
             last_comment_date = created_at
-
-            activity.sort(key=lambda x: x[2], reverse=True)
-            non_bot_activity = [(login, date, body) for login, is_bot, date, body in activity if not is_bot]
 
             if non_bot_activity:
                 last_commenter = non_bot_activity[0][0]
@@ -660,10 +807,9 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 for review in content.get("reviews", {}).get("nodes", []):
                     reviewer_obj = review.get("author", {}) or {}
                     reviewer_login = reviewer_obj.get("login", "")
-                    reviewer_type = reviewer_obj.get("__typename", "")
                     submitted = review.get("submittedAt", "")
                     state = review.get("state", "")
-                    if not reviewer_login or not state or reviewer_type == "Bot":
+                    if not reviewer_login or not state or _is_bot_account(reviewer_obj):
                         continue
                     prev = reviewer_latest.get(reviewer_login)
                     if prev is None or submitted > prev[1]:
@@ -694,6 +840,8 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 "issue_author": author,
                 "author_is_bot": author_is_bot,
                 "issue_created_date": created_at,
+                "activity_watermark_date": watermark_date,
+                "activity_watermark_login": watermark_login,
                 "last_commenter": last_commenter,
                 "last_comment_date": last_comment_date,
                 "recent_comments": recent_comments,

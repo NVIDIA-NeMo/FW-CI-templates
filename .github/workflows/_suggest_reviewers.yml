@@ -210,14 +210,30 @@ jobs:
             // invalid entry (no repo access, etc.) fails the entire request. That's an
             // advisory feature breaking silently, not a CI failure — so on error we warn
             // and surface it for a Slack alert (next step), but never fail the workflow.
+            //
+            // Requesting a TEAM as a reviewer via the default GITHUB_TOKEN is a known
+            // GitHub Actions limitation — it can fail to resolve the team even when that
+            // team clearly has write access to the repo (confirmed live: "Could not
+            // resolve to a node with the global id of '...'"). Individual-user requests
+            // work fine on the default token; route through the org PAT when team
+            // reviewers are involved, since team resolution needs org-level context the
+            // default token doesn't have.
             try {
-              await github.rest.pulls.requestReviewers({
+              const requestOptions = {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.issue.number,
                 reviewers: newReviewers,
                 team_reviewers: newTeamReviewers,
-              });
+              };
+              if (newTeamReviewers.length > 0 && process.env.ORG_PAT) {
+                await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers', {
+                  ...requestOptions,
+                  headers: { authorization: `token ${process.env.ORG_PAT}` },
+                });
+              } else {
+                await github.rest.pulls.requestReviewers(requestOptions);
+              }
             } catch (err) {
               core.warning(`Could not request suggested reviewers: ${err.message}`);
               const attempted = [...newReviewers.map(r => '@' + r), ...newTeamReviewers.map(t => '@' + t)].join(', ') || '(none)';

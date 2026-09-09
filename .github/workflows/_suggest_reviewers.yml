@@ -125,12 +125,21 @@ jobs:
             const enforcedTeamMembers = new Set();
             if (enforcedTeamSlugs.length > 0) {
               if (process.env.ORG_PAT) {
-                const { getOctokit } = require('@actions/github');
-                const orgOctokit = getOctokit(process.env.ORG_PAT);
+                // `require('@actions/github')` is NOT available inside github-script's
+                // sandbox (it's bundled into the action itself, not a real node_module
+                // on disk) -- so reuse the existing authenticated `github` client, just
+                // overriding the Authorization header for this call to use the org PAT
+                // instead of the default GITHUB_TOKEN (which can't read org team
+                // membership). This is the documented way to use a different token for
+                // one-off calls with actions/github-script.
                 for (const teamPath of enforcedTeamSlugs) {
                   const [org, team_slug] = teamPath.split('/');
                   try {
-                    const members = await orgOctokit.paginate(orgOctokit.rest.teams.listMembersInOrg, { org, team_slug });
+                    const members = await github.paginate('GET /orgs/{org}/teams/{team_slug}/members', {
+                      org,
+                      team_slug,
+                      headers: { authorization: `token ${process.env.ORG_PAT}` },
+                    });
                     members.forEach(m => enforcedTeamMembers.add(m.login.toLowerCase()));
                   } catch (err) {
                     core.warning(`Could not list members of enforced team ${teamPath}: ${err.message}`);

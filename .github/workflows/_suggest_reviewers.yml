@@ -67,17 +67,23 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: ci-templates
 
-      # Short-lived, narrowly-scoped token (read-only org member/team access) minted
-      # from a GitHub App install, instead of a standing personal-access-token. Same
-      # App already used by community-bot.yml in consuming repos. Team-reviewer
-      # resolution needs org-level context the default GITHUB_TOKEN doesn't have.
-      - name: Create GitHub App token for org-scoped team lookups
+      # create-github-app-token defaults to a token scoped to just the current repo
+      # (confirmed live: "Inputs 'owner' and 'repositories' are not set. Creating
+      # token for this repository") -- org membership/team data is an ORG-level
+      # resource, so a repo-scoped token can never see it no matter what
+      # permission-members is set to. Explicitly setting `owner:` mints an
+      # org-installation-scoped token instead, which is what both the team
+      # membership lookup AND the team-reviewer request itself need (the default
+      # GITHUB_TOKEN failed to resolve a team as a reviewer even with repo write
+      # access, for the same org-level-resolution reason).
+      - name: Create org-scoped GitHub App token for team lookups and requests
         if: inputs.app-id != ''
-        id: app-token
+        id: org-app-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
+          owner: ${{ github.repository_owner }}
           permission-members: read
           permission-pull-requests: write
 
@@ -85,7 +91,7 @@ jobs:
         id: suggest
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.org-app-token.outputs.token }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
         with:
           script: |

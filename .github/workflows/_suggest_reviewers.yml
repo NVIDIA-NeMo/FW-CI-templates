@@ -67,6 +67,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
         with:
           script: |
             const fs = require('fs');
@@ -214,10 +215,14 @@ jobs:
               const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
               core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${context.payload.pull_request.html_url}\n` +
                 `Attempted: ${attempted}\nError: ${err.message}\nWorkflow: ${runUrl}`);
+              // `secrets.*` isn't available in a step-level `if:` condition, so decide
+              // here (where env vars ARE available) whether the next step should run,
+              // and pass that decision through as a plain output instead.
+              core.setOutput('should_alert_slack', process.env.SLACK_WEBHOOK ? 'true' : 'false');
             }
 
       - name: Alert Slack on request failure
-        if: steps.suggest.outputs.failure_message != '' && secrets.SLACK_TEAM_CHANNEL_WEBHOOK != ''
+        if: steps.suggest.outputs.should_alert_slack == 'true'
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
           message: ${{ steps.suggest.outputs.failure_message }}

@@ -31,14 +31,18 @@ on:
         required: false
         default: main
         type: string
-      app-id:
-        description: "GitHub App ID for a short-lived, org-scoped token (needed to list team membership and request a team as a reviewer). Optional: falls back to the default GITHUB_TOKEN, which can request individual reviewers but not teams."
-        required: false
-        default: ""
-        type: string
     secrets:
-      BOT_KEY:
-        description: "Private key for the App identified by app-id."
+      TEAM_REVIEWER_PAT:
+        description: >
+          PAT needed to list team membership and request a TEAM as a reviewer
+          (default GITHUB_TOKEN and GitHub App installation tokens cannot do
+          this — confirmed as a real GitHub API limitation, not a permissions
+          gap: https://github.com/orgs/community/discussions/66049). Optional:
+          without it, individual-user suggestions still work fine on the
+          default token; team suggestions are skipped with a warning.
+          Least-privilege scope: fine-grained PAT, repo access limited to the
+          calling repo, "Pull requests: Read and write" + org "Members:
+          Read-only". Classic PAT equivalent: public_repo + read:org.
         required: false
       SLACK_TEAM_CHANNEL_WEBHOOK:
         description: "Slack webhook to alert on if the reviewer-request batch call fails. Optional: skips the alert if absent."
@@ -67,31 +71,20 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: ci-templates
 
-      # create-github-app-token defaults to a token scoped to just the current repo
-      # (confirmed live: "Inputs 'owner' and 'repositories' are not set. Creating
-      # token for this repository") -- org membership/team data is an ORG-level
-      # resource, so a repo-scoped token can never see it no matter what
-      # permission-members is set to. Explicitly setting `owner:` mints an
-      # org-installation-scoped token instead, which is what both the team
-      # membership lookup AND the team-reviewer request itself need (the default
-      # GITHUB_TOKEN failed to resolve a team as a reviewer even with repo write
-      # access, for the same org-level-resolution reason).
-      - name: Create org-scoped GitHub App token for team lookups and requests
-        if: inputs.app-id != ''
-        id: org-app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with:
-          app-id: ${{ inputs.app-id }}
-          private-key: ${{ secrets.BOT_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-members: read
-          permission-pull-requests: write
-
+      # Team-reviewer resolution (listing a team's members, and requesting a team
+      # as a PR reviewer) does not work with the default GITHUB_TOKEN, nor with a
+      # GitHub App installation token, regardless of permissions granted -- this
+      # is a confirmed, widely-documented GitHub API limitation, not a scope gap:
+      # https://github.com/orgs/community/discussions/66049
+      # https://github.com/peter-evans/create-pull-request/issues/155
+      # A token tied to a real human/service-account identity (PAT) is the only
+      # thing confirmed to work. Individual-user suggestions never need this --
+      # they use the default GITHUB_TOKEN via the else-branches below.
       - name: Request suggested reviewers from CODEOWNERS `# suggest:` lines
         id: suggest
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          APP_TOKEN: ${{ steps.org-app-token.outputs.token }}
+          TEAM_REVIEWER_PAT: ${{ secrets.TEAM_REVIEWER_PAT }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
         with:
           script: |
@@ -149,12 +142,12 @@ jobs:
 
             const enforcedTeamMembers = new Set();
             if (enforcedTeamSlugs.length > 0) {
-              if (process.env.APP_TOKEN) {
+              if (process.env.TEAM_REVIEWER_PAT) {
                 // `require('@actions/github')` is NOT available inside github-script's
                 // sandbox (it's bundled into the action itself, not a real node_module
                 // on disk) -- so reuse the existing authenticated `github` client, just
-                // overriding the Authorization header for this call to use the App
-                // token instead of the default GITHUB_TOKEN (which can't read org team
+                // overriding the Authorization header for this call to use the PAT
+                // instead of the default GITHUB_TOKEN (which can't read org team
                 // membership). This is the documented way to use a different token for
                 // one-off calls with actions/github-script.
                 for (const teamPath of enforcedTeamSlugs) {
@@ -163,7 +156,7 @@ jobs:
                     const members = await github.paginate('GET /orgs/{org}/teams/{team_slug}/members', {
                       org,
                       team_slug,
-                      headers: { authorization: `token ${process.env.APP_TOKEN}` },
+                      headers: { authorization: `token ${process.env.TEAM_REVIEWER_PAT}` },
                     });
                     members.forEach(m => enforcedTeamMembers.add(m.login.toLowerCase()));
                   } catch (err) {
@@ -171,7 +164,7 @@ jobs:
                   }
                 }
               } else {
-                core.warning('No App token available (app-id not set) — skipping the enforced-team-membership check for suggested reviewers.');
+                core.warning('TEAM_REVIEWER_PAT not set — skipping the enforced-team-membership check for suggested reviewers.');
               }
             }
 
@@ -236,13 +229,14 @@ jobs:
             // advisory feature breaking silently, not a CI failure — so on error we warn
             // and surface it for a Slack alert (next step), but never fail the workflow.
             //
-            // Requesting a TEAM as a reviewer via the default GITHUB_TOKEN is a known
-            // GitHub Actions limitation — it can fail to resolve the team even when that
-            // team clearly has write access to the repo (confirmed live: "Could not
-            // resolve to a node with the global id of '...'"). Individual-user requests
-            // work fine on the default token; route through the App token when team
-            // reviewers are involved, since team resolution needs org-level context the
-            // default token doesn't have.
+            // Requesting a TEAM as a reviewer via the default GITHUB_TOKEN (or a GitHub
+            // App installation token — both tried and confirmed broken live) fails with
+            // "Could not resolve to a node with the global id of '...'". This is a
+            // confirmed GitHub API limitation, not a scope gap: a token tied to a real
+            // human/service-account identity is the only thing that has worked in every
+            // case we found, including our own live testing. Individual-user requests
+            // work fine on the default token regardless; only route through the PAT when
+            // a team reviewer is actually in this batch.
             try {
               const requestOptions = {
                 owner: context.repo.owner,
@@ -251,10 +245,10 @@ jobs:
                 reviewers: newReviewers,
                 team_reviewers: newTeamReviewers,
               };
-              if (newTeamReviewers.length > 0 && process.env.APP_TOKEN) {
+              if (newTeamReviewers.length > 0 && process.env.TEAM_REVIEWER_PAT) {
                 await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers', {
                   ...requestOptions,
-                  headers: { authorization: `token ${process.env.APP_TOKEN}` },
+                  headers: { authorization: `token ${process.env.TEAM_REVIEWER_PAT}` },
                 });
               } else {
                 await github.rest.pulls.requestReviewers(requestOptions);

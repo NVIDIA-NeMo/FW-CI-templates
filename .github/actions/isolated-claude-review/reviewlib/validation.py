@@ -25,9 +25,13 @@ from typing import Any
 from .context import validate_manifest
 from .contracts import (
     MAX_COMMENT_BODY_BYTES,
+    MAX_COVERAGE_NOTES_BYTES,
+    MAX_FAILURE_REASON_BYTES,
+    MAX_FINDING_PATH_BYTES,
     MAX_GENERAL_FINDINGS,
     MAX_INLINE_FINDINGS,
     MAX_OUTPUT_BYTES,
+    MAX_REVIEW_ID_BYTES,
     MAX_SUMMARY_BYTES,
     SCHEMA_VERSION,
     ChangedFile,
@@ -140,10 +144,11 @@ def validate_output_document(
         raise ReviewError("status must be complete or incomplete")
     if type(output["clean_review"]) is not bool:
         raise ReviewError("clean_review must be a JSON boolean")
+    validate_text("review_id", output["review_id"], MAX_REVIEW_ID_BYTES)
     validate_text("summary", output["summary"], MAX_SUMMARY_BYTES, allow_empty=True)
     failure_reason = output.get("failure_reason")
     if output["status"] == "incomplete":
-        validate_text("failure_reason", failure_reason, 4_000)
+        validate_text("failure_reason", failure_reason, MAX_FAILURE_REASON_BYTES)
     elif failure_reason not in (None, ""):
         raise ReviewError("complete output cannot include a failure_reason")
     if output["clean_review"] and (output["status"] != "complete" or output["inline_findings"] or output["general_findings"]):
@@ -159,7 +164,7 @@ def validate_output_document(
         raise ReviewError("coverage counts do not match captured context")
     if type(coverage.get("diff_complete")) is not bool:
         raise ReviewError("diff_complete must be a JSON boolean")
-    validate_text("coverage.notes", coverage.get("notes"), 4_000, allow_empty=True)
+    validate_text("coverage.notes", coverage.get("notes"), MAX_COVERAGE_NOTES_BYTES, allow_empty=True)
     if audited_coverage is not None:
         for field in ("changed_files_reviewed", "changed_files_total", "diff_complete"):
             if coverage[field] != audited_coverage[field]:
@@ -191,6 +196,7 @@ def validate_output_document(
             raise ReviewError("inline finding must be an object")
         reject_unknown(finding, {"path", "side", "line", "severity", "category", "body"}, f"inline_findings[{index}]")
         path = normalize_repo_path(finding.get("path"))
+        validate_text("inline finding path", path, MAX_FINDING_PATH_BYTES)
         side = finding.get("side")
         line = finding.get("line")
         if side not in {"LEFT", "RIGHT"} or type(line) is not int or line <= 0:
@@ -200,7 +206,7 @@ def validate_output_document(
             raise ReviewError(f"inline finding is outside the immutable diff: {path}:{side}:{line}")
         if finding.get("severity") not in {"critical", "high", "medium", "low", "info"}:
             raise ReviewError("inline finding severity is invalid")
-        category = validate_text("inline finding category", finding.get("category"), 200)
+        category = validate_text("inline finding category", finding.get("category"), 64)
         if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", category):
             raise ReviewError("inline finding category is invalid")
         body = validate_text("inline finding body", finding.get("body"), MAX_COMMENT_BODY_BYTES)
@@ -214,10 +220,13 @@ def validate_output_document(
         reject_unknown(finding, {"severity", "category", "body"}, f"general_findings[{index}]")
         if finding.get("severity") not in {"critical", "high", "medium", "low", "info"}:
             raise ReviewError("general finding severity is invalid")
-        category = validate_text("general finding category", finding.get("category"), 200)
+        category = validate_text("general finding category", finding.get("category"), 64)
         if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", category):
             raise ReviewError("general finding category is invalid")
         validate_text("general finding body", finding.get("body"), MAX_COMMENT_BODY_BYTES)
+    serialized_size = len(json.dumps(output, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if serialized_size > MAX_OUTPUT_BYTES:
+        raise ReviewError("review output exceeds the aggregate byte limit")
     return output
 
 

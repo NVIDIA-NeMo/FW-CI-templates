@@ -408,6 +408,52 @@ class OutputTests(RepositoryFixture):
             review_components.validate_output_document(output, manifest, changed)
 
 
+    def test_maximum_valid_output_fits_transport_limit(self):
+        """Verify every maximum-sized schema string fits the transport bound.
+
+        Null characters force six-byte JSON escapes. Combining them with maximum
+        metadata, coverage, paths, and finding arrays exercises the worst encoding.
+        """
+        output, _, _ = self.output()
+        escaped = "\x00"
+        output["review_id"] = escaped * review_components.MAX_REVIEW_ID_BYTES
+        output["summary"] = escaped * review_components.MAX_SUMMARY_BYTES
+        output["coverage"]["notes"] = escaped * review_components.MAX_COVERAGE_NOTES_BYTES
+        output["failure_reason"] = escaped * review_components.MAX_FAILURE_REASON_BYTES
+        output["clean_review"] = False
+        output["inline_findings"] = [
+            {
+                "path": escaped * review_components.MAX_FINDING_PATH_BYTES,
+                "side": "RIGHT",
+                "line": 2_147_483_647,
+                "severity": "critical",
+                "category": escaped * 64,
+                "body": escaped * review_components.MAX_COMMENT_BODY_BYTES,
+            }
+            for _ in range(review_components.MAX_INLINE_FINDINGS)
+        ]
+        output["general_findings"] = [
+            {
+                "severity": "critical",
+                "category": escaped * 64,
+                "body": escaped * review_components.MAX_COMMENT_BODY_BYTES,
+            }
+            for _ in range(review_components.MAX_GENERAL_FINDINGS)
+        ]
+        encoded = review_components.canonical_json(output)
+        self.assertLessEqual(len(encoded), review_components.MAX_OUTPUT_BYTES)
+        self.assertLess(review_components.MAX_OUTPUT_BYTES, 64 * 1024)
+
+    def test_aggregate_output_limit_rejects_oversized_document(self):
+        """Verify the aggregate byte guard rejects an otherwise valid document."""
+        from reviewlib import validation
+
+        output, manifest, changed = self.output()
+        encoded_size = len(review_components.canonical_json(output))
+        with mock.patch.object(validation, "MAX_OUTPUT_BYTES", encoded_size - 1):
+            with self.assertRaisesRegex(review_components.ReviewError, "aggregate byte limit"):
+                review_components.validate_output_document(output, manifest, changed)
+
     def test_complete_output_requires_audited_retrieval(self):
         """Verify that complete output requires audited retrieval.
         """
@@ -429,7 +475,7 @@ class OutputTests(RepositoryFixture):
 class WorkflowIsolationTests(RepositoryFixture):
     """Test Base Action isolation and authorization workflow contracts."""
 
-    BASE_ACTION_SHA = "646b4a772085257c35182cd167bdd6b3b1017675"
+    BASE_ACTION_SHA = "646b4a772085257c35182cd167bdd6b3b1017675"  # pragma: allowlist secret
     BASE_ACTION_VERSION = "2.1.263"
 
     @staticmethod
@@ -458,10 +504,9 @@ class WorkflowIsolationTests(RepositoryFixture):
     def test_base_action_uses_pinned_restrictive_contract(self):
         """Verify the pinned CLI contract enforces one MCP-only security policy."""
         value = self.workflow("_isolated_review_analyze.yml")
-        self.assertIn(f"checkout --detach {self.BASE_ACTION_SHA}", value)
-        self.assertIn("uses: ./claude-base-action", value)
-        self.assertIn('test -z "$(git -C claude-base-action status --short)"', value)
-        self.assertNotIn("git -C claude-base-action apply", value)
+        self.assertIn(f"uses: anthropics/claude-code-base-action@{self.BASE_ACTION_SHA}", value)
+        self.assertNotIn("git clone", value)
+        self.assertNotIn("git -C claude-base-action", value)
         self.assertIn("permissions: {}", value)
         self.assertIn("show_full_output: false", value)
         self.assertIn('"mcpServers":{"review_context"', value)
@@ -470,7 +515,6 @@ class WorkflowIsolationTests(RepositoryFixture):
             "--restricted",
             "--permission-mode dontAsk",
             "--permission-prompts none",
-            "--setting-sources user",
             "--strict-mcp-config",
             "--disable-slash-commands",
             "--no-chrome",
@@ -478,9 +522,19 @@ class WorkflowIsolationTests(RepositoryFixture):
         ):
             self.assertIn(option, value)
         self.assertNotIn("--safe-mode", value)
-        self.assertNotIn("--allowedTools", value)
-        self.assertNotIn("--disallowedTools", value)
-        self.assertIn('"allow": []', value)
+        allowed = next(line.strip() for line in value.splitlines() if line.strip().startswith("--allowedTools "))
+        allowed_names = set(allowed.split('"', 1)[1].rsplit('"', 1)[0].split(","))
+        from reviewlib.mcp import MCP_TOOLS
+
+        expected_allowed = {f"mcp__review_context__{tool['name']}" for tool in MCP_TOOLS}
+        self.assertEqual(allowed_names, expected_allowed)
+        denied = next(line.strip() for line in value.splitlines() if line.strip().startswith("--disallowedTools "))
+        denied_names = set(denied.split('"', 1)[1].rsplit('"', 1)[0].split(","))
+        self.assertEqual(
+            denied_names,
+            {"Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task", "Agent"},
+        )
+        self.assertIn('ACTIONS_STEP_DEBUG: "false"', value)
         for tool in (
             "Bash",
             "Read",
@@ -494,12 +548,10 @@ class WorkflowIsolationTests(RepositoryFixture):
             "Task",
             "Agent",
         ):
-            self.assertIn(f'"{tool}"', value)
+            self.assertIn(tool, denied_names)
         self.assertIn('plugins: ""', value)
         self.assertIn('plugin_marketplaces: ""', value)
-        self.assertIn('"disableAllHooks": true', value)
-        self.assertIn('"disableSkillShellExecution": true', value)
-        self.assertIn('"enabledPlugins": {}', value)
+        self.assertNotIn("settings:", value)
 
     def test_base_action_workdir_excludes_context_and_proposed_instructions(self):
         """Verify model configuration is separated from every captured PR snapshot."""
@@ -558,7 +610,7 @@ class WorkflowIsolationTests(RepositoryFixture):
         upload_index = value.index("- name: Upload validated result and audit")
         self.assertLess(step_index, upload_index)
         step = value[step_index:upload_index]
-        bound_index = step.index("[[ ${#STRUCTURED_OUTPUT} -le 65536 ]]")
+        bound_index = step.index("[[ ${#STRUCTURED_OUTPUT} -le 61440 ]]")
         validate_index = step.index("validate-output")
         stage_index = step.index("mkdir result-artifact")
         self.assertLess(bound_index, validate_index)

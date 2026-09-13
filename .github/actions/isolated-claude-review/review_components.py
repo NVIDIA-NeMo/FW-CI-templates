@@ -31,7 +31,20 @@ from reviewlib.context import (  # noqa: E402,F401
     resolve_trusted_symlink,
     validate_manifest,
 )
-from reviewlib.contracts import MAX_REVIEW_BODY_BYTES, SCHEMA_VERSION, ReviewError  # noqa: E402,F401
+from reviewlib.contracts import (  # noqa: E402,F401
+    MAX_COMMENT_BODY_BYTES,
+    MAX_COVERAGE_NOTES_BYTES,
+    MAX_FAILURE_REASON_BYTES,
+    MAX_FINDING_PATH_BYTES,
+    MAX_GENERAL_FINDINGS,
+    MAX_INLINE_FINDINGS,
+    MAX_OUTPUT_BYTES,
+    MAX_REVIEW_BODY_BYTES,
+    MAX_REVIEW_ID_BYTES,
+    MAX_SUMMARY_BYTES,
+    SCHEMA_VERSION,
+    ReviewError,
+)
 from reviewlib.publisher import exchange_publisher_token, review_payload  # noqa: E402,F401
 from reviewlib.retrieval import retrieval_coverage, retriever  # noqa: E402,F401
 from reviewlib.utils import canonical_json, sha256_bytes, write_json  # noqa: E402,F401

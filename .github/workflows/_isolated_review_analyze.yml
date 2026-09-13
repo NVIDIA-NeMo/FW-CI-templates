@@ -98,24 +98,15 @@ jobs:
           MCP
           echo "schema=$(jq -c . "$context_dir/tools/review-output-v1.schema.json")" >> "$GITHUB_OUTPUT"
 
-      # Security policy for Claude Code 2.1.263, pinned by the Base Action SHA below.
-      # Restricted mode plus strict MCP configuration admits only review_context;
-      # dontAsk/permission-prompts=none fail closed. Empty plugin inputs, bare mode, and
-      # user-only setting sources exclude local configuration and customization.
-      - name: Stage pinned Claude Code Base Action
-        run: |
-          set -euo pipefail
-          git clone --filter=blob:none --no-checkout https://github.com/anthropics/claude-code-base-action.git claude-base-action
-          git -C claude-base-action checkout --detach 646b4a772085257c35182cd167bdd6b3b1017675
-          test "$(git -C claude-base-action rev-parse HEAD)" = 646b4a772085257c35182cd167bdd6b3b1017675
-          test -z "$(git -C claude-base-action status --short)"
-
+      # Claude Code 2.1.263 is fixed by the Base Action revision below. Strict MCP
+      # configuration plus exact allow and deny lists expose only review_context tools.
       - name: Run pinned Claude Code Base Action
         id: analyze
-        uses: ./claude-base-action
+        uses: anthropics/claude-code-base-action@646b4a772085257c35182cd167bdd6b3b1017675
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.NVIDIA_INFERENCE_URL }}
           CLAUDE_WORKING_DIR: ${{ runner.temp }}/claude-analysis
+          ACTIONS_STEP_DEBUG: "false"
           CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: "1"
           CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
           DISABLE_PROMPT_CACHING: "1"
@@ -125,16 +116,6 @@ jobs:
           show_full_output: false
           plugins: ""
           plugin_marketplaces: ""
-          settings: |
-            {
-              "disableAllHooks": true,
-              "disableSkillShellExecution": true,
-              "enabledPlugins": {},
-              "permissions": {
-                "allow": [],
-                "deny": ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task", "Agent"]
-              }
-            }
           claude_args: >-
             --model "${{ inputs.model }}"
             --max-turns 128
@@ -142,9 +123,10 @@ jobs:
             --restricted
             --permission-mode dontAsk
             --permission-prompts none
-            --setting-sources user
             --strict-mcp-config
             --mcp-config "${{ runner.temp }}/analysis-control/mcp-config.json"
+            --allowedTools "mcp__review_context__metadata,mcp__review_context__changed_files,mcp__review_context__governing_base,mcp__review_context__tree,mcp__review_context__read,mcp__review_context__diff,mcp__review_context__trusted_base_read,mcp__review_context__trusted_base_search,mcp__review_context__coverage,mcp__review_context__search,mcp__review_context__diff_hunks,mcp__review_context__history"
+            --disallowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task,Agent"
             --disable-slash-commands
             --no-chrome
             --no-session-persistence
@@ -152,13 +134,13 @@ jobs:
 
       - name: Bound and validate structured result
         env:
-          # The pinned action exposes structured output only as a step output. The closed
-          # schema and this 64 KiB guard keep the environment value below runner limits.
+          # The schema's aggregate maximum is tested below 60 KiB, leaving headroom
+          # before the runner materializes this step-output environment value.
           STRUCTURED_OUTPUT: ${{ steps.analyze.outputs.structured_output }}
         run: |
           set -euo pipefail
           test -n "$STRUCTURED_OUTPUT"
-          [[ ${#STRUCTURED_OUTPUT} -le 65536 ]]
+          [[ ${#STRUCTURED_OUTPUT} -le 61440 ]]
           printf '%s' "$STRUCTURED_OUTPUT" > review-output.json
           python3 "$RUNNER_TEMP/review-context/tools/review_components.py" validate-output \
             --context "$RUNNER_TEMP/review-context" \

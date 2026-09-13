@@ -145,19 +145,34 @@ jobs:
               if (process.env.TEAM_REVIEWER_PAT) {
                 // `require('@actions/github')` is NOT available inside github-script's
                 // sandbox (it's bundled into the action itself, not a real node_module
-                // on disk) -- so reuse the existing authenticated `github` client, just
-                // overriding the Authorization header for this call to use the PAT
-                // instead of the default GITHUB_TOKEN (which can't read org team
-                // membership). This is the documented way to use a different token for
-                // one-off calls with actions/github-script.
+                // on disk) -- and don't trust Octokit's own auth plugin to respect a
+                // per-call header override on the shared, pre-authenticated `github`
+                // client either (see the reviewer-request call below for why). Use a
+                // plain fetch() with manual pagination so there's no ambiguity about
+                // which credential is actually sent.
                 for (const teamPath of enforcedTeamSlugs) {
                   const [org, team_slug] = teamPath.split('/');
                   try {
-                    const members = await github.paginate('GET /orgs/{org}/teams/{team_slug}/members', {
-                      org,
-                      team_slug,
-                      headers: { authorization: `token ${process.env.TEAM_REVIEWER_PAT}` },
-                    });
+                    let page = 1;
+                    let members = [];
+                    while (true) {
+                      const res = await fetch(
+                        `https://api.github.com/orgs/${org}/teams/${team_slug}/members?per_page=100&page=${page}`,
+                        {
+                          headers: {
+                            authorization: `token ${process.env.TEAM_REVIEWER_PAT}`,
+                            accept: 'application/vnd.github+json',
+                            'x-github-api-version': '2026-03-10',
+                            'user-agent': 'suggest-reviewers-workflow',
+                          },
+                        }
+                      );
+                      if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+                      const batch = await res.json();
+                      members = members.concat(batch);
+                      if (batch.length < 100) break;
+                      page += 1;
+                    }
                     members.forEach(m => enforcedTeamMembers.add(m.login.toLowerCase()));
                   } catch (err) {
                     core.warning(`Could not list members of enforced team ${teamPath}: ${err.message}`);
@@ -246,10 +261,33 @@ jobs:
                 team_reviewers: newTeamReviewers,
               };
               if (newTeamReviewers.length > 0 && process.env.TEAM_REVIEWER_PAT) {
-                await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers', {
-                  ...requestOptions,
-                  headers: { authorization: `token ${process.env.TEAM_REVIEWER_PAT}` },
-                });
+                // Bypass github-script's shared, pre-authenticated Octokit client entirely
+                // for this call. Overriding just the `headers.authorization` on that
+                // client (as done elsewhere in this script) trusts Octokit's own auth
+                // plugin to respect the override rather than re-applying its default
+                // GITHUB_TOKEN auth -- worth not trusting blindly here, since the exact
+                // same token value succeeds via a plain `gh api` call but was failing
+                // through that path, which is consistent with the override silently not
+                // taking effect. A raw fetch() removes any ambiguity about which
+                // credential is actually sent.
+                const res = await fetch(
+                  `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/pulls/${context.issue.number}/requested_reviewers`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      authorization: `token ${process.env.TEAM_REVIEWER_PAT}`,
+                      accept: 'application/vnd.github+json',
+                      'x-github-api-version': '2026-03-10',
+                      'content-type': 'application/json',
+                      'user-agent': 'suggest-reviewers-workflow',
+                    },
+                    body: JSON.stringify({ reviewers: newReviewers, team_reviewers: newTeamReviewers }),
+                  }
+                );
+                if (!res.ok) {
+                  const body = await res.text();
+                  throw new Error(`${res.status} ${res.statusText}: ${body}`);
+                }
               } else {
                 await github.rest.pulls.requestReviewers(requestOptions);
               }

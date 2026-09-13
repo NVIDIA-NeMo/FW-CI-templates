@@ -16,43 +16,51 @@
 
 const SUGGEST_PREFIX = /^#\s*suggest:\s*(.+)$/;
 
-function toRegex(pattern) {
+// Converts one CODEOWNERS-style pattern into one or more minimatch-compatible
+// glob strings (the syntax step-security/changed-files' `files_yaml:` input
+// expects), preserving the same CODEOWNERS/.gitignore semantics this module
+// used to implement by hand via a custom regex builder:
+//   - a leading "/" (or any "/" at all) anchors the pattern to the repo root
+//   - a trailing "/" is a directory pattern: matches that directory and
+//     everything under it
+//   - a pattern with no "/" anywhere matches at any depth (basename match)
+//   - "**"/"*" keep their normal glob meaning; minimatch's own "**" already
+//     handles the zero-or-more-directories case correctly (unlike this
+//     module's first hand-rolled regex attempt, which needed a follow-up fix)
+// Returns an array because the "matches at any depth" case needs two
+// alternatives (root-level and nested) rather than one pattern with branching.
+function toGlob(pattern) {
   const anchored = pattern.startsWith('/');
   let p = pattern.replace(/^\//, '');
   const dirOnly = p.endsWith('/');
   if (dirOnly) p = p.slice(0, -1);
 
-  // "**" (globstar) means zero or more path segments, per gitignore/CODEOWNERS
-  // semantics — so `/a/**/b` must also match `a/b` (zero intervening dirs),
-  // `**/docs/` must also match `docs/` at the repo root, and `docs/**` must
-  // also match `docs` itself. A literal slash immediately adjacent to `**` in
-  // the source pattern has to become optional too, not stay a mandatory
-  // literal — so these three shapes are tokenized (and the adjacent slash
-  // consumed into the token) before generic char-escaping and single-`*`
-  // handling run, then substituted for their final regex fragments after.
-  const MID = '@@GLOBSTAR_MID@@'; // "/**/" between two segments
-  const LEAD = '@@GLOBSTAR_LEAD@@'; // "**/" at the very start
-  const TRAIL = '@@GLOBSTAR_TRAIL@@'; // "/**" at the very end
-  const BARE = '@@GLOBSTAR_BARE@@'; // "**" with no adjacent "/" (e.g. pattern is just "**")
+  if (p === '*') return ['**'];
 
-  const tokenized = p
-    .replace(/\/\*\*\//g, MID)
-    .replace(/^\*\*\//, LEAD)
-    .replace(/\/\*\*$/, TRAIL)
-    .replace(/\*\*/g, BARE);
+  const withDirSuffix = dirOnly ? `${p}/**` : p;
 
-  const escaped = tokenized
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^/]*')
-    .replace(new RegExp(MID, 'g'), '/(?:.*/)?')
-    .replace(new RegExp(LEAD, 'g'), '(?:.*/)?')
-    .replace(new RegExp(TRAIL, 'g'), '(?:/.*)?')
-    .replace(new RegExp(BARE, 'g'), '.*');
+  if (anchored || p.includes('/')) {
+    return [withDirSuffix];
+  }
+  // Unanchored, no "/" anywhere in the pattern (e.g. "docker/" or a bare
+  // filename like "package.json") — matches at any depth, not just the root.
+  return dirOnly ? [`${p}/**`, `**/${p}/**`] : [p, `**/${p}`];
+}
 
-  const body = dirOnly ? `${escaped}(/.*)?` : escaped;
-  return anchored || p.includes('/')
-    ? new RegExp(`^${body}$`)
-    : new RegExp(`(^|/)${body}$`);
+// CODEOWNERS/.gitignore semantics: the LAST matching rule wins for a path.
+// Takes rules in FILE ORDER, each annotated with which changed files it
+// matched (however that matching was actually done -- by us, or by an
+// external tool like step-security/changed-files) and resolves each file to
+// exactly one winning rule by walking the rules in order and letting each
+// later match overwrite any earlier one for the same file.
+function resolveLastMatchPerFile(rulesWithMatches) {
+  const winningRuleByFile = new Map();
+  for (const rule of rulesWithMatches) {
+    for (const filename of rule.matchedFiles) {
+      winningRuleByFile.set(filename, rule);
+    }
+  }
+  return winningRuleByFile;
 }
 
 function parseRuleLine(line) {
@@ -80,33 +88,6 @@ function parseCodeowners(text) {
     .map(parseRuleLine);
 
   return { enforcedRules, suggestRules };
-}
-
-function compileRules(rules) {
-  return rules.map(r => ({ ...r, regex: toRegex(r.pattern) }));
-}
-
-// CODEOWNERS/.gitignore semantics: the LAST matching rule wins for a path.
-// Works identically for individual-user owners (`@name`) and team owners
-// (`@org/team`) — both are opaque strings to the matcher.
-function resolveWinningRule(compiledRules, filename) {
-  let match = null;
-  for (const rule of compiledRules) {
-    if (rule.regex.test(filename)) match = rule;
-  }
-  return match;
-}
-
-// Resolves the union of owners across a set of changed files, each file
-// independently resolved via last-match-wins.
-function resolveOwnersForFiles(rules, filenames) {
-  const compiled = compileRules(rules);
-  const owners = new Set();
-  for (const filename of filenames) {
-    const match = resolveWinningRule(compiled, filename);
-    if (match) match.owners.forEach(o => owners.add(o));
-  }
-  return owners;
 }
 
 // Best-effort static "does pattern A's matched file set fully contain pattern
@@ -171,12 +152,10 @@ function findRedundantRules(enforcedRules, suggestRules) {
 }
 
 module.exports = {
-  toRegex,
+  toGlob,
+  resolveLastMatchPerFile,
   parseRuleLine,
   parseCodeowners,
-  compileRules,
-  resolveWinningRule,
-  resolveOwnersForFiles,
   patternCovers,
   findRedundantRules,
 };

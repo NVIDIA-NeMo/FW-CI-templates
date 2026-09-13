@@ -20,7 +20,12 @@
 #
 # Skips a suggested owner that's textually identical to an already-enforced
 # owner for the same file — see .github/scripts/codeowners-suggestions.js for
-# the matching logic and its own unit tests.
+# the "last match wins" resolution logic and its own unit tests. The actual
+# glob-matching (does file X match pattern Y) is delegated to
+# step-security/changed-files, already trusted elsewhere in this repo
+# (_cicd_preflight.yml, _copyright_check.yml) — this workflow only converts
+# CODEOWNERS patterns to the glob syntax it expects and resolves precedence
+# across whichever groups it reports as matched.
 
 on:
   workflow_call:
@@ -65,12 +70,15 @@ jobs:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
+      # step-security/changed-files needs a real git diff, not just the
+      # CODEOWNERS file -- fetch-depth: 0 is a heavier checkout than this
+      # workflow used to need (previously just sparse-checked-out CODEOWNERS
+      # and asked the API for the changed-file list). Worth knowing on a very
+      # large repo; needed for the glob-matching handoff below.
       - name: Checkout calling repo
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          sparse-checkout: |
-            .github/CODEOWNERS
-          sparse-checkout-cone-mode: false
+          fetch-depth: 0
 
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -79,56 +87,112 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: ci-templates
 
-      # Resolves suggested reviewers from CODEOWNERS and requests individual-user
-      # ones directly (default GITHUB_TOKEN is sufficient for that). If a TEAM is
-      # among the suggestions, this step does NOT request it -- team-reviewer
-      # resolution needs a token tied to a real identity (App or PAT), which the
-      # default token isn't. Instead it hands off the resolved lists to the next
-      # step, which runs only when needed and uses that elevated token for its
-      # *entire* scope (see that step for why that's deliberate).
-      - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
-        id: resolve
+      # Turns every CODEOWNERS rule (enforced and `# suggest:` alike) into its
+      # own named glob group for the next step to test against the PR's actual
+      # changed files. Group names are synthetic (e0, e1, ... for enforced
+      # rules; s0, s1, ... for suggest rules, by array index) since files_yaml
+      # groups are keyed by string -- group_meta is the map back from each
+      # synthetic name to its real pattern + owners.
+      - name: Build glob groups from CODEOWNERS
+        id: build-groups
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
-            const {
-              parseCodeowners,
-              compileRules,
-              resolveWinningRule,
-            } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
+            const { parseCodeowners, toGlob } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
 
             const codeownersPath = '.github/CODEOWNERS';
             if (!fs.existsSync(codeownersPath)) {
               core.info(`${codeownersPath} not found, skipping.`);
+              core.setOutput('has_rules', 'false');
               return;
             }
 
             const { enforcedRules, suggestRules } = parseCodeowners(fs.readFileSync(codeownersPath, 'utf8'));
             if (suggestRules.length === 0) {
               core.info('No `# suggest:` lines found in CODEOWNERS, skipping.');
+              core.setOutput('has_rules', 'false');
               return;
             }
 
-            const compiledSuggest = compileRules(suggestRules);
-            const compiledEnforced = compileRules(enforcedRules);
+            const lines = [];
+            const groupMeta = {};
+            function addGroup(prefix, index, rule) {
+              const name = `${prefix}${index}`;
+              groupMeta[name] = { pattern: rule.pattern, owners: rule.owners };
+              lines.push(`${name}:`);
+              for (const glob of toGlob(rule.pattern)) {
+                lines.push(`  - ${JSON.stringify(glob)}`);
+              }
+            }
+            enforcedRules.forEach((rule, i) => addGroup('e', i, rule));
+            suggestRules.forEach((rule, i) => addGroup('s', i, rule));
 
-            const { data: files } = await github.rest.pulls.listFiles({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              per_page: 100,
-            });
+            core.setOutput('has_rules', 'true');
+            core.setOutput('files_yaml', lines.join('\n'));
+            core.setOutput('group_meta', JSON.stringify(groupMeta));
+            core.setOutput('enforced_count', String(enforcedRules.length));
+            core.setOutput('suggest_count', String(suggestRules.length));
+
+      # The actual "does file X match pattern Y" glob test, delegated entirely
+      # to this already-trusted-elsewhere-in-this-repo action instead of a
+      # hand-rolled regex engine. json: true so file lists come back as real
+      # JSON arrays (safe with filenames containing spaces) instead of a
+      # separator-joined string we'd have to split ourselves.
+      - name: Detect which CODEOWNERS rules matched the changed files
+        if: steps.build-groups.outputs.has_rules == 'true'
+        id: changed-files
+        uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+        with:
+          base_sha: ${{ github.event.pull_request.base.sha }}
+          sha: ${{ github.event.pull_request.head.sha }}
+          files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
+          json: true
+
+      # Resolves suggested reviewers and requests individual-user ones directly
+      # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
+      # suggestions, this step does NOT request it -- team-reviewer resolution
+      # needs a token tied to a real identity (App or PAT), which the default
+      # token isn't. Instead it hands off the resolved lists to the next step,
+      # which runs only when needed and uses that elevated token for its
+      # *entire* scope (see that step for why that's deliberate).
+      - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
+        if: steps.build-groups.outputs.has_rules == 'true'
+        id: resolve
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { resolveLastMatchPerFile } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
+
+            const groupMeta = JSON.parse(`${{ steps.build-groups.outputs.group_meta }}`);
+            const enforcedCount = Number(`${{ steps.build-groups.outputs.enforced_count }}`);
+            const suggestCount = Number(`${{ steps.build-groups.outputs.suggest_count }}`);
+            // toJSON() serializes the WHOLE outputs object regardless of how many
+            // dynamically-named (e0, e1, ... / s0, s1, ...) keys it has -- a fixed
+            // number of individual `${{ steps.x.outputs.NAME }}` references isn't
+            // possible here since the rule count is data-driven from CODEOWNERS,
+            // not known when this workflow file is authored.
+            const changedFilesOutputs = JSON.parse(`${{ toJSON(steps.changed-files.outputs) }}`);
+
+            function buildRulesWithMatches(prefix, count) {
+              const rules = [];
+              for (let i = 0; i < count; i++) {
+                const name = `${prefix}${i}`;
+                const meta = groupMeta[name];
+                const raw = changedFilesOutputs[`${name}_all_changed_files`];
+                const matchedFiles = raw ? JSON.parse(raw) : [];
+                rules.push({ pattern: meta.pattern, owners: meta.owners, matchedFiles });
+              }
+              return rules;
+            }
+
+            const suggestWinnerByFile = resolveLastMatchPerFile(buildRulesWithMatches('s', suggestCount));
+            const enforcedWinnerByFile = resolveLastMatchPerFile(buildRulesWithMatches('e', enforcedCount));
 
             const suggested = new Set();
             const enforcedOwners = new Set();
-            for (const file of files) {
-              const suggestMatch = resolveWinningRule(compiledSuggest, file.filename);
-              if (suggestMatch) suggestMatch.owners.forEach(o => suggested.add(o));
-
-              const enforcedMatch = resolveWinningRule(compiledEnforced, file.filename);
-              if (enforcedMatch) enforcedMatch.owners.forEach(o => enforcedOwners.add(o));
-            }
+            for (const rule of suggestWinnerByFile.values()) rule.owners.forEach(o => suggested.add(o));
+            for (const rule of enforcedWinnerByFile.values()) rule.owners.forEach(o => enforcedOwners.add(o));
 
             // Case: a `# suggest:` owner is textually identical to an already-enforced
             // owner for a file in this PR. GitHub already auto-requests the enforced

@@ -3,61 +3,42 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  toRegex,
+  toGlob,
+  resolveLastMatchPerFile,
   parseCodeowners,
-  resolveOwnersForFiles,
   patternCovers,
   findRedundantRules,
 } = require('./codeowners-suggestions.js');
 
-test('toRegex: anchored file pattern matches only from repo root', () => {
-  const re = toRegex('/nemo_gym/skills.py');
-  assert.ok(re.test('nemo_gym/skills.py'));
-  assert.ok(!re.test('other/nemo_gym/skills.py'));
-  assert.ok(!re.test('nemo_gym/skills.py.bak'));
+// These assert the exact glob string(s) toGlob emits, which is what actually
+// gets handed to step-security/changed-files' `files_yaml:` input. Verified
+// separately against a real minimatch install to confirm these globs produce
+// the same match/no-match results our old hand-rolled regex engine did.
+
+test('toGlob: anchored file pattern -> exact path, no wildcarding', () => {
+  assert.deepEqual(toGlob('/nemo_gym/skills.py'), ['nemo_gym/skills.py']);
 });
 
-test('toRegex: directory pattern matches nested files but not sibling prefix dirs', () => {
-  const re = toRegex('/nemo_gym/sandbox/');
-  assert.ok(re.test('nemo_gym/sandbox/foo.py'));
-  assert.ok(re.test('nemo_gym/sandbox/deep/bar.py'));
-  assert.ok(!re.test('nemo_gym/sandbox_extra/foo.py'));
+test('toGlob: anchored directory pattern -> single "dir/**" glob', () => {
+  assert.deepEqual(toGlob('/nemo_gym/sandbox/'), ['nemo_gym/sandbox/**']);
 });
 
-test('toRegex: unanchored directory pattern matches at any depth', () => {
-  const re = toRegex('docker/');
-  assert.ok(re.test('docker/Dockerfile'));
-  assert.ok(re.test('a/b/docker/Dockerfile'));
-  assert.ok(!re.test('my_docker_config/foo.py'));
+test('toGlob: unanchored directory pattern -> matches at any depth via two globs', () => {
+  assert.deepEqual(toGlob('docker/'), ['docker/**', '**/docker/**']);
 });
 
-test('toRegex: "**" between two segments matches zero or more intermediate directories', () => {
-  const re = toRegex('/a/**/b.py');
-  assert.ok(re.test('a/b.py'), 'globstar must match zero intermediate directories');
-  assert.ok(re.test('a/x/b.py'));
-  assert.ok(re.test('a/x/y/b.py'));
-  assert.ok(!re.test('a/x/b.py.bak'));
+test('toGlob: unanchored bare filename -> matches at any depth via two globs, no dir suffix', () => {
+  assert.deepEqual(toGlob('package.json'), ['package.json', '**/package.json']);
 });
 
-test('toRegex: leading "**/" matches at the repo root too, not just nested', () => {
-  const re = toRegex('**/docs/');
-  assert.ok(re.test('docs/README.md'), 'globstar prefix must match zero leading directories');
-  assert.ok(re.test('x/docs/README.md'));
-  assert.ok(re.test('x/y/docs/README.md'));
+test('toGlob: patterns already containing "**" pass through unchanged (minimatch owns globstar semantics)', () => {
+  assert.deepEqual(toGlob('/a/**/b.py'), ['a/**/b.py']);
+  assert.deepEqual(toGlob('**/docs/'), ['**/docs/**']);
+  assert.deepEqual(toGlob('docs/**'), ['docs/**']);
 });
 
-test('toRegex: trailing "/**" matches the directory itself, not just its contents', () => {
-  const re = toRegex('docs/**');
-  assert.ok(re.test('docs'), 'globstar suffix must match the bare directory too');
-  assert.ok(re.test('docs/x'));
-  assert.ok(re.test('docs/x/y'));
-  assert.ok(!re.test('other/docs'));
-});
-
-test('toRegex: bare "*" matches every path', () => {
-  const re = toRegex('*');
-  assert.ok(re.test('README.md'));
-  assert.ok(re.test('nemo_gym/registry.py'));
+test('toGlob: bare "*" -> single "**" glob (matches everything)', () => {
+  assert.deepEqual(toGlob('*'), ['**']);
 });
 
 test('parseCodeowners: separates enforced lines from `# suggest:` lines', () => {
@@ -71,23 +52,25 @@ test('parseCodeowners: separates enforced lines from `# suggest:` lines', () => 
   assert.deepEqual(suggestRules, [{ pattern: 'docker/', owners: ['@anwithk'] }]);
 });
 
-test('resolveOwnersForFiles: works for individual users and teams alike', () => {
-  const { suggestRules } = parseCodeowners([
-    '# suggest: /docker/ @anwithk',
-    '# suggest: /nemo_gym/sandbox/ @nvidia-nemo/gym_core',
-  ].join('\n'));
-
-  const owners = resolveOwnersForFiles(suggestRules, ['docker/Dockerfile', 'nemo_gym/sandbox/aws.py']);
-  assert.deepEqual([...owners].sort(), ['@anwithk', '@nvidia-nemo/gym_core']);
+test('resolveLastMatchPerFile: works for individual users and teams alike', () => {
+  const rulesWithMatches = [
+    { pattern: '/docker/', owners: ['@anwithk'], matchedFiles: ['docker/Dockerfile'] },
+    { pattern: '/nemo_gym/sandbox/', owners: ['@nvidia-nemo/gym_core'], matchedFiles: ['nemo_gym/sandbox/aws.py'] },
+  ];
+  const winners = resolveLastMatchPerFile(rulesWithMatches);
+  assert.equal(winners.get('docker/Dockerfile').owners[0], '@anwithk');
+  assert.equal(winners.get('nemo_gym/sandbox/aws.py').owners[0], '@nvidia-nemo/gym_core');
 });
 
-test('resolveOwnersForFiles: last matching rule wins, per CODEOWNERS semantics', () => {
-  const rules = [
-    { pattern: '*', owners: ['@nvidia-nemo/gym_architects'] },
-    { pattern: '/nemo_gym/registry.py', owners: ['@nvidia-nemo/gym_core'] },
+test('resolveLastMatchPerFile: last matching rule wins, per CODEOWNERS semantics', () => {
+  const rulesWithMatches = [
+    // Listed first, matches every file (like a "*" backstop rule).
+    { pattern: '*', owners: ['@nvidia-nemo/gym_architects'], matchedFiles: ['nemo_gym/registry.py'] },
+    // Listed second (later in the file) -- must win for the file it also matches.
+    { pattern: '/nemo_gym/registry.py', owners: ['@nvidia-nemo/gym_core'], matchedFiles: ['nemo_gym/registry.py'] },
   ];
-  const owners = resolveOwnersForFiles(rules, ['nemo_gym/registry.py']);
-  assert.deepEqual([...owners], ['@nvidia-nemo/gym_core']);
+  const winners = resolveLastMatchPerFile(rulesWithMatches);
+  assert.equal(winners.get('nemo_gym/registry.py').owners[0], '@nvidia-nemo/gym_core');
 });
 
 test('patternCovers: directory covers itself and nested paths, not siblings', () => {

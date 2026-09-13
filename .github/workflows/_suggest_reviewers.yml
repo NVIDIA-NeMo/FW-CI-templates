@@ -18,10 +18,9 @@
 # required reviewer no matter what branch protection does — only the real,
 # non-comment CODEOWNERS lines are enforced.
 #
-# Skips a suggested owner that's already covered by enforcement for the same
-# file (either textually identical, or an individual already on an enforced
-# team) — see .github/scripts/codeowners-suggestions.js for the matching
-# logic and its own unit tests.
+# Skips a suggested owner that's textually identical to an already-enforced
+# owner for the same file — see .github/scripts/codeowners-suggestions.js for
+# the matching logic and its own unit tests.
 
 on:
   workflow_call:
@@ -137,10 +136,6 @@ jobs:
             // duplicate — drop them before we ever build the reviewer lists.
             for (const owner of enforcedOwners) suggested.delete(owner);
 
-            const enforcedTeamSlugs = [...enforcedOwners]
-              .filter(o => o.includes('/'))
-              .map(o => o.replace(/^@/, ''));
-
             // GitHub logins/mentions are case-insensitive; compare lowercased so a
             // casing mismatch between CODEOWNERS and the PR author's login can't slip
             // the author into their own reviewer batch.
@@ -220,12 +215,14 @@ jobs:
             core.setOutput('needs_team_step', 'true');
             core.setOutput('reviewers', JSON.stringify(newReviewers));
             core.setOutput('team_reviewers', JSON.stringify(newTeamReviewers));
-            core.setOutput('enforced_team_slugs', JSON.stringify(enforcedTeamSlugs));
 
       # create-github-app-token defaults to a token scoped to just the current repo
-      # -- org membership/team data is an ORG-level resource, so explicitly set
-      # `owner:` to mint an org-installation-scoped token instead.
-      - name: Create org-scoped GitHub App token for team lookups and requests
+      # -- team resolution needs org-level context, so explicitly set `owner:` to
+      # mint an org-installation-scoped token instead. permission-members: read is
+      # required even just to request a team as a reviewer (not only to list its
+      # members), confirmed via a real, merged fix elsewhere:
+      # https://github.com/cypress-io/cypress/pull/34249
+      - name: Create org-scoped GitHub App token for team-reviewer request
         if: steps.resolve.outputs.needs_team_step == 'true' && inputs.app-id != ''
         id: org-app-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -254,29 +251,6 @@ jobs:
           script: |
             const reviewers = JSON.parse(`${{ steps.resolve.outputs.reviewers }}`);
             const teamReviewers = JSON.parse(`${{ steps.resolve.outputs.team_reviewers }}`);
-            const enforcedTeamSlugs = JSON.parse(`${{ steps.resolve.outputs.enforced_team_slugs }}`);
-
-            // Case: a suggested *individual* who is already a member of a *team*
-            // that's enforced for a file in this PR. They're implicitly already on
-            // the hook via the team requirement, so an extra individual request
-            // would be noise. Needs org-level team membership, hence living here.
-            const enforcedTeamMembers = new Set();
-            for (const teamPath of enforcedTeamSlugs) {
-              const [org, team_slug] = teamPath.split('/');
-              try {
-                const members = await github.paginate('GET /orgs/{org}/teams/{team_slug}/members', { org, team_slug });
-                members.forEach(m => enforcedTeamMembers.add(m.login.toLowerCase()));
-              } catch (err) {
-                core.warning(`Could not list members of enforced team ${teamPath}: ${err.message}`);
-              }
-            }
-            const finalReviewers = reviewers.filter(r => {
-              if (enforcedTeamMembers.has(r.toLowerCase())) {
-                core.info(`Skipping suggested reviewer @${r}: already a member of a team enforced for this PR.`);
-                return false;
-              }
-              return true;
-            });
 
             // Single batch call: GitHub validates the whole payload atomically, so one
             // invalid entry (no repo access, etc.) fails the entire request. That's an
@@ -287,12 +261,12 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.issue.number,
-                reviewers: finalReviewers,
+                reviewers,
                 team_reviewers: teamReviewers,
               });
             } catch (err) {
               core.warning(`Could not request suggested reviewers: ${err.message}`);
-              const attempted = [...finalReviewers.map(r => '@' + r), ...teamReviewers.map(t => '@' + t)].join(', ') || '(none)';
+              const attempted = [...reviewers.map(r => '@' + r), ...teamReviewers.map(t => '@' + t)].join(', ') || '(none)';
               const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
               core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${context.payload.pull_request.html_url}\n` +
                 `Attempted: ${attempted}\nError: ${err.message}\nWorkflow: ${runUrl}`);

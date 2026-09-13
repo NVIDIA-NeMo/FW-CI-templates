@@ -1,0 +1,82 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Publish isolated review result
+on:
+  workflow_call:
+    inputs:
+      publication_mode:
+        required: false
+        default: result
+        type: string
+      context_artifact_name: {required: false, type: string}
+      result_artifact_name: {required: false, type: string}
+      tool_artifact_name: {required: true, type: string}
+      repository: {required: false, type: string}
+      pull_request: {required: false, type: number}
+      base_sha: {required: false, type: string}
+      head_sha: {required: false, type: string}
+      reason: {required: false, type: string}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Download trusted publisher tool
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.tool_artifact_name }}
+          path: trusted-tools
+
+      - name: Download immutable context
+        if: inputs.publication_mode == 'result'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.context_artifact_name }}
+          path: review-context
+
+      - name: Download structured result
+        if: inputs.publication_mode == 'result'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.result_artifact_name }}
+          path: review-result
+
+      - name: Validate and publish one COMMENT review as claude[bot]
+        if: inputs.publication_mode == 'result'
+        run: |
+          set -euo pipefail
+          python3 trusted-tools/review_components.py publish \
+            --context review-context --audit review-result/retrieval-audit.jsonl \
+            --output review-result/validated-review-output.json
+
+      - name: Publish deterministic incomplete status as claude[bot]
+        if: inputs.publication_mode == 'incomplete'
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          REASON: ${{ inputs.reason }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          python3 trusted-tools/review_components.py publish-incomplete \
+            --repository "$REPOSITORY" --pr-number "$PR_NUMBER" --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" --reason "$REASON"

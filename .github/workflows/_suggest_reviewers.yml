@@ -221,33 +221,6 @@ jobs:
           files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
           json: true
 
-      # TEMPORARY diagnostic: dumps the raw, unparsed env var content (safely
-      # via JSON.stringify, so any stray backslashes/quotes are unambiguous in
-      # the log) to pin down exactly how the toJSON()+env: round-trip is
-      # corrupting this value before attempting another fix blind. Remove
-      # once root-caused.
-      - name: DEBUG dump raw changed-files env content
-        if: steps.build-groups.outputs.has_rules == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          CHANGED_FILES_OUTPUTS_JSON: ${{ toJSON(steps.changed-files.outputs) }}
-        with:
-          script: |
-            const raw = process.env.CHANGED_FILES_OUTPUTS_JSON;
-            core.info(`length: ${raw.length}`);
-            core.info(`first 400 chars (JSON.stringify'd): ${JSON.stringify(raw.slice(0, 400))}`);
-            try {
-              const parsed = JSON.parse(raw);
-              core.info(`outer parse OK, keys: ${Object.keys(parsed).join(', ')}`);
-              for (const [k, v] of Object.entries(parsed)) {
-                if (typeof v === 'string' && v.length > 2 && v !== '[]') {
-                  core.info(`${k} (JSON.stringify'd): ${JSON.stringify(v)}`);
-                }
-              }
-            } catch (e) {
-              core.info(`outer parse FAILED: ${e.message}`);
-            }
-
       # Resolves suggested reviewers and requests individual-user ones directly
       # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
       # suggestions, this step does NOT request it -- team-reviewer resolution
@@ -283,17 +256,22 @@ jobs:
           script: |
             const { resolveLastMatchPerFile } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
 
-            // step-security/changed-files' per-group `_all_changed_files` outputs come
-            // back through an extra layer of stringification once they've passed
-            // through toJSON(steps.changed-files.outputs) and an env: var round-trip
-            // (confirmed live: a single JSON.parse left literal backslash-quote
-            // sequences in the string instead of real files). Parsing in a loop until
-            // the result isn't a string anymore is robust to however many encoding
-            // layers actually exist, rather than hard-coding an exact count.
+            // step-security/changed-files' per-group `_all_changed_files` outputs are
+            // themselves JSON-encoded strings (arrays-as-text); toJSON(steps.changed-files.outputs)
+            // + the env: var round-trip loses their OUTERMOST quote pair while leaving
+            // interior backslash-escapes intact -- confirmed live and reproduced locally:
+            // a value that should read `"[\"a\",\"b\"]"` (a quoted, escaped array-string)
+            // arrives as `[\"a\",\"b\"]` (same escapes, but missing its own wrapping
+            // quotes), which plain JSON.parse rejects since a bare `[` can't be followed
+            // by a `\`. Re-wrapping in quotes before retrying recovers the original value.
             function parseUntilNotString(value) {
               let result = value;
               while (typeof result === 'string') {
-                result = JSON.parse(result);
+                try {
+                  result = JSON.parse(result);
+                } catch (e) {
+                  result = JSON.parse('"' + result + '"');
+                }
               }
               return result;
             }

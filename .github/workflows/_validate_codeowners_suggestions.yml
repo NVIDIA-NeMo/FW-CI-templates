@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Three checks on the calling repo's .github/CODEOWNERS `# suggest:` lines:
+# Two fast, per-PR checks on the calling repo's .github/CODEOWNERS:
 #
 #   unit-tests            Runs the shared codeowners-suggestions.js matcher's
 #                          own test suite, so a regression in the matching
@@ -23,12 +23,17 @@
 #                          owners — e.g. `docker/` enforced to a team, then
 #                          later `# suggest: docker/scripts/` to the same
 #                          team adds nothing.
-#   validate-membership    Every individual user referenced in a `# suggest:`
-#                          line — directly, or via a suggested team's full
-#                          membership — must be a current NVIDIA-NeMo org
-#                          member. Runs on every PR unconditionally, not only
-#                          ones that touch CODEOWNERS, so someone who has
-#                          since left the org is still caught. Fails CI.
+#
+# Org-membership validation (every user/team referenced in CODEOWNERS, both
+# enforced and `# suggest:` lines, must be a current NVIDIA-NeMo org member)
+# used to run here too, per-PR. It's been moved to
+# _validate_codeowners_membership.yml, which runs on a schedule instead: a
+# departed member makes the reviewer-request API call fail atomically for
+# the ENTIRE suggestion batch wherever they'd be suggested (see
+# _suggest_reviewers.yml's single-batch-call comment), so catching this
+# promptly and independently -- not only on whichever PR happens to touch
+# that path first -- matters more than catching it "live" on a specific PR.
+# Both jobs here stay fast and dependency-free (no org-scoped PAT needed).
 
 on:
   workflow_call:
@@ -38,10 +43,6 @@ on:
         required: false
         default: main
         type: string
-    secrets:
-      NVIDIA_MANAGEMENT_ORG_PAT:
-        description: "Org-scoped PAT used to check org membership and expand team membership"
-        required: true
 
 permissions:
   contents: read
@@ -103,140 +104,3 @@ jobs:
             if (redundant.length > 0) {
               core.info(`${redundant.length} redundant CODEOWNERS rule(s) found — see warnings above. Non-blocking.`);
             }
-
-  extract-suggested-users:
-    if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    outputs:
-      usernames: ${{ steps.expand.outputs.usernames }}
-    steps:
-      - name: Checkout calling repo
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          sparse-checkout: |
-            .github/CODEOWNERS
-          sparse-checkout-cone-mode: false
-
-      - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: ${{ inputs.workflow_ref }}
-          path: ci-templates
-
-      # Validates every owner token here, before it goes anywhere else. This
-      # is the ONLY point in this workflow where raw, attacker-controlled
-      # CODEOWNERS text (a `# suggest:` line can say anything) is still
-      # unvalidated -- both downstream consumers of `users`/`teams` interpolate
-      # them into shell commands rather than treating them as inert data:
-      #   - the "Expand teams to member usernames" step below embeds each team
-      #     into a DOUBLE-QUOTED "orgs/${org}/teams/${slug}/members" string,
-      #     where bash still performs $(...) command substitution, with
-      #     NVIDIA_MANAGEMENT_ORG_PAT sitting in that same step's env
-      #   - check-nvidia-sso/action.yml assigns `USERNAME="${{ inputs.username }}"`
-      #     via raw GitHub Actions expression substitution before bash ever
-      #     parses the line, so a token containing `"` or `` ` `` breaks out
-      # A real GitHub login/team-slug can never contain shell metacharacters,
-      # so rejecting anything that doesn't match closes both paths at once
-      # instead of patching each shell script individually.
-      - name: Parse `# suggest:` users and teams
-        id: parse
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            const fs = require('fs');
-            const { parseCodeowners } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
-
-            const codeownersPath = '.github/CODEOWNERS';
-            const { suggestRules } = fs.existsSync(codeownersPath)
-              ? parseCodeowners(fs.readFileSync(codeownersPath, 'utf8'))
-              : { suggestRules: [] };
-
-            // Deliberately conservative: real GitHub usernames and team slugs are
-            // alphanumeric/hyphen (usernames can't start/end with a hyphen or
-            // repeat one; team slugs also allow underscore/dot). Anything outside
-            // that is either a typo or an attempted injection -- both should fail
-            // loudly here, not be smuggled into a shell command downstream.
-            const LOGIN_RE = /^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$/;
-            const SLUG_RE = /^[A-Za-z\d][A-Za-z\d._-]{0,99}$/;
-
-            const users = new Set();
-            const teams = new Set();
-            const invalid = [];
-            for (const { pattern, owners } of suggestRules) {
-              for (const owner of owners) {
-                const name = owner.replace(/^@/, '');
-                if (name.includes('/')) {
-                  const [org, ...rest] = name.split('/');
-                  const slug = rest.join('/');
-                  if (!LOGIN_RE.test(org) || !SLUG_RE.test(slug)) {
-                    invalid.push(`"${pattern} ${owner}" (team "${name}" is not a valid org/slug)`);
-                    continue;
-                  }
-                  teams.add(name);
-                } else {
-                  if (!LOGIN_RE.test(name)) {
-                    invalid.push(`"${pattern} ${owner}" (user "${name}" is not a valid GitHub login)`);
-                    continue;
-                  }
-                  users.add(name);
-                }
-              }
-            }
-
-            if (invalid.length > 0) {
-              core.setFailed(`.github/CODEOWNERS has \`# suggest:\` owner(s) that aren't valid GitHub logins/teams:\n${invalid.map(m => `  - ${m}`).join('\n')}`);
-              return;
-            }
-
-            core.setOutput('users', JSON.stringify([...users]));
-            core.setOutput('teams', JSON.stringify([...teams]));
-
-      - name: Expand teams to member usernames
-        id: expand
-        env:
-          GH_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
-          USERS_JSON: ${{ steps.parse.outputs.users }}
-          TEAMS_JSON: ${{ steps.parse.outputs.teams }}
-        run: |
-          set -euo pipefail
-          all_users=$(echo "$USERS_JSON" | jq -c '.')
-
-          for team in $(echo "$TEAMS_JSON" | jq -r '.[]'); do
-            org="${team%%/*}"
-            slug="${team#*/}"
-            echo "Expanding team members for $org/$slug..."
-            members=$(gh api "orgs/${org}/teams/${slug}/members" --paginate --jq '[.[].login]')
-            all_users=$(echo "$all_users $members" | jq -sc 'add | unique')
-          done
-
-          echo "usernames=$all_users" | tee -a "$GITHUB_OUTPUT"
-
-  validate-membership:
-    needs: extract-suggested-users
-    if: needs.extract-suggested-users.outputs.usernames != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        username: ${{ fromJson(needs.extract-suggested-users.outputs.usernames) }}
-    steps:
-      - name: Checkout NVIDIA-NeMo/FW-CI-templates
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: ${{ inputs.workflow_ref }}
-          path: ci-templates
-
-      - name: Check NVIDIA-NeMo org membership
-        id: check-sso
-        uses: ./ci-templates/.github/actions/check-nvidia-sso
-        with:
-          username: ${{ matrix.username }}
-          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
-
-      - name: Fail if not an org member
-        if: steps.check-sso.outputs.is_org_member != 'true'
-        run: |
-          echo "::error::${{ matrix.username }} is referenced in a .github/CODEOWNERS \`# suggest:\` line (directly, or via a suggested team) but is not a current member of the NVIDIA-NeMo org."
-          exit 1

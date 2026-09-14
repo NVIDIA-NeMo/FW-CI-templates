@@ -58,24 +58,17 @@ on:
         description: >
           GitHub App ID to mint a short-lived, org-scoped token for team-reviewer
           resolution (listing team membership, requesting a team as a PR
-          reviewer). Preferred over TEAM_REVIEWER_PAT when both are provided.
-          Needs "Pull requests: Read and write" + org "Members: Read-only".
+          reviewer). Required for team suggestions to work -- deliberately no
+          PAT fallback. Without it, individual-user suggestions still work fine
+          on the default token; team suggestions fail (job goes red, Slack
+          alerted if configured). Needs "Pull requests: Read and write" + org
+          "Members: Read-only".
         required: false
         default: ""
         type: string
     secrets:
       BOT_KEY:
         description: "Private key for the App identified by app-id."
-        required: false
-      TEAM_REVIEWER_PAT:
-        description: >
-          Fallback PAT for team-reviewer resolution when app-id isn't provided,
-          or when the App token mint itself fails. Optional: without either,
-          individual-user suggestions still work fine on the default token;
-          team suggestions fail (job goes red, Slack alerted if configured).
-          Least-privilege scope: fine-grained PAT, repo access limited to the
-          calling repo, "Pull requests: Read and write" + org "Members:
-          Read-only". Classic PAT equivalent: public_repo + read:org.
         required: false
       SLACK_TEAM_CHANNEL_WEBHOOK:
         description: "Slack webhook to alert on if the reviewer-request batch call fails. Optional: skips the alert (but the job still fails) if absent."
@@ -224,8 +217,9 @@ jobs:
       # Resolves suggested reviewers and requests individual-user ones directly
       # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
       # suggestions, this step does NOT request it -- team-reviewer resolution
-      # needs a token tied to a real identity (App or PAT), which the default
-      # token isn't. Instead it hands off the resolved lists to the next step,
+      # needs a token tied to a real identity (a GitHub App -- no PAT fallback
+      # by design), which the default token isn't. Instead it hands off the
+      # resolved lists to the next step,
       # which runs only when needed and uses that elevated token for its
       # *entire* scope (see that step for why that's deliberate).
       #
@@ -408,11 +402,11 @@ jobs:
       # https://github.com/cypress-io/cypress/pull/34249
       #
       # continue-on-error: true is deliberate -- if minting the App token fails
-      # (bad key, App uninstalled, etc.), the next step's `github-token:` falls
-      # back to TEAM_REVIEWER_PAT (its output is empty on failure, same as when
-      # app-id isn't provided at all), and if that's also unset, the resulting
-      # auth failure lands in the next step's own try/catch, which reports and
-      # fails cleanly instead of this step aborting the job with no Slack alert.
+      # (bad key, App uninstalled, etc.), its output is empty, same as when
+      # app-id isn't provided at all, and the resulting auth failure lands in
+      # the next step's own try/catch, which reports and fails cleanly
+      # instead of this step aborting the job with no Slack alert. No PAT
+      # fallback by design: team suggestions require the App to work.
       - name: Create org-scoped GitHub App token for team-reviewer request
         if: steps.resolve.outputs.needs_team_step == 'true' && inputs.app-id != ''
         id: org-app-token
@@ -444,7 +438,7 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
           PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
         with:
-          github-token: ${{ steps.org-app-token.outputs.token || secrets.TEAM_REVIEWER_PAT }}
+          github-token: ${{ steps.org-app-token.outputs.token }}
           script: |
             const reviewers = JSON.parse(process.env.REVIEWERS_JSON);
             const teamReviewers = JSON.parse(process.env.TEAM_REVIEWERS_JSON);

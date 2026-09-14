@@ -256,10 +256,25 @@ jobs:
           script: |
             const { resolveLastMatchPerFile } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
 
-            const groupMeta = JSON.parse(process.env.GROUP_META_JSON);
+            // step-security/changed-files' per-group `_all_changed_files` outputs come
+            // back through an extra layer of stringification once they've passed
+            // through toJSON(steps.changed-files.outputs) and an env: var round-trip
+            // (confirmed live: a single JSON.parse left literal backslash-quote
+            // sequences in the string instead of real files). Parsing in a loop until
+            // the result isn't a string anymore is robust to however many encoding
+            // layers actually exist, rather than hard-coding an exact count.
+            function parseUntilNotString(value) {
+              let result = value;
+              while (typeof result === 'string') {
+                result = JSON.parse(result);
+              }
+              return result;
+            }
+
+            const groupMeta = parseUntilNotString(process.env.GROUP_META_JSON);
             const enforcedCount = Number(process.env.ENFORCED_COUNT);
             const suggestCount = Number(process.env.SUGGEST_COUNT);
-            const changedFilesOutputs = JSON.parse(process.env.CHANGED_FILES_OUTPUTS_JSON);
+            const changedFilesOutputs = parseUntilNotString(process.env.CHANGED_FILES_OUTPUTS_JSON);
             const prNumber = Number(process.env.PR_NUMBER);
 
             function buildRulesWithMatches(prefix, count) {
@@ -268,7 +283,7 @@ jobs:
                 const name = `${prefix}${i}`;
                 const meta = groupMeta[name];
                 const raw = changedFilesOutputs[`${name}_all_changed_files`];
-                const matchedFiles = raw ? JSON.parse(raw) : [];
+                const matchedFiles = raw ? parseUntilNotString(raw) : [];
                 rules.push({ pattern: meta.pattern, owners: meta.owners, matchedFiles });
               }
               return rules;

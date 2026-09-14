@@ -124,6 +124,21 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: ci-templates
 
+      # Validates every owner token here, before it goes anywhere else. This
+      # is the ONLY point in this workflow where raw, attacker-controlled
+      # CODEOWNERS text (a `# suggest:` line can say anything) is still
+      # unvalidated -- both downstream consumers of `users`/`teams` interpolate
+      # them into shell commands rather than treating them as inert data:
+      #   - the "Expand teams to member usernames" step below embeds each team
+      #     into a DOUBLE-QUOTED "orgs/${org}/teams/${slug}/members" string,
+      #     where bash still performs $(...) command substitution, with
+      #     NVIDIA_MANAGEMENT_ORG_PAT sitting in that same step's env
+      #   - check-nvidia-sso/action.yml assigns `USERNAME="${{ inputs.username }}"`
+      #     via raw GitHub Actions expression substitution before bash ever
+      #     parses the line, so a token containing `"` or `` ` `` breaks out
+      # A real GitHub login/team-slug can never contain shell metacharacters,
+      # so rejecting anything that doesn't match closes both paths at once
+      # instead of patching each shell script individually.
       - name: Parse `# suggest:` users and teams
         id: parse
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -137,13 +152,41 @@ jobs:
               ? parseCodeowners(fs.readFileSync(codeownersPath, 'utf8'))
               : { suggestRules: [] };
 
+            // Deliberately conservative: real GitHub usernames and team slugs are
+            // alphanumeric/hyphen (usernames can't start/end with a hyphen or
+            // repeat one; team slugs also allow underscore/dot). Anything outside
+            // that is either a typo or an attempted injection -- both should fail
+            // loudly here, not be smuggled into a shell command downstream.
+            const LOGIN_RE = /^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$/;
+            const SLUG_RE = /^[A-Za-z\d][A-Za-z\d._-]{0,99}$/;
+
             const users = new Set();
             const teams = new Set();
-            for (const { owners } of suggestRules) {
+            const invalid = [];
+            for (const { pattern, owners } of suggestRules) {
               for (const owner of owners) {
                 const name = owner.replace(/^@/, '');
-                (name.includes('/') ? teams : users).add(name);
+                if (name.includes('/')) {
+                  const [org, ...rest] = name.split('/');
+                  const slug = rest.join('/');
+                  if (!LOGIN_RE.test(org) || !SLUG_RE.test(slug)) {
+                    invalid.push(`"${pattern} ${owner}" (team "${name}" is not a valid org/slug)`);
+                    continue;
+                  }
+                  teams.add(name);
+                } else {
+                  if (!LOGIN_RE.test(name)) {
+                    invalid.push(`"${pattern} ${owner}" (user "${name}" is not a valid GitHub login)`);
+                    continue;
+                  }
+                  users.add(name);
+                }
               }
+            }
+
+            if (invalid.length > 0) {
+              core.setFailed(`.github/CODEOWNERS has \`# suggest:\` owner(s) that aren't valid GitHub logins/teams:\n${invalid.map(m => `  - ${m}`).join('\n')}`);
+              return;
             }
 
             core.setOutput('users', JSON.stringify([...users]));

@@ -19,13 +19,32 @@
 # non-comment CODEOWNERS lines are enforced.
 #
 # Skips a suggested owner that's textually identical to an already-enforced
-# owner for the same file — see .github/scripts/codeowners-suggestions.js for
+# owner for the SAME FILE — see .github/scripts/codeowners-suggestions.js for
 # the "last match wins" resolution logic and its own unit tests. The actual
 # glob-matching (does file X match pattern Y) is delegated to
 # step-security/changed-files, already trusted elsewhere in this repo
 # (_cicd_preflight.yml, _copyright_check.yml) — this workflow only converts
 # CODEOWNERS patterns to the glob syntax it expects and resolves precedence
 # across whichever groups it reports as matched.
+#
+# Triggering: supports two caller shapes, resolved uniformly in the
+# `resolve-pr` job below.
+#   1. A caller with `on: pull_request:` — github.event.pull_request is read
+#      directly. Runs immediately, before a human has looked at the PR.
+#   2. A caller with `on: push: branches: ["pull-request/[0-9]+"]` — the same
+#      "ok to test" gate cicd-main.yml uses via _cicd_preflight.yml: NVIDIA's
+#      copy-pr-bot only mirrors a PR onto that branch after a vetter approves
+#      it, so nothing here runs against unreviewed/untrusted PR content until
+#      a human has signed off. nv-gha-runners/get-pr-info resolves the actual
+#      PR object (number, base/head sha, draft, author) from the branch name,
+#      since a push event has no pull_request payload of its own. This is the
+#      recommended shape for any repo that can adopt it.
+#
+# Failure handling: a failure to request suggested reviewers now fails this
+# job (visible red X) and always alerts Slack (if a webhook is configured) —
+# it does NOT retry-block anything else. Because this is advisory-only by
+# design, this workflow must NOT be configured as a required status check in
+# branch protection; a red X here should never be able to block a merge.
 
 on:
   workflow_call:
@@ -50,15 +69,16 @@ on:
         required: false
       TEAM_REVIEWER_PAT:
         description: >
-          Fallback PAT for team-reviewer resolution when app-id isn't provided.
-          Optional: without either, individual-user suggestions still work fine
-          on the default token; team suggestions are skipped with a warning.
+          Fallback PAT for team-reviewer resolution when app-id isn't provided,
+          or when the App token mint itself fails. Optional: without either,
+          individual-user suggestions still work fine on the default token;
+          team suggestions fail (job goes red, Slack alerted if configured).
           Least-privilege scope: fine-grained PAT, repo access limited to the
           calling repo, "Pull requests: Read and write" + org "Members:
           Read-only". Classic PAT equivalent: public_repo + read:org.
         required: false
       SLACK_TEAM_CHANNEL_WEBHOOK:
-        description: "Slack webhook to alert on if the reviewer-request batch call fails. Optional: skips the alert if absent."
+        description: "Slack webhook to alert on if the reviewer-request batch call fails. Optional: skips the alert (but the job still fails) if absent."
         required: false
 
 permissions:
@@ -66,8 +86,48 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Normalizes "how do we know the PR number / base sha / head sha / draft
+  # status / author" across both trigger shapes described above into one set
+  # of outputs everything downstream reads — nothing past this job ever
+  # touches github.event.pull_request directly.
+  resolve-pr:
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      draft: ${{ steps.pr.outputs.draft }}
+      author: ${{ steps.pr.outputs.author }}
+      html_url: ${{ steps.pr.outputs.html_url }}
+    steps:
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
+
+      - name: Resolve normalized PR context
+        id: pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PR_INFO_JSON: ${{ steps.get-pr-info.outputs.pr-info }}
+        with:
+          script: |
+            const raw = process.env.PR_INFO_JSON;
+            const pr = raw ? JSON.parse(raw) : context.payload.pull_request;
+            if (!pr) {
+              core.setFailed('No pull_request context available: this workflow needs to be called from either a pull_request event or a push to a pull-request/[0-9]+ branch.');
+              return;
+            }
+            core.setOutput('number', String(pr.number));
+            core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('draft', String(pr.draft === true));
+            core.setOutput('author', pr.user.login);
+            core.setOutput('html_url', pr.html_url);
+
   suggest-reviewers:
-    if: github.event.pull_request.draft == false
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.draft == 'false'
     runs-on: ubuntu-latest
     steps:
       # step-security/changed-files needs a real git diff, not just the
@@ -144,8 +204,8 @@ jobs:
         id: changed-files
         uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
         with:
-          base_sha: ${{ github.event.pull_request.base.sha }}
-          sha: ${{ github.event.pull_request.head.sha }}
+          base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+          sha: ${{ needs.resolve-pr.outputs.head_sha }}
           files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
           json: true
 
@@ -156,23 +216,39 @@ jobs:
       # token isn't. Instead it hands off the resolved lists to the next step,
       # which runs only when needed and uses that elevated token for its
       # *entire* scope (see that step for why that's deliberate).
+      #
+      # Every value that can contain PR-controlled content (CODEOWNERS text
+      # from this PR's own checkout, changed-file names from this PR's own
+      # diff) is passed in via `env:` and read from process.env -- NEVER
+      # string-interpolated with `${{ }}` directly into the script body below.
+      # `${{ }}` substitution happens as raw text substitution BEFORE this
+      # script is parsed as JS; a value containing a backtick or `${` would
+      # otherwise break out of a template literal and inject arbitrary code
+      # running with this step's token. A CODEOWNERS pattern/owner or a
+      # filename are both attacker-controlled the moment a PR can edit
+      # CODEOWNERS or add a file with an unusual name -- neither is "trusted
+      # because it's repo content", since it's THIS PR's own content.
       - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
         if: steps.build-groups.outputs.has_rules == 'true'
         id: resolve
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          GROUP_META_JSON: ${{ steps.build-groups.outputs.group_meta }}
+          ENFORCED_COUNT: ${{ steps.build-groups.outputs.enforced_count }}
+          SUGGEST_COUNT: ${{ steps.build-groups.outputs.suggest_count }}
+          CHANGED_FILES_OUTPUTS_JSON: ${{ toJSON(steps.changed-files.outputs) }}
+          PR_AUTHOR: ${{ needs.resolve-pr.outputs.author }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
+          PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
         with:
           script: |
             const { resolveLastMatchPerFile } = require('./ci-templates/.github/scripts/codeowners-suggestions.js');
 
-            const groupMeta = JSON.parse(`${{ steps.build-groups.outputs.group_meta }}`);
-            const enforcedCount = Number(`${{ steps.build-groups.outputs.enforced_count }}`);
-            const suggestCount = Number(`${{ steps.build-groups.outputs.suggest_count }}`);
-            // toJSON() serializes the WHOLE outputs object regardless of how many
-            // dynamically-named (e0, e1, ... / s0, s1, ...) keys it has -- a fixed
-            // number of individual `${{ steps.x.outputs.NAME }}` references isn't
-            // possible here since the rule count is data-driven from CODEOWNERS,
-            // not known when this workflow file is authored.
-            const changedFilesOutputs = JSON.parse(`${{ toJSON(steps.changed-files.outputs) }}`);
+            const groupMeta = JSON.parse(process.env.GROUP_META_JSON);
+            const enforcedCount = Number(process.env.ENFORCED_COUNT);
+            const suggestCount = Number(process.env.SUGGEST_COUNT);
+            const changedFilesOutputs = JSON.parse(process.env.CHANGED_FILES_OUTPUTS_JSON);
+            const prNumber = Number(process.env.PR_NUMBER);
 
             function buildRulesWithMatches(prefix, count) {
               const rules = [];
@@ -189,22 +265,25 @@ jobs:
             const suggestWinnerByFile = resolveLastMatchPerFile(buildRulesWithMatches('s', suggestCount));
             const enforcedWinnerByFile = resolveLastMatchPerFile(buildRulesWithMatches('e', enforcedCount));
 
-            const suggested = new Set();
-            const enforcedOwners = new Set();
-            for (const rule of suggestWinnerByFile.values()) rule.owners.forEach(o => suggested.add(o));
-            for (const rule of enforcedWinnerByFile.values()) rule.owners.forEach(o => enforcedOwners.add(o));
-
             // Case: a `# suggest:` owner is textually identical to an already-enforced
-            // owner for a file in this PR. GitHub already auto-requests the enforced
-            // owner from the real CODEOWNERS line, so suggesting them again is a pure
-            // duplicate — drop them before we ever build the reviewer lists.
-            for (const owner of enforcedOwners) suggested.delete(owner);
+            // owner for THE SAME FILE. GitHub already auto-requests the enforced owner
+            // from the real CODEOWNERS line for that file, so suggesting them again is a
+            // pure duplicate. This must be resolved per-file, not globally: an owner
+            // enforced on file A is not necessarily enforced on file B, so a global Set
+            // difference would wrongly drop a legitimate suggestion on file B just
+            // because the same login/team happens to be enforced elsewhere in this PR.
+            const suggested = new Set();
+            for (const [filename, suggestRule] of suggestWinnerByFile) {
+              const enforcedOwnersForFile = new Set(enforcedWinnerByFile.get(filename)?.owners ?? []);
+              for (const owner of suggestRule.owners) {
+                if (!enforcedOwnersForFile.has(owner)) suggested.add(owner);
+              }
+            }
 
             // GitHub logins/mentions are case-insensitive; compare lowercased so a
             // casing mismatch between CODEOWNERS and the PR author's login can't slip
             // the author into their own reviewer batch.
-            const prAuthor = context.payload.pull_request.user.login;
-            const prAuthorLower = prAuthor.toLowerCase();
+            const prAuthorLower = process.env.PR_AUTHOR.toLowerCase();
 
             const reviewers = [];
             const teamReviewers = [];
@@ -229,12 +308,12 @@ jobs:
               github.rest.pulls.listRequestedReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: prNumber,
               }),
               github.rest.pulls.listReviews({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: prNumber,
               }),
             ]);
             // A review's `user` can be null (deleted/ghost GitHub account) per
@@ -253,6 +332,20 @@ jobs:
               return;
             }
 
+            // Advisory-only by design, so a failure here must never block a merge -- but
+            // it should still be visible: fail this job (never a required status check,
+            // see the file header) and always surface a Slack alert so it's actually
+            // noticed rather than buried in an Actions log nobody reads.
+            function reportFailure(err, attemptedList) {
+              core.warning(`Could not request suggested reviewers: ${err.message}`);
+              const attempted = attemptedList.join(', ') || '(none)';
+              const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${process.env.PR_HTML_URL}\n` +
+                `Attempted: ${attempted}\nError: ${err.message}\nWorkflow: ${runUrl}`);
+              core.setOutput('should_alert_slack', 'true');
+              core.setFailed(err.message);
+            }
+
             if (newTeamReviewers.length === 0) {
               // No team involved -- request the individuals directly, right here, on
               // the plain default token. No need to hand off to the elevated step.
@@ -260,17 +353,12 @@ jobs:
                 await github.rest.pulls.requestReviewers({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  pull_number: context.issue.number,
+                  pull_number: prNumber,
                   reviewers: newReviewers,
                   team_reviewers: [],
                 });
               } catch (err) {
-                core.warning(`Could not request suggested reviewers: ${err.message}`);
-                const attempted = newReviewers.map(r => '@' + r).join(', ');
-                const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${context.payload.pull_request.html_url}\n` +
-                  `Attempted: ${attempted}\nError: ${err.message}\nWorkflow: ${runUrl}`);
-                core.setOutput('should_alert_slack', 'true');
+                reportFailure(err, newReviewers.map(r => '@' + r));
               }
               return;
             }
@@ -286,9 +374,17 @@ jobs:
       # required even just to request a team as a reviewer (not only to list its
       # members), confirmed via a real, merged fix elsewhere:
       # https://github.com/cypress-io/cypress/pull/34249
+      #
+      # continue-on-error: true is deliberate -- if minting the App token fails
+      # (bad key, App uninstalled, etc.), the next step's `github-token:` falls
+      # back to TEAM_REVIEWER_PAT (its output is empty on failure, same as when
+      # app-id isn't provided at all), and if that's also unset, the resulting
+      # auth failure lands in the next step's own try/catch, which reports and
+      # fails cleanly instead of this step aborting the job with no Slack alert.
       - name: Create org-scoped GitHub App token for team-reviewer request
         if: steps.resolve.outputs.needs_team_step == 'true' && inputs.app-id != ''
         id: org-app-token
+        continue-on-error: true
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ inputs.app-id }}
@@ -310,21 +406,27 @@ jobs:
         if: steps.resolve.outputs.needs_team_step == 'true'
         id: request-team
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          REVIEWERS_JSON: ${{ steps.resolve.outputs.reviewers }}
+          TEAM_REVIEWERS_JSON: ${{ steps.resolve.outputs.team_reviewers }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
+          PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
         with:
           github-token: ${{ steps.org-app-token.outputs.token || secrets.TEAM_REVIEWER_PAT }}
           script: |
-            const reviewers = JSON.parse(`${{ steps.resolve.outputs.reviewers }}`);
-            const teamReviewers = JSON.parse(`${{ steps.resolve.outputs.team_reviewers }}`);
+            const reviewers = JSON.parse(process.env.REVIEWERS_JSON);
+            const teamReviewers = JSON.parse(process.env.TEAM_REVIEWERS_JSON);
+            const prNumber = Number(process.env.PR_NUMBER);
 
             // Single batch call: GitHub validates the whole payload atomically, so one
-            // invalid entry (no repo access, etc.) fails the entire request. That's an
-            // advisory feature breaking silently, not a CI failure — so on error we warn
-            // and surface it for a Slack alert (next step), but never fail the workflow.
+            // invalid entry (no repo access, etc.) fails the entire request. Same
+            // fail-visibly-but-never-block contract as the individual-reviewer path
+            // above: warn, alert Slack, and fail this job -- never silently succeed.
             try {
               await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: prNumber,
                 reviewers,
                 team_reviewers: teamReviewers,
               });
@@ -332,13 +434,21 @@ jobs:
               core.warning(`Could not request suggested reviewers: ${err.message}`);
               const attempted = [...reviewers.map(r => '@' + r), ...teamReviewers.map(t => '@' + t)].join(', ') || '(none)';
               const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-              core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${context.payload.pull_request.html_url}\n` +
+              core.setOutput('failure_message', `suggest-reviewers could not request suggested reviewers on ${process.env.PR_HTML_URL}\n` +
                 `Attempted: ${attempted}\nError: ${err.message}\nWorkflow: ${runUrl}`);
               core.setOutput('should_alert_slack', 'true');
+              core.setFailed(err.message);
             }
 
+      # always() because a prior step now deliberately fails (core.setFailed) on a
+      # reviewer-request error -- without always(), GitHub Actions' implicit
+      # success()-gating on this step's own `if:` would skip the alert exactly when
+      # it's needed most. The empty-webhook check matters for the same reason: the
+      # composite action's `curl ... $WEBHOOK` runs under `bash -e`, so an empty,
+      # "optional and unset" webhook would otherwise turn this alert step itself
+      # into a second, unrelated failure.
       - name: Alert Slack on request failure
-        if: steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true'
+        if: always() && (steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && secrets.SLACK_TEAM_CHANNEL_WEBHOOK != ''
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
           message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message }}

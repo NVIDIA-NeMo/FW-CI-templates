@@ -221,6 +221,33 @@ jobs:
           files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
           json: true
 
+      # TEMPORARY diagnostic: dumps the raw, unparsed env var content (safely
+      # via JSON.stringify, so any stray backslashes/quotes are unambiguous in
+      # the log) to pin down exactly how the toJSON()+env: round-trip is
+      # corrupting this value before attempting another fix blind. Remove
+      # once root-caused.
+      - name: DEBUG dump raw changed-files env content
+        if: steps.build-groups.outputs.has_rules == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CHANGED_FILES_OUTPUTS_JSON: ${{ toJSON(steps.changed-files.outputs) }}
+        with:
+          script: |
+            const raw = process.env.CHANGED_FILES_OUTPUTS_JSON;
+            core.info(`length: ${raw.length}`);
+            core.info(`first 400 chars (JSON.stringify'd): ${JSON.stringify(raw.slice(0, 400))}`);
+            try {
+              const parsed = JSON.parse(raw);
+              core.info(`outer parse OK, keys: ${Object.keys(parsed).join(', ')}`);
+              for (const [k, v] of Object.entries(parsed)) {
+                if (typeof v === 'string' && v.length > 2 && v !== '[]') {
+                  core.info(`${k} (JSON.stringify'd): ${JSON.stringify(v)}`);
+                }
+              }
+            } catch (e) {
+              core.info(`outer parse FAILED: ${e.message}`);
+            }
+
       # Resolves suggested reviewers and requests individual-user ones directly
       # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
       # suggestions, this step does NOT request it -- team-reviewer resolution

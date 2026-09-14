@@ -130,6 +130,18 @@ jobs:
     if: needs.resolve-pr.outputs.draft == 'false'
     runs-on: ubuntu-latest
     steps:
+      # `secrets` is not a valid context inside ANY `if:` condition (job- or
+      # step-level) -- GitHub Actions rejects it at parse time with
+      # "Unrecognized named-value: 'secrets'", failing the whole workflow
+      # before any job runs. Computing this as a step output here, in a
+      # context where `secrets` IS allowed (env:), is the correct pattern:
+      # the "Alert Slack" step below gates on this output instead.
+      - name: Check Slack webhook configured
+        id: slack-webhook
+        env:
+          WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
+        run: echo "configured=$([ -n "$WEBHOOK" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       # step-security/changed-files needs a real git diff, not just the
       # CODEOWNERS file -- fetch-depth: 0 is a heavier checkout than this
       # workflow used to need (previously just sparse-checked-out CODEOWNERS
@@ -448,7 +460,7 @@ jobs:
       # "optional and unset" webhook would otherwise turn this alert step itself
       # into a second, unrelated failure.
       - name: Alert Slack on request failure
-        if: always() && (steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && secrets.SLACK_TEAM_CHANNEL_WEBHOOK != ''
+        if: always() && (steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && steps.slack-webhook.outputs.configured == 'true'
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
           message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message }}

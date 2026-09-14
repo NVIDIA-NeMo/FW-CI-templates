@@ -200,13 +200,25 @@ jobs:
   # This workflow isn't attached to any PR, so a red X here is easy for
   # nobody to ever see -- unlike a per-PR check, there's no author who gets
   # notified just by opening a PR. always() so this still runs when a prior
-  # job failed; the empty-webhook guard matters because send-slack-alert's
-  # `curl ... $WEBHOOK` runs under `bash -e` and fails on an empty URL.
+  # job failed.
+  #
+  # `secrets` is not a valid context inside ANY `if:` condition (job- or
+  # step-level) -- GitHub Actions rejects it at parse time with
+  # "Unrecognized named-value: 'secrets'", failing the whole workflow before
+  # any job runs. The empty-webhook check is instead a step output below
+  # (computed in an env: block, where `secrets` access IS allowed), and the
+  # "Alert Slack" step gates on that output rather than the raw secret.
   alert-on-failure:
     needs: [extract-codeowners-users, validate-membership]
-    if: always() && (needs.extract-codeowners-users.result == 'failure' || needs.validate-membership.result == 'failure') && secrets.SLACK_TEAM_CHANNEL_WEBHOOK != ''
+    if: always() && (needs.extract-codeowners-users.result == 'failure' || needs.validate-membership.result == 'failure')
     runs-on: ubuntu-latest
     steps:
+      - name: Check Slack webhook configured
+        id: slack-webhook
+        env:
+          WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
+        run: echo "configured=$([ -n "$WEBHOOK" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -215,6 +227,7 @@ jobs:
           path: ci-templates
 
       - name: Alert Slack
+        if: steps.slack-webhook.outputs.configured == 'true'
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
           message: |

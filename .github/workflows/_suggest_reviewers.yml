@@ -1,0 +1,613 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Python port of _suggest_reviewers.yml (see the JS version in
+# NVIDIA-NeMo/FW-CI-templates#556 for the original). Same jobs, same steps,
+# same security properties -- only the inline-script language changed, since
+# there's no Python equivalent of actions/github-script that gives a
+# pre-authenticated API client for free. Every `shell: python` step below
+# therefore does two things by hand that actions/github-script did
+# automatically:
+#   1. Talks to the GitHub REST API itself, via urllib.request (stdlib only
+#      -- deliberately NOT the third-party `requests` package, to avoid a
+#      pip-install step and keep this exactly as zero-setup as the JS
+#      version was) with an explicit `Authorization: Bearer <token>` header.
+#      The token is whatever `env: GITHUB_TOKEN` is set to for that step --
+#      there's no separate `github-token:` input to override, which makes
+#      the "this one step uses an elevated token" pattern even more
+#      explicit than it was in the JS version.
+#   2. Writes step outputs itself, by appending to the $GITHUB_OUTPUT file
+#      (core.setOutput's underlying mechanism), and signals failure via
+#      `raise SystemExit(1)` after printing a `::error::` annotation
+#      (core.setFailed's underlying mechanism).
+#
+# Requests reviewers on a PR based on `# suggest:` comment lines in the
+# calling repo's .github/CODEOWNERS. Advisory only: GitHub's own CODEOWNERS
+# parser ignores comment lines, so a `# suggest:` entry can never become a
+# required reviewer no matter what branch protection does — only the real,
+# non-comment CODEOWNERS lines are enforced.
+#
+# Skips a suggested owner that's textually identical to an already-enforced
+# owner for the SAME FILE — see .github/scripts/codeowners_suggestions.py
+# for the "last match wins" resolution logic and its own unit tests. The
+# actual glob-matching (does file X match pattern Y) is delegated to
+# step-security/changed-files, already trusted elsewhere in this repo
+# (_cicd_preflight.yml, _copyright_check.yml) — this workflow only converts
+# CODEOWNERS patterns to the glob syntax it expects and resolves precedence
+# across whichever groups it reports as matched.
+#
+# Triggering: supports two caller shapes, resolved uniformly in the
+# `resolve-pr` job below.
+#   1. A caller with `on: pull_request:` — github.event.pull_request is read
+#      directly (passed in via env: as JSON, since Python has no automatic
+#      access to the event payload the way actions/github-script's
+#      `context` object does). Runs immediately, before a human has looked
+#      at the PR.
+#   2. A caller with `on: push: branches: ["pull-request/[0-9]+"]` — the
+#      same "ok to test" gate cicd-main.yml uses via _cicd_preflight.yml:
+#      NVIDIA's copy-pr-bot only mirrors a PR onto that branch after a
+#      vetter approves it, so nothing here runs against unreviewed/
+#      untrusted PR content until a human has signed off.
+#      nv-gha-runners/get-pr-info resolves the actual PR object (number,
+#      base/head sha, draft, author) from the branch name, since a push
+#      event has no pull_request payload of its own. This is the
+#      recommended shape for any repo that can adopt it.
+#
+# Failure handling: a failure to request suggested reviewers now fails this
+# job (visible red X) and always alerts Slack (if a webhook is configured) —
+# it does NOT retry-block anything else. Because this is advisory-only by
+# design, this workflow must NOT be configured as a required status check in
+# branch protection; a red X here should never be able to block a merge.
+#
+# No PAT usage anywhere in this flow: individual-user suggestions use the
+# default GITHUB_TOKEN; team suggestions use a short-lived GitHub App token.
+# If the App isn't configured or its token mint fails, team suggestions fail
+# cleanly (job goes red, Slack alerted if configured) rather than falling
+# back to a long-lived credential.
+
+on:
+  workflow_call:
+    inputs:
+      workflow_ref:
+        description: "Ref of this repo (FW-CI-templates) to check out for shared scripts/actions"
+        required: false
+        default: main
+        type: string
+      app-id:
+        description: >
+          GitHub App ID to mint a short-lived, org-scoped token for team-reviewer
+          resolution (listing team membership, requesting a team as a PR
+          reviewer). Required for team suggestions to work -- deliberately no
+          PAT fallback. Without it, individual-user suggestions still work fine
+          on the default token; team suggestions fail (job goes red, Slack
+          alerted if configured). Needs "Pull requests: Read and write" + org
+          "Members: Read-only".
+        required: false
+        default: ""
+        type: string
+    secrets:
+      BOT_KEY:
+        description: "Private key for the App identified by app-id."
+        required: false
+      SLACK_TEAM_CHANNEL_WEBHOOK:
+        description: "Slack webhook to alert on if the reviewer-request batch call fails. Optional: skips the alert (but the job still fails) if absent."
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Normalizes "how do we know the PR number / base sha / head sha / draft
+  # status / author" across both trigger shapes described above into one set
+  # of outputs everything downstream reads — nothing past this job ever
+  # touches the raw event payload directly.
+  resolve-pr:
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      draft: ${{ steps.pr.outputs.draft }}
+      author: ${{ steps.pr.outputs.author }}
+      html_url: ${{ steps.pr.outputs.html_url }}
+    steps:
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
+
+      - name: Resolve normalized PR context
+        id: pr
+        shell: python
+        env:
+          PR_INFO_JSON: ${{ steps.get-pr-info.outputs.pr-info }}
+          PR_PAYLOAD_JSON: ${{ toJSON(github.event.pull_request) }}
+        run: |
+          import json
+          import os
+
+
+          def gh_output(name, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
+
+
+          def parse_until_not_string(value):
+              result = value
+              while isinstance(result, str):
+                  result = json.loads(result)
+              return result
+
+
+          pr_info_raw = os.environ.get("PR_INFO_JSON", "")
+          if pr_info_raw:
+              pr = parse_until_not_string(pr_info_raw)
+          else:
+              pr = parse_until_not_string(os.environ.get("PR_PAYLOAD_JSON", "null"))
+
+          if not pr:
+              print(
+                  "::error::No pull_request context available: this workflow needs "
+                  "to be called from either a pull_request event or a push to a "
+                  "pull-request/[0-9]+ branch."
+              )
+              raise SystemExit(1)
+
+          gh_output("number", str(pr["number"]))
+          gh_output("base_sha", pr["base"]["sha"])
+          gh_output("head_sha", pr["head"]["sha"])
+          # Python's str(False) is "False" (capitalized) -- GitHub Actions'
+          # if: expressions compare against lowercase 'true'/'false', so this
+          # must be explicitly lowercased or the downstream draft check
+          # silently never matches.
+          gh_output("draft", str(pr.get("draft") is True).lower())
+          gh_output("author", pr["user"]["login"])
+          gh_output("html_url", pr["html_url"])
+
+  suggest-reviewers:
+    needs: resolve-pr
+    if: needs.resolve-pr.outputs.draft == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      # Plain bash, not Python -- this was never a github-script/JS step, no
+      # language conversion needed here, just the usual pattern: secrets
+      # can't be referenced inside `if:` conditions (job- or step-level) at
+      # all, so this computes "is a webhook configured" as a step output in
+      # a context (env:) where secrets access IS allowed, and the "Alert
+      # Slack" step gates on that output instead.
+      - name: Check Slack webhook configured
+        id: slack-webhook
+        env:
+          WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
+        run: echo "configured=$([ -n "$WEBHOOK" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # step-security/changed-files needs a real git diff, not just the
+      # CODEOWNERS file -- fetch-depth: 0 is a heavier checkout than this
+      # workflow used to need. Worth knowing on a very large repo; needed
+      # for the glob-matching handoff below.
+      - name: Checkout calling repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      # Turns every CODEOWNERS rule (enforced and `# suggest:` alike) into its
+      # own named glob group for the next step to test against the PR's actual
+      # changed files. Group names are synthetic (e0, e1, ... for enforced
+      # rules; s0, s1, ... for suggest rules, by array index) since files_yaml
+      # groups are keyed by string -- group_meta is the map back from each
+      # synthetic name to its real pattern + owners.
+      - name: Build glob groups from CODEOWNERS
+        id: build-groups
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          sys.path.insert(0, "ci-templates/.github/scripts")
+          from codeowners_suggestions import parse_codeowners, to_glob  # noqa: E402
+
+
+          def gh_output(name, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
+
+
+          codeowners_path = ".github/CODEOWNERS"
+          if not os.path.exists(codeowners_path):
+              print(f"{codeowners_path} not found, skipping.")
+              gh_output("has_rules", "false")
+              raise SystemExit(0)
+
+          with open(codeowners_path, encoding="utf-8") as f:
+              parsed = parse_codeowners(f.read())
+          enforced_rules = parsed["enforced_rules"]
+          suggest_rules = parsed["suggest_rules"]
+
+          if not suggest_rules:
+              print("No `# suggest:` lines found in CODEOWNERS, skipping.")
+              gh_output("has_rules", "false")
+              raise SystemExit(0)
+
+          lines = []
+          group_meta = {}
+
+
+          def add_group(prefix, index, rule):
+              name = f"{prefix}{index}"
+              group_meta[name] = {"pattern": rule["pattern"], "owners": rule["owners"]}
+              lines.append(f"{name}:")
+              for glob in to_glob(rule["pattern"]):
+                  lines.append(f"  - {json.dumps(glob)}")
+
+
+          for i, rule in enumerate(enforced_rules):
+              add_group("e", i, rule)
+          for i, rule in enumerate(suggest_rules):
+              add_group("s", i, rule)
+
+          gh_output("has_rules", "true")
+          gh_output("files_yaml", "\n".join(lines))
+          gh_output("group_meta", json.dumps(group_meta))
+          gh_output("enforced_count", str(len(enforced_rules)))
+          gh_output("suggest_count", str(len(suggest_rules)))
+
+      # The actual "does file X match pattern Y" glob test, delegated entirely
+      # to this already-trusted-elsewhere-in-this-repo action instead of a
+      # hand-rolled regex engine. json: true so file lists come back as real
+      # JSON arrays (safe with filenames containing spaces) instead of a
+      # separator-joined string we'd have to split ourselves.
+      - name: Detect which CODEOWNERS rules matched the changed files
+        if: steps.build-groups.outputs.has_rules == 'true'
+        id: changed-files
+        uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+        with:
+          base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+          sha: ${{ needs.resolve-pr.outputs.head_sha }}
+          files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
+          json: true
+
+      # Resolves suggested reviewers and requests individual-user ones directly
+      # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
+      # suggestions, this step does NOT request it -- team-reviewer resolution
+      # needs a token tied to a real identity (a GitHub App -- no PAT fallback
+      # by design), which the default token isn't. Instead it hands off the
+      # resolved lists to the next step, which runs only when needed and uses
+      # that elevated token for its *entire* scope (see that step for why
+      # that's deliberate).
+      #
+      # Every value that can contain PR-controlled content (CODEOWNERS text
+      # from this PR's own checkout, changed-file names from this PR's own
+      # diff) is passed in via `env:` and read from os.environ -- NEVER
+      # string-interpolated with `${{ }}` directly into the script body below.
+      # `${{ }}` substitution happens as raw text substitution BEFORE this
+      # script is parsed as Python; a value containing an unescaped quote
+      # could otherwise break out of a string literal and inject arbitrary
+      # code running with this step's token. A CODEOWNERS pattern/owner or a
+      # filename are both attacker-controlled the moment a PR can edit
+      # CODEOWNERS or add a file with an unusual name -- neither is "trusted
+      # because it's repo content", since it's THIS PR's own content.
+      - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
+        if: steps.build-groups.outputs.has_rules == 'true'
+        id: resolve
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GROUP_META_JSON: ${{ steps.build-groups.outputs.group_meta }}
+          ENFORCED_COUNT: ${{ steps.build-groups.outputs.enforced_count }}
+          SUGGEST_COUNT: ${{ steps.build-groups.outputs.suggest_count }}
+          CHANGED_FILES_OUTPUTS_JSON: ${{ toJSON(steps.changed-files.outputs) }}
+          PR_AUTHOR: ${{ needs.resolve-pr.outputs.author }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
+          PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
+        run: |
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          sys.path.insert(0, "ci-templates/.github/scripts")
+          from codeowners_suggestions import resolve_last_match_per_file  # noqa: E402
+
+
+          def gh_output(name, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
+
+
+          def gh_api(method, path, token, body=None):
+              url = f"https://api.github.com{path}"
+              data = json.dumps(body).encode("utf-8") if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("X-GitHub-Api-Version", "2022-11-28")
+              if data is not None:
+                  req.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      raw = resp.read()
+                      return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as e:
+                  error_body = e.read().decode("utf-8", errors="replace")
+                  raise RuntimeError(f"{method} {path} -> {e.code}: {error_body}") from e
+
+
+          # step-security/changed-files' per-group `_all_changed_files` outputs
+          # are themselves JSON-encoded strings (arrays-as-text); the same
+          # toJSON()+env: round-trip that the JS version of this workflow uses
+          # was observed to lose the OUTERMOST quote pair of an already-JSON
+          # string value while leaving interior backslash-escapes intact.
+          # Parsing in a loop, re-wrapping in quotes on failure, is robust to
+          # that regardless of root cause.
+          def parse_until_not_string(value):
+              result = value
+              while isinstance(result, str):
+                  try:
+                      result = json.loads(result)
+                  except json.JSONDecodeError:
+                      result = json.loads('"' + result + '"')
+              return result
+
+
+          group_meta = parse_until_not_string(os.environ["GROUP_META_JSON"])
+          enforced_count = int(os.environ["ENFORCED_COUNT"])
+          suggest_count = int(os.environ["SUGGEST_COUNT"])
+          changed_files_outputs = parse_until_not_string(os.environ["CHANGED_FILES_OUTPUTS_JSON"])
+          pr_number = int(os.environ["PR_NUMBER"])
+          pr_author = os.environ["PR_AUTHOR"]
+          pr_html_url = os.environ["PR_HTML_URL"]
+          repo_owner, repo_name = os.environ["GITHUB_REPOSITORY"].split("/")
+          token = os.environ["GITHUB_TOKEN"]
+
+
+          def build_rules_with_matches(prefix, count):
+              rules = []
+              for i in range(count):
+                  name = f"{prefix}{i}"
+                  meta = group_meta[name]
+                  raw = changed_files_outputs.get(f"{name}_all_changed_files")
+                  matched_files = parse_until_not_string(raw) if raw else []
+                  rules.append({"pattern": meta["pattern"], "owners": meta["owners"], "matched_files": matched_files})
+              return rules
+
+
+          suggest_winner_by_file = resolve_last_match_per_file(build_rules_with_matches("s", suggest_count))
+          enforced_winner_by_file = resolve_last_match_per_file(build_rules_with_matches("e", enforced_count))
+
+          # Case: a `# suggest:` owner is textually identical to an already-enforced
+          # owner for THE SAME FILE. GitHub already auto-requests the enforced owner
+          # from the real CODEOWNERS line for that file, so suggesting them again is
+          # a pure duplicate. This must be resolved per-file, not globally: an owner
+          # enforced on file A is not necessarily enforced on file B, so a global set
+          # difference would wrongly drop a legitimate suggestion on file B just
+          # because the same login/team happens to be enforced elsewhere in this PR.
+          suggested = set()
+          for filename, suggest_rule in suggest_winner_by_file.items():
+              enforced_owners_for_file = set(enforced_winner_by_file.get(filename, {}).get("owners", []))
+              for owner in suggest_rule["owners"]:
+                  if owner not in enforced_owners_for_file:
+                      suggested.add(owner)
+
+          # GitHub logins/mentions are case-insensitive; compare lowercased so a
+          # casing mismatch between CODEOWNERS and the PR author's login can't slip
+          # the author into their own reviewer batch.
+          pr_author_lower = pr_author.lower()
+
+          reviewers = []
+          team_reviewers = []
+          for owner in suggested:
+              name = owner[1:] if owner.startswith("@") else owner
+              if "/" in name:
+                  team_reviewers.append(name.split("/")[1])
+              elif name.lower() != pr_author_lower:
+                  reviewers.append(name)
+
+          if not reviewers and not team_reviewers:
+              print("No suggested reviewers matched the changed files.")
+              raise SystemExit(0)
+
+          # Already-requested/already-reviewed users cause a 422; drop anyone
+          # already in either state so a re-run (e.g. on `synchronize`) doesn't
+          # fail the job. Both of these are ordinary per-PR reads -- fine on the
+          # default token.
+          existing_review_requests = gh_api(
+              "GET", f"/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/requested_reviewers", token
+          )
+          existing_reviews = gh_api("GET", f"/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews", token)
+
+          # A review's `user` can be null (deleted/ghost GitHub account) per
+          # GitHub's own API schema — filter those out rather than crash.
+          already_users = {u["login"] for u in existing_review_requests["users"]} | {
+              r["user"]["login"] for r in existing_reviews if r.get("user")
+          }
+          already_teams = {t["slug"] for t in existing_review_requests["teams"]}
+
+          new_reviewers = [r for r in reviewers if r not in already_users]
+          new_team_reviewers = [t for t in team_reviewers if t not in already_teams]
+
+          if not new_reviewers and not new_team_reviewers:
+              print("Suggested reviewers already requested or already reviewed, nothing to do.")
+              raise SystemExit(0)
+
+          # Advisory-only by design, so a failure here must never block a merge --
+          # but it should still be visible: fail this job (never a required status
+          # check, see the file header) and always surface a Slack alert so it's
+          # actually noticed rather than buried in an Actions log nobody reads.
+          def report_failure(err, attempted_list):
+              print(f"::warning::Could not request suggested reviewers: {err}")
+              attempted = ", ".join(attempted_list) or "(none)"
+              run_url = (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{repo_owner}/{repo_name}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              )
+              gh_output(
+                  "failure_message",
+                  f"suggest-reviewers could not request suggested reviewers on {pr_html_url}\n"
+                  f"Attempted: {attempted}\nError: {err}\nWorkflow: {run_url}",
+              )
+              gh_output("should_alert_slack", "true")
+              print(f"::error::{err}")
+              raise SystemExit(1)
+
+
+          if not new_team_reviewers:
+              # No team involved -- request the individuals directly, right here,
+              # on the plain default token. No need to hand off to the elevated
+              # step.
+              try:
+                  gh_api(
+                      "POST",
+                      f"/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/requested_reviewers",
+                      token,
+                      {"reviewers": new_reviewers, "team_reviewers": []},
+                  )
+              except RuntimeError as err:
+                  report_failure(err, [f"@{r}" for r in new_reviewers])
+              raise SystemExit(0)
+
+          # A team is involved -- hand off to the elevated-token step.
+          gh_output("needs_team_step", "true")
+          gh_output("reviewers", json.dumps(new_reviewers))
+          gh_output("team_reviewers", json.dumps(new_team_reviewers))
+
+      # create-github-app-token defaults to a token scoped to just the current repo
+      # -- team resolution needs org-level context, so explicitly set `owner:` to
+      # mint an org-installation-scoped token instead. permission-members: read is
+      # required even just to request a team as a reviewer (not only to list its
+      # members), confirmed via a real, merged fix elsewhere:
+      # https://github.com/cypress-io/cypress/pull/34249
+      #
+      # continue-on-error: true is deliberate -- if minting the App token fails
+      # (bad key, App uninstalled, etc.), its output is empty, and the resulting
+      # auth failure lands in the next step's own try/except, which reports and
+      # fails cleanly instead of this step aborting the job with no Slack alert.
+      # No PAT fallback by design: team suggestions require the App to work.
+      - name: Create org-scoped GitHub App token for team-reviewer request
+        if: steps.resolve.outputs.needs_team_step == 'true' && inputs.app-id != ''
+        id: org-app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-members: read
+          permission-pull-requests: write
+
+      # Deliberately isolated into its own step, whose ONLY job is "handle the
+      # team reviewer": unlike actions/github-script's `github-token:` input,
+      # a plain `shell: python` step has no automatic client to authenticate at
+      # all -- the token is simply whatever `env: GITHUB_TOKEN` is set to
+      # below, which makes "this step alone uses the elevated token" an
+      # explicit, visible property of the step rather than something a
+      # separate input swaps in. Requesting a TEAM as a reviewer needs this:
+      # the default GITHUB_TOKEN can't do it, regardless of permissions.
+      - name: Request suggested reviewers including team
+        if: steps.resolve.outputs.needs_team_step == 'true'
+        id: request-team
+        shell: python
+        env:
+          GITHUB_TOKEN: ${{ steps.org-app-token.outputs.token }}
+          REVIEWERS_JSON: ${{ steps.resolve.outputs.reviewers }}
+          TEAM_REVIEWERS_JSON: ${{ steps.resolve.outputs.team_reviewers }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
+          PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
+        run: |
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+
+          def gh_output(name, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
+
+
+          def gh_api(method, path, token, body=None):
+              url = f"https://api.github.com{path}"
+              data = json.dumps(body).encode("utf-8") if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("X-GitHub-Api-Version", "2022-11-28")
+              if data is not None:
+                  req.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      raw = resp.read()
+                      return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as e:
+                  error_body = e.read().decode("utf-8", errors="replace")
+                  raise RuntimeError(f"{method} {path} -> {e.code}: {error_body}") from e
+
+
+          reviewers = json.loads(os.environ["REVIEWERS_JSON"])
+          team_reviewers = json.loads(os.environ["TEAM_REVIEWERS_JSON"])
+          pr_number = int(os.environ["PR_NUMBER"])
+          pr_html_url = os.environ["PR_HTML_URL"]
+          repo_owner, repo_name = os.environ["GITHUB_REPOSITORY"].split("/")
+          token = os.environ["GITHUB_TOKEN"]
+
+          # Single batch call: GitHub validates the whole payload atomically, so
+          # one invalid entry (no repo access, etc.) fails the entire request.
+          # Same fail-visibly-but-never-block contract as the individual-reviewer
+          # path above: warn, alert Slack, and fail this job -- never silently
+          # succeed.
+          try:
+              gh_api(
+                  "POST",
+                  f"/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/requested_reviewers",
+                  token,
+                  {"reviewers": reviewers, "team_reviewers": team_reviewers},
+              )
+          except RuntimeError as err:
+              print(f"::warning::Could not request suggested reviewers: {err}")
+              attempted = ", ".join([f"@{r}" for r in reviewers] + [f"@{t}" for t in team_reviewers]) or "(none)"
+              run_url = (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{repo_owner}/{repo_name}/actions/runs/"
+                  f"{os.environ['GITHUB_RUN_ID']}"
+              )
+              gh_output(
+                  "failure_message",
+                  f"suggest-reviewers could not request suggested reviewers on {pr_html_url}\n"
+                  f"Attempted: {attempted}\nError: {err}\nWorkflow: {run_url}",
+              )
+              gh_output("should_alert_slack", "true")
+              print(f"::error::{err}")
+              raise SystemExit(1)
+
+      # always() because a prior step now deliberately fails on a reviewer-
+      # request error -- without always(), GitHub Actions' implicit
+      # success()-gating on this step's own `if:` would skip the alert exactly
+      # when it's needed most. The empty-webhook check matters for the same
+      # reason: the composite action's `curl ... $WEBHOOK` runs under `bash -e`,
+      # so an empty, "optional and unset" webhook would otherwise turn this
+      # alert step itself into a second, unrelated failure.
+      - name: Alert Slack on request failure
+        if: always() && (steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && steps.slack-webhook.outputs.configured == 'true'
+        uses: ./ci-templates/.github/actions/send-slack-alert
+        with:
+          message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message }}
+          webhook: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}

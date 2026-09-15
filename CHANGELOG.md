@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.2...v1.10.0) (2026-09-15)
+
+
+### Features
+
+* Python port of _suggest_reviewers.yml (no JS/actions-github-script) ([#570](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/570)) ([3f26101](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3f2610125e0dd3c2dbde78598911b285ae421e0c))
+* Python port of the CODEOWNERS org-membership check ([#571](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/571)) ([c323d18](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c323d1895284bf5d9ba68c95bd5f531b68e12822))
+
 ## [1.9.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.1...v1.9.2) (2026-09-06)
 
 

@@ -276,6 +276,17 @@ jobs:
       # hand-rolled regex engine. json: true so file lists come back as real
       # JSON arrays (safe with filenames containing spaces) instead of a
       # separator-joined string we'd have to split ourselves.
+      #
+      # write_output_files: true writes each group's result to
+      # .github/outputs/<name>_all_changed_files.json on disk, instead of
+      # (only) a GitHub Actions step output. This repo's CODEOWNERS has 50+
+      # `# suggest:` groups, and this action emits ~20 fields per group
+      # (all_changed_files, added_files, modified_files, ...) -- dumping all
+      # of that through `${{ toJSON(steps.changed-files.outputs) }}` into an
+      # env: var blew past the OS's process-environment size limit on a PR
+      # with a large diff ("Argument list too long" spawning python),
+      # confirmed live. Reading each group's own small file directly in the
+      # next step avoids building that giant env var at all.
       - name: Detect which CODEOWNERS rules matched the changed files
         if: steps.build-groups.outputs.has_rules == 'true'
         id: changed-files
@@ -285,6 +296,7 @@ jobs:
           sha: ${{ needs.resolve-pr.outputs.head_sha }}
           files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
           json: true
+          write_output_files: true
 
       # Resolves suggested reviewers and requests individual-user ones directly
       # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
@@ -315,7 +327,6 @@ jobs:
           GROUP_META_JSON: ${{ steps.build-groups.outputs.group_meta }}
           ENFORCED_COUNT: ${{ steps.build-groups.outputs.enforced_count }}
           SUGGEST_COUNT: ${{ steps.build-groups.outputs.suggest_count }}
-          CHANGED_FILES_OUTPUTS_JSON: ${{ toJSON(steps.changed-files.outputs) }}
           PR_AUTHOR: ${{ needs.resolve-pr.outputs.author }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
           PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
@@ -353,27 +364,18 @@ jobs:
                   raise RuntimeError(f"{method} {path} -> {e.code}: {error_body}") from e
 
 
-          # step-security/changed-files' per-group `_all_changed_files` outputs
-          # are themselves JSON-encoded strings (arrays-as-text); the same
-          # toJSON()+env: round-trip that the JS version of this workflow uses
-          # was observed to lose the OUTERMOST quote pair of an already-JSON
-          # string value while leaving interior backslash-escapes intact.
-          # Parsing in a loop, re-wrapping in quotes on failure, is robust to
-          # that regardless of root cause.
+          # GROUP_META_JSON is our own single JSON.dumps() of a small object --
+          # no known corruption risk, but parsing defensively costs nothing.
           def parse_until_not_string(value):
               result = value
               while isinstance(result, str):
-                  try:
-                      result = json.loads(result)
-                  except json.JSONDecodeError:
-                      result = json.loads('"' + result + '"')
+                  result = json.loads(result)
               return result
 
 
           group_meta = parse_until_not_string(os.environ["GROUP_META_JSON"])
           enforced_count = int(os.environ["ENFORCED_COUNT"])
           suggest_count = int(os.environ["SUGGEST_COUNT"])
-          changed_files_outputs = parse_until_not_string(os.environ["CHANGED_FILES_OUTPUTS_JSON"])
           pr_number = int(os.environ["PR_NUMBER"])
           pr_author = os.environ["PR_AUTHOR"]
           pr_html_url = os.environ["PR_HTML_URL"]
@@ -381,14 +383,27 @@ jobs:
           token = os.environ["GITHUB_TOKEN"]
 
 
+          # Read each group's matched-file list directly from the file
+          # write_output_files: true wrote to disk, rather than passing the
+          # WHOLE steps.changed-files.outputs object through an env var --
+          # see the comment on that step for why (OS process-environment
+          # size limit, hit live on a large PR).
+          def read_matched_files(name):
+              path = f".github/outputs/{name}_all_changed_files.json"
+              if not os.path.exists(path):
+                  return []
+              with open(path, encoding="utf-8") as f:
+                  return json.load(f)
+
+
           def build_rules_with_matches(prefix, count):
               rules = []
               for i in range(count):
                   name = f"{prefix}{i}"
                   meta = group_meta[name]
-                  raw = changed_files_outputs.get(f"{name}_all_changed_files")
-                  matched_files = parse_until_not_string(raw) if raw else []
-                  rules.append({"pattern": meta["pattern"], "owners": meta["owners"], "matched_files": matched_files})
+                  rules.append(
+                      {"pattern": meta["pattern"], "owners": meta["owners"], "matched_files": read_matched_files(name)}
+                  )
               return rules
 
 

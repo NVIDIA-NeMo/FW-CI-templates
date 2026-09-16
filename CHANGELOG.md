@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.0...v1.10.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* read changed-files matches from disk, not a giant env var ([#573](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/573)) ([28c72f8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/28c72f837e145313e789b4e8dbc18fc66f049d4c))
+
 ## [1.10.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.2...v1.10.0) (2026-09-15)
 
 

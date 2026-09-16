@@ -287,9 +287,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate release-ref is a commit SHA
+        env:
+          RELEASE_REF: ${{ inputs.release-ref }}
         run: |
-          if ! echo "${{ inputs.release-ref }}" | grep -qE '^[0-9a-f]{40}$'; then
-            echo "::error::release-ref must be a full 40-character commit SHA, not a branch name. Using a branch name causes a race condition where the version-bump job mutates the branch before the wheel is built, publishing the wrong version. Got: '${{ inputs.release-ref }}'"
+          if ! echo "$RELEASE_REF" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::release-ref must be a full 40-character commit SHA, not a branch name. Using a branch name causes a race condition where the version-bump job mutates the branch before the wheel is built, publishing the wrong version."
             exit 1
           fi
 

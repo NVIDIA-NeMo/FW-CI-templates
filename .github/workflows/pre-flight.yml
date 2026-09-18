@@ -3,6 +3,21 @@ on:
   pull_request:
 
 jobs:
+  build-wheel-env-tests:
+    name: Wheel build environment tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Run tests
+        run: |
+          python -m pip install PyYAML
+          python -m unittest discover -s .github/scripts -p "test_build_wheel_env.py"
+
   send-slack-alert-tests:
     name: Send Slack alert tests
     runs-on: ubuntu-latest

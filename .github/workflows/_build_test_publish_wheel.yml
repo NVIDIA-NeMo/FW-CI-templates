@@ -94,6 +94,11 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      build-wheel-env:
+        required: false
+        description: JSON object of non-secret string environment variables to export for the wheel build
+        type: string
+        default: "{}"
       extra-no-build-isolation-packages:
         required: false
         description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
@@ -165,6 +170,31 @@ jobs:
         if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
+
+      - name: Set build environment
+        if: inputs.build-wheel-env != '{}'
+        env:
+          BUILD_WHEEL_ENV: ${{ inputs.build-wheel-env }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          values = json.loads(os.environ["BUILD_WHEEL_ENV"])
+          if not isinstance(values, dict):
+              raise TypeError("build-wheel-env must be a JSON object")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as github_env:
+              for name, value in values.items():
+                  if not isinstance(name, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+                      raise ValueError(f"invalid build environment variable name: {name!r}")
+                  if not isinstance(value, str):
+                      raise TypeError(f"build environment variable {name!r} must have a string value")
+                  if "\n" in value or "\r" in value:
+                      raise ValueError(f"build environment variable {name!r} must not contain newlines")
+                  github_env.write(f"{name}={value}\n")
+          PY
 
       - name: Build wheel
         id: build

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.1...v1.11.0) (2026-09-18)
+
+
+### Features
+
+* add build wheel environment input ([#566](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/566)) ([4ba12f7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4ba12f712f03d20c9fe60ddb959117ceec7fdd74))
+
 ## [1.10.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.0...v1.10.1) (2026-09-16)
 
 

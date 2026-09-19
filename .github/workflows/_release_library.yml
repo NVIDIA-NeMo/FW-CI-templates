@@ -316,6 +316,8 @@ jobs:
       has-src-dir: ${{ inputs.has-src-dir }}
       packaging: ${{ inputs.packaging }}
       root-dir: ${{ inputs.root-dir }}
+      docs-directory: ${{ inputs.docs-root-dir != '' && inputs.docs-root-dir || inputs.root-dir }}/${{ inputs.docs-directory }}
+      publish-as-latest: ${{ inputs.publish-as-latest }}
     secrets: inherit
 
   build-test-publish-wheel:

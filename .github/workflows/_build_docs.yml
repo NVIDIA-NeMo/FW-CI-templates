@@ -55,6 +55,16 @@ on:
         required: false
         type: boolean
         default: false
+      release-version:
+        description: Update existing docs version files before building a release. Empty leaves them unchanged.
+        required: false
+        type: string
+        default: ""
+      publish-as-latest:
+        description: Allow release-version to become the preferred documentation version.
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   main:
@@ -68,6 +78,27 @@ jobs:
           submodules: "recursive"
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+
+      - name: Checkout docs version tools
+        if: inputs.release-version != ''
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: docs-version-tools
+          persist-credentials: false
+
+      - name: Update documentation versions
+        if: inputs.release-version != ''
+        working-directory: ${{ inputs.root-dir }}
+        env:
+          DOCS_DIR: ${{ inputs.docs-directory }}
+          RELEASE_VERSION: ${{ inputs.release-version }}
+          PUBLISH_AS_LATEST: ${{ inputs.publish-as-latest }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/docs-version-tools/.github/scripts/update_docs_versions.py" \
+            --docs-dir "$DOCS_DIR" --version "$RELEASE_VERSION" \
+            --publish-as-latest "$PUBLISH_AS_LATEST"
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0

@@ -3,6 +3,15 @@ on:
   pull_request:
 
 jobs:
+  sso-download-tests:
+    name: SSO download tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Run tests
+        run: python3 -m unittest discover -s .github/actions/check-nvidia-sso -p "test_*.py"
+
   send-slack-alert-tests:
     name: Send Slack alert tests
     runs-on: ubuntu-latest

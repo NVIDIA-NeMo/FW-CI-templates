@@ -40,9 +40,18 @@ on:
         required: false
         default: 'Run CICD'
         type: string
+      app-id:
+        description: 'GitHub App ID to mint a bot token via actions/create-github-app-token, instead of a long-lived PAT. Requires the BOT_KEY secret. Falls back to secrets.PAT when empty.'
+        required: false
+        default: ''
+        type: string
     secrets:
       PAT:
-        required: true
+        description: 'Personal access token. Required unless app-id + BOT_KEY are provided instead.'
+        required: false
+      BOT_KEY:
+        description: 'GitHub App private key, used with the app-id input to mint a short-lived bot token.'
+        required: false
       SLACK_WEBHOOK_ADMIN:
         required: true
       SLACK_WEBHOOK:
@@ -61,15 +70,23 @@ jobs:
       name: main
       deployment: false
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT }}
+          token: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
 
       - name: Cherry pick
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
           SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_WEBHOOK_SECONDARY: ${{ secrets.SLACK_WEBHOOK_SECONDARY }}

@@ -107,7 +107,6 @@ jobs:
           git config --global user.name "NeMo Bot"
 
           SHA=$(git rev-list --no-merges -n 1 HEAD)
-          USERNAME=$(git log -n 1 --pretty=format:%ae "$SHA" | awk -F'@' '{print $1}')
 
           PR=$(
             gh api --paginate \
@@ -255,11 +254,11 @@ jobs:
 
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
-              MESSAGE="Hey <@$USERNAME>: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
+              MESSAGE="Hey @$AUTHOR: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
 
               Please resolve manually and create a PR.
 
-              cc: $SLACK_WEBHOOK_ADMIN${NOTIFY_MENTION:+ $NOTIFY_MENTION}"
+              cc: ${NOTIFY_MENTION:-$SLACK_WEBHOOK_ADMIN}"
 
               MESSAGE=$(jq -cn --arg message "beep boop 🤖: $MESSAGE" '{
                 "blocks": [

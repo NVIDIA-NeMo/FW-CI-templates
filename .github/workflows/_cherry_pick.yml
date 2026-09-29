@@ -127,12 +127,8 @@ jobs:
           PR_ID=$(jq -er '.number' <<< "$PR")
           PR_TITLE=$(jq -er '.title' <<< "$PR")
           LABELS=$(jq -er '[.labels[].name] | join(",")' <<< "$PR")
+          ORIGINAL_LABELS_JSON=$(jq -c '[.labels[].name]' <<< "$PR")
           AUTHOR=$(jq -er '.user.login' <<< "$PR")
-
-          # Carry over the CI:* label the original PR ran with onto every
-          # cherry-pick PR, so CI runs at the same scope automatically
-          # instead of requiring a manual relabel + rerun.
-          CI_LABEL=$(tr ',' '\n' <<< "$LABELS" | grep -E '^CI:' | head -n1 || true)
 
           if [[ -n "$TARGET_BRANCH" ]]; then
             if [[ -z "$TRIGGER_LABEL" ]]; then
@@ -230,10 +226,27 @@ jobs:
                 -d '{"reviewers":["'$AUTHOR'"]}' \
                 || echo "::error::Failed to request $AUTHOR as reviewer on #$NEW_PR_ID"
 
+              # Carry over every label from the source PR (CI:*, area
+              # labels, etc.), so the cherry-pick PR starts in the same
+              # state as the one it came from instead of requiring someone
+              # to manually re-apply them. Excludes trigger-label and
+              # anything matching target-branches-pattern -- those control
+              # cherry-pick routing, and carrying them over would make the
+              # new PR itself eligible to be cherry-picked again the same
+              # way, which is never what's wanted here.
               NEW_PR_LABELS_JSON=$(jq -cn \
                 --arg cicd "$DEFAULT_CICD_LABEL" \
-                --arg ci "$CI_LABEL" \
-                '["cherry-pick"] + (if $cicd != "" then [$cicd] else [] end) + (if $ci != "" then [$ci] else [] end)')
+                --argjson original "$ORIGINAL_LABELS_JSON" \
+                --arg trigger "$TRIGGER_LABEL" \
+                --arg pattern "$TARGET_BRANCHES_PATTERN" \
+                '(["cherry-pick"]
+                  + (if $cicd != "" then [$cicd] else [] end)
+                  + ($original | map(select(
+                      . != "cherry-pick"
+                      and (if $trigger != "" then . != $trigger else true end)
+                      and (test($pattern) | not)
+                    )))
+                ) | unique')
               curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \

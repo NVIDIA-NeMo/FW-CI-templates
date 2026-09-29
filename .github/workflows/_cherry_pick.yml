@@ -66,9 +66,6 @@ defaults:
 jobs:
   main:
     runs-on: ubuntu-latest
-    environment:
-      name: main
-      deployment: false
     steps:
       # Repo-scoped token, least-privilege: contents (push branches),
       # pull-requests (open PR, request reviewer), issues (labels + the
@@ -201,7 +198,13 @@ jobs:
                 }'
               )
 
-              NEW_PR=$(curl -L \
+              # --fail-with-body makes curl exit non-zero on a 4xx/5xx
+              # response (default curl behavior is to exit 0 and print the
+              # error body as if it succeeded). Combined with -e in
+              # `defaults.run.shell`, a failed GitHub API call now stops the
+              # job here instead of silently continuing with a blank/null
+              # NEW_PR_ID.
+              NEW_PR=$(curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -210,7 +213,7 @@ jobs:
                 -d "$PAYLOAD")
 
               NEW_PR_ID=$(echo -E $NEW_PR | jq '.number')
-              curl -L \
+              curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -222,7 +225,7 @@ jobs:
                 --arg cicd "$DEFAULT_CICD_LABEL" \
                 --arg ci "$CI_LABEL" \
                 '["cherry-pick"] + (if $cicd != "" then [$cicd] else [] end) + (if $ci != "" then [$ci] else [] end)')
-              curl -L \
+              curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
@@ -236,7 +239,7 @@ jobs:
                 LATEST_SHA=$(git rev-parse origin/cherry-pick-$PR_ID-$RELEASE_BRANCH)
 
                 # Add comment via GitHub API
-                curl -L \
+                curl -L --fail-with-body \
                   -X POST \
                   -H "Accept: application/vnd.github+json" \
                   -H "Authorization: Bearer $GH_TOKEN" \
@@ -270,10 +273,16 @@ jobs:
                 ]
               }')
 
-              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK"
+              # --fail-with-body: non-2xx now surfaces as a curl error instead
+              # of silently "succeeding" with an error body. Each webhook is
+              # attempted independently so a bad SECONDARY doesn't suppress
+              # the primary alert.
+              curl -sS --fail-with-body -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK" \
+                || echo "::error::Failed to post cherry-pick failure alert to SLACK_WEBHOOK"
 
               if [[ -n "$SLACK_WEBHOOK_SECONDARY" ]]; then
-                curl -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK_SECONDARY"
+                curl -sS --fail-with-body -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK_SECONDARY" \
+                  || echo "::error::Failed to post cherry-pick failure alert to SLACK_WEBHOOK_SECONDARY"
               fi
 
             fi

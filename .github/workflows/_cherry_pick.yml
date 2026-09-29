@@ -16,9 +16,29 @@ on:
   workflow_call:
     inputs:
       target-branches-pattern:
-        description: 'Regex pattern to match target branch names from PR labels'
+        description: 'Regex pattern to match target branch names from PR labels. Ignored if target-branch is set.'
         required: false
         default: 'r[0-9]+\.[0-9]+\.[0-9]+'
+        type: string
+      target-branch:
+        description: 'If set, always cherry-pick into this single branch instead of fanning out via target-branches-pattern. Requires trigger-label.'
+        required: false
+        default: ''
+        type: string
+      trigger-label:
+        description: 'Label that opts a PR into cherry-picking when target-branch is set.'
+        required: false
+        default: ''
+        type: string
+      notify-mention:
+        description: 'Extra Slack text (e.g. a usergroup mention) appended to the failure alert.'
+        required: false
+        default: ''
+        type: string
+      default-cicd-label:
+        description: 'Label added to every cherry-pick PR to trigger CI. Set to empty to rely solely on the carried-over CI:* label.'
+        required: false
+        default: 'Run CICD'
         type: string
     secrets:
       PAT:
@@ -27,6 +47,8 @@ on:
         required: true
       SLACK_WEBHOOK:
         required: true
+      SLACK_WEBHOOK_SECONDARY:
+        required: false
 
 defaults:
   run:
@@ -50,8 +72,13 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT }}
           SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_SECONDARY: ${{ secrets.SLACK_WEBHOOK_SECONDARY }}
+          NOTIFY_MENTION: ${{ inputs.notify-mention }}
           REPOSITORY: ${{ github.repository }}
           TARGET_BRANCHES_PATTERN: ${{ inputs.target-branches-pattern }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+          TRIGGER_LABEL: ${{ inputs.trigger-label }}
+          DEFAULT_CICD_LABEL: ${{ inputs.default-cicd-label }}
         run: |
           set -x
 
@@ -82,12 +109,35 @@ jobs:
           LABELS=$(jq -er '[.labels[].name] | join(",")' <<< "$PR")
           AUTHOR=$(jq -er '.user.login' <<< "$PR")
 
-          TARGET_BRANCHES=$(grep -Eo "$TARGET_BRANCHES_PATTERN" <<< "$LABELS" || true)
+          # Carry over the CI:* label the original PR ran with onto every
+          # cherry-pick PR, so CI runs at the same scope automatically
+          # instead of requiring a manual relabel + rerun.
+          CI_LABEL=$(tr ',' '\n' <<< "$LABELS" | grep -E '^CI:' | head -n1 || true)
 
-          if [[ -z "$TARGET_BRANCHES" ]]; then
-            echo Nothing to cherry-pick
-            exit 0
+          if [[ -n "$TARGET_BRANCH" ]]; then
+            if [[ -z "$TRIGGER_LABEL" ]]; then
+              echo "target-branch is set but trigger-label is empty; refusing to proceed" >&2
+              exit 1
+            fi
+
+            HAS_TRIGGER_LABEL=$(grep -qF ",$TRIGGER_LABEL," <<< ",$LABELS," && echo true || echo false)
+
+            if [[ "$HAS_TRIGGER_LABEL" != "true" ]]; then
+              echo "PR #$PR_ID does not have the '$TRIGGER_LABEL' label, nothing to cherry-pick"
+              exit 0
+            fi
+
+            TARGET_BRANCHES="$TARGET_BRANCH"
+          else
+            TARGET_BRANCHES=$(grep -Eo "$TARGET_BRANCHES_PATTERN" <<< "$LABELS" || true)
+
+            if [[ -z "$TARGET_BRANCHES" ]]; then
+              echo Nothing to cherry-pick
+              exit 0
+            fi
           fi
+
+          OVERALL_FAILURE=0
 
           while read -r RELEASE_BRANCH; do
             TARGET_BRANCH_EXISTS_OK=$([[ "$(git ls-remote --heads origin "refs/heads/$RELEASE_BRANCH")" != "" ]] && echo true || echo false)
@@ -108,7 +158,7 @@ jobs:
 
               MESSAGE="Hi @$AUTHOR 👋,
 
-              we've cherry picked #$PR_ID into `$RELEASE_BRANCH` for you! 🚀
+              we've cherry picked #$PR_ID into \`$RELEASE_BRANCH\` for you! 🚀
 
               Please review and approve this cherry pick by your convenience!"
 
@@ -144,13 +194,17 @@ jobs:
                 https://api.github.com/repos/$REPOSITORY/pulls/$NEW_PR_ID/requested_reviewers \
                 -d '{"reviewers":["'$AUTHOR'"]}'
 
+              NEW_PR_LABELS_JSON=$(jq -cn \
+                --arg cicd "$DEFAULT_CICD_LABEL" \
+                --arg ci "$CI_LABEL" \
+                '["cherry-pick"] + (if $cicd != "" then [$cicd] else [] end) + (if $ci != "" then [$ci] else [] end)')
               curl -L \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/issues/$NEW_PR_ID/labels \
-                -d '{"labels":["Run CICD", "cherry-pick"]}'
+                -d "{\"labels\":$NEW_PR_LABELS_JSON}"
 
               # Check if copy-pr-bot.yaml exists and add "/ok to test" comment if it does
               if [ -f ".github/copy-pr-bot.yaml" ]; then
@@ -168,6 +222,7 @@ jobs:
               fi
 
             else
+              OVERALL_FAILURE=1
               git cherry-pick --abort || true
               git checkout "${CI_DEFAULT_BRANCH:-main}" || true
 
@@ -177,7 +232,7 @@ jobs:
 
               Please resolve manually and create a PR.
 
-              cc: $SLACK_WEBHOOK_ADMIN"
+              cc: $SLACK_WEBHOOK_ADMIN${NOTIFY_MENTION:+ $NOTIFY_MENTION}"
 
               MESSAGE=$(jq -cn --arg message "beep boop 🤖: $MESSAGE" '{
                 "blocks": [
@@ -191,11 +246,17 @@ jobs:
                 ]
               }')
 
-              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $SLACK_WEBHOOK
+              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK"
+
+              if [[ -n "$SLACK_WEBHOOK_SECONDARY" ]]; then
+                curl -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK_SECONDARY"
+              fi
 
             fi
 
           done <<< "$TARGET_BRANCHES"
+
+          exit $OVERALL_FAILURE
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

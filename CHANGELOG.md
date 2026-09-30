@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.11.0...v1.12.0) (2026-09-30)
+
+
+### Features
+
+* support single-target cherry-pick direction and CI label carryover ([#584](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/584)) ([486cfe7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/486cfe7f4ce409ec3b6c06f46beead444fb20c3b))
+
 ## [1.11.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.1...v1.11.0) (2026-09-23)
 
 

@@ -243,8 +243,13 @@ jobs:
           LIBRARY_NAME: ${{ inputs.library-name }}
           CHERRY_PICK_PSA: ${{ inputs.cherry-pick-psa }}
         run: |
-          DEFAULT_PSA="PSA: For automated cherry picks, please assign the label \`$RELEASE_BRANCH\` to your PR _before_ merging to \`main\`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team $SLACK_WEBHOOK_ADMIN will reach out to you."
+          DEFAULT_PSA="PSA: For automated cherry picks, please assign the label \`{RELEASE_BRANCH}\` to your PR _before_ merging to \`main\`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team $SLACK_WEBHOOK_ADMIN will reach out to you."
           PSA="${CHERRY_PICK_PSA:-$DEFAULT_PSA}"
+          # {RELEASE_BRANCH} is a placeholder, not a shell variable -- lets a
+          # consumer's cherry-pick-psa reference the actual freshly-cut
+          # branch name (release-branch-prefix aware) without needing to
+          # know/hardcode it ahead of time.
+          PSA="${PSA//\{RELEASE_BRANCH\}/$RELEASE_BRANCH}"
 
           PREFIX=""
           if [[ "$DRY_RUN" == "true" ]]; then

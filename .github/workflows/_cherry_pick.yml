@@ -47,7 +47,7 @@ on:
         type: string
     secrets:
       PAT:
-        description: 'Personal access token. Required unless app-id + BOT_KEY are provided instead. Also used (if set) for the /ok to test comment specifically, even when app-id is set -- copy-pr-bot only trusts a real NVIDIA SSO identity for that, not a GitHub App.'
+        description: 'Personal access token. Required unless app-id + BOT_KEY are provided instead. Also used (if set) for PR creation and the /ok to test comment specifically, even when app-id is set -- copy-pr-bot only trusts a real NVIDIA SSO identity for those, not a GitHub App.'
         required: false
       BOT_KEY:
         description: 'GitHub App private key, used with the app-id input to mint a short-lived bot token.'
@@ -91,13 +91,14 @@ jobs:
       - name: Cherry pick
         env:
           GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
-          # copy-pr-bot only trusts /ok to test comments from a real NVIDIA
-          # SSO identity -- it checks the commenter's username against the
-          # NVIDIA Enterprise Member List, which a GitHub App's bot identity
-          # can never be on. The App token works fine for everything else
-          # (push, PR creation, labels, reviewer request) but the "/ok to
-          # test" comment specifically needs PAT, falling back to GH_TOKEN
-          # (same as before this fix) if PAT isn't supplied.
+          # copy-pr-bot trusts a real NVIDIA SSO identity, not a GitHub
+          # App's bot identity -- confirmed this applies to BOTH who opens
+          # the PR (not just who posts "/ok to test"): a PR created by the
+          # App still got routed into external-contributor handling even
+          # with a correctly-trusted /ok to test comment on it (no
+          # pull-request/N branch was ever created). Push, labels, and
+          # reviewer-request can stay on the App token -- only PR creation
+          # and the /ok to test comment need PAT.
           PAT: ${{ secrets.PAT }}
           SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
@@ -201,6 +202,11 @@ jobs:
                 }'
               )
 
+              # Must be PAT, not GH_TOKEN -- who calls this endpoint becomes
+              # the PR's author, and copy-pr-bot needs that to be a real
+              # NVIDIA SSO identity, same as the /ok to test comment below.
+              TRUSTED_TOKEN="${PAT:-$GH_TOKEN}"
+
               # --fail-with-body makes curl exit non-zero on a 4xx/5xx
               # response (default curl behavior is to exit 0 and print the
               # error body as if it succeeded). Combined with -e in
@@ -210,7 +216,7 @@ jobs:
               NEW_PR=$(curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
-                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Authorization: Bearer $TRUSTED_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/pulls \
                 -d "$PAYLOAD")
@@ -269,15 +275,12 @@ jobs:
                 # Get the latest commit SHA of the cherry-pick branch
                 LATEST_SHA=$(git rev-parse origin/cherry-pick-$PR_ID-$RELEASE_BRANCH)
 
-                # Must be PAT, not GH_TOKEN -- see the comment on the PAT env
-                # var above for why the App token doesn't work here.
-                OK_TO_TEST_TOKEN="${PAT:-$GH_TOKEN}"
-
-                # Add comment via GitHub API
+                # Add comment via GitHub API (TRUSTED_TOKEN, same as the PR
+                # creation call above -- see that comment for why)
                 curl -L --fail-with-body \
                   -X POST \
                   -H "Accept: application/vnd.github+json" \
-                  -H "Authorization: Bearer $OK_TO_TEST_TOKEN" \
+                  -H "Authorization: Bearer $TRUSTED_TOKEN" \
                   -H "X-GitHub-Api-Version: 2022-11-28" \
                   https://api.github.com/repos/$REPOSITORY/issues/$NEW_PR_ID/comments \
                   -d "{\"body\":\"/ok to test $LATEST_SHA\"}" \

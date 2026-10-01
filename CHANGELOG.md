@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.0...v1.12.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* use PAT, not the App token, for the /ok to test comment ([#587](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/587)) ([5d6b32f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5d6b32f25afe29f62549ec8238b88c24ee8ff6aa))
+
 ## [1.12.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.11.0...v1.12.0) (2026-09-30)
 
 

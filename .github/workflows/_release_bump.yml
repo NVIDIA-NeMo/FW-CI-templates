@@ -95,6 +95,16 @@ on:
         required: false
         default: "./"
         description: Sub-directory containing the package source(s).
+      docs-directory:
+        type: string
+        required: false
+        default: docs
+        description: Documentation directory relative to the repository. Only existing version files are updated.
+      publish-as-latest:
+        type: boolean
+        required: false
+        default: true
+        description: Allow this release to become the preferred documentation version.
     secrets:
       BOT_KEY:
         required: true
@@ -174,6 +184,14 @@ jobs:
           fetch-tags: true
           ref: ${{ inputs.release-ref }}
 
+      - name: Checkout docs version tools
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: docs-version-tools
+          persist-credentials: false
+
       - name: Bump version(s)
         id: bump
         run: |
@@ -248,6 +266,18 @@ jobs:
           echo "release-version=$RELEASE_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
           printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
+
+      - name: Update documentation versions
+        working-directory: ${{ github.run_id }}
+        env:
+          DOCS_DIR: ${{ inputs.docs-directory }}
+          RELEASE_VERSION: ${{ steps.bump.outputs.release-version }}
+          PUBLISH_AS_LATEST: ${{ inputs.publish-as-latest }}
+        run: |
+          # Document the version being released, not the next package version.
+          python3 "$GITHUB_WORKSPACE/docs-version-tools/.github/scripts/update_docs_versions.py" \
+            --docs-dir "$DOCS_DIR" --version "$RELEASE_VERSION" \
+            --publish-as-latest "$PUBLISH_AS_LATEST" >> /tmp/bumped-files.txt
 
       - name: Record computed versions
         if: env.IS_INERT == 'true'

@@ -320,6 +320,8 @@ jobs:
       root-dir: ${{ inputs.docs-root-dir != '' && inputs.docs-root-dir || inputs.root-dir }}
       requirements-file: ${{ inputs.docs-requirements-file }}
       docs-directory: ${{ inputs.docs-directory }}
+      release-version: ${{ inputs.release-version }}
+      publish-as-latest: ${{ inputs.publish-as-latest }}
       fail-on-warning: ${{ inputs.docs-fail-on-warning }}
       skip-linkcheck: ${{ inputs.docs-skip-linkcheck }}
       sync-all: ${{ inputs.docs-sync-all }}

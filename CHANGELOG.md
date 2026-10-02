@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.1...v1.12.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* open the cherry-pick PR as PAT, not the App token ([#589](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/589)) ([773c653](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/773c65328c4ade3106483cafed7fbbf78e9816ae))
+
 ## [1.12.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.0...v1.12.1) (2026-10-01)
 
 

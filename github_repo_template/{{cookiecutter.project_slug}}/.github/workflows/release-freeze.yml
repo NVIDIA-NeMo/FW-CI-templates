@@ -34,13 +34,16 @@ on:
         default: true
 jobs:
   code-freeze:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@f0a118fc3af70f04aa34257d18032b9729a51b63 # v0.22.5
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@d9478337209a7bc86479d77bcdadd638318b183d # github app authentication
     with:
+      app-id: {% raw %}${{ vars.BOT_ID }}{% endraw %}
+      environment-name: public
       library-name: {{cookiecutter.project_slug}}
       python-package: {{cookiecutter.package_name}}
       release-type: {% raw %}${{ inputs.release-type }}{% endraw %}
       freeze-commit: {% raw %}${{ inputs.freeze-commit }}{% endraw %}
       dry-run: {% raw %}${{ inputs.dry-run }}{% endraw %}
     secrets:
+      BOT_KEY: {% raw %}${{ secrets.BOT_KEY }}{% endraw %}
       SLACK_WEBHOOK: {% raw %}${{ secrets.SLACK_RELEASE_ENDPOINT }}{% endraw %}
       SLACK_WEBHOOK_ADMIN: {% raw %}${{ secrets.SLACK_WEBHOOK_ADMIN }}{% endraw %}

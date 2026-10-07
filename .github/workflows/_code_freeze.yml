@@ -39,9 +39,19 @@ on:
         default: true
       use-pat:
         required: false
-        description: "Use PAT for checkout"
+        description: "Deprecated: use app-id and BOT_KEY for authentication"
         type: boolean
         default: false
+      app-id:
+        required: false
+        description: GitHub App ID used for branch pushes, labels, and version-bump PRs
+        type: string
+        default: ""
+      environment-name:
+        required: false
+        description: Job environment; empty preserves the legacy use-pat selection
+        type: string
+        default: ""
       packaging:
         required: false
         description: "Packaging tool (supported: setuptools, hatch)"
@@ -69,6 +79,8 @@ on:
         required: true
       PAT:
         required: false
+      BOT_KEY:
+        required: false
     outputs:
       release-branch:
         description: "Released version (same as its branch name)"
@@ -89,15 +101,48 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
     environment:
-      name: ${{ inputs.use-pat && 'main' || 'public' }}
+      name: ${{ inputs.environment-name || (inputs.use-pat && 'main' || 'public') }}
       deployment: false
     steps:
+      - name: Generate GitHub App token
+        if: inputs.app-id != ''
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          # Protected release-branch creation uses the installation's admin access.
+          permission-administration: write
+
+      - name: Select GitHub token
+        id: github-token
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          APP_ID: ${{ inputs.app-id }}
+          BOT_KEY: ${{ secrets.BOT_KEY }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          LEGACY_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+        run: |
+          if [[ -n "$APP_ID" || -n "$BOT_KEY" ]]; then
+            if [[ -z "$APP_ID" || -z "$BOT_KEY" || -z "$APP_TOKEN" ]]; then
+              echo "::error::App authentication requires app-id, BOT_KEY, and a minted token"
+              exit 1
+            fi
+            TOKEN="$APP_TOKEN"
+          else
+            TOKEN="$LEGACY_TOKEN"
+          fi
+          echo "::add-mask::$TOKEN"
+          printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           fetch-depth: 0
-          token: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          token: ${{ steps.github-token.outputs.token }}
           ref: ${{ inputs.freeze-commit }}
 
       - name: Get release branch ref
@@ -107,25 +152,25 @@ jobs:
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" $PACKAGE_INFO_FILE
-          sed -i "/^DEV/c\DEV = ''" $PACKAGE_INFO_FILE
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" "$PACKAGE_INFO_FILE"
+          sed -i "/^DEV/c\DEV = ''" "$PACKAGE_INFO_FILE"
 
-          pushd $SRC_DIR${PYPROJECT_NAME//.//}
+          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
 
           VERSION=$(python -c "import package_info; print(f\"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}\")")
           RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
           echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
-          git switch --force-create ${RELEASE_BRANCH}
+          git switch --force-create "${RELEASE_BRANCH}"
 
           if [[ "$DRY_RUN" != "true" ]]; then
-            git push -u origin ${RELEASE_BRANCH} --force
+            git push -u origin "${RELEASE_BRANCH}" --force
           fi
 
       - name: Create cherry-pick label
         if: ${{ inputs.dry-run != true }}
         env:
-          GH_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          GH_TOKEN: ${{ steps.github-token.outputs.token }}
           RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
         run: |
           DESCRIPTION="Auto-cherrypick to release branch. Apply before merge; cherrypick happens after merge."
@@ -144,6 +189,37 @@ jobs:
       SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
       PYPROJECT_NAME: ${{ inputs.python-package }}
     steps:
+      - name: Generate GitHub App token
+        if: inputs.app-id != ''
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Select GitHub token
+        id: github-token
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          APP_ID: ${{ inputs.app-id }}
+          BOT_KEY: ${{ secrets.BOT_KEY }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          LEGACY_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+        run: |
+          if [[ -n "$APP_ID" || -n "$BOT_KEY" ]]; then
+            if [[ -z "$APP_ID" || -z "$BOT_KEY" || -z "$APP_TOKEN" ]]; then
+              echo "::error::App authentication requires app-id, BOT_KEY, and a minted token"
+              exit 1
+            fi
+            TOKEN="$APP_TOKEN"
+          else
+            TOKEN="$LEGACY_TOKEN"
+          fi
+          echo "::add-mask::$TOKEN"
+          printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -151,7 +227,8 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           ref: main
-          token: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          token: ${{ steps.github-token.outputs.token }}
+          persist-credentials: false
 
       - name: Bump version
         id: bump-version
@@ -162,7 +239,7 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
-          pushd $SRC_DIR${PYPROJECT_NAME//.//}
+          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
 
           MAJOR=$(python -c "import package_info; print(package_info.MAJOR)")
           MINOR=$(python -c "import package_info; print(package_info.MINOR)")
@@ -199,6 +276,7 @@ jobs:
         id: create-pull-request
         if: ${{ inputs.dry-run != true }}
         with:
+          token: ${{ inputs.app-id != '' && steps.github-token.outputs.token || github.token }}
           path: ${{ github.run_id }}
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
           title: "Version bump to `${{ steps.bump-version.outputs.version }}`"

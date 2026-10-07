@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+name: Notify CI failure
+description: Summarize failed dependency jobs and send a Slack alert using the shared sender
+inputs:
+  needs-json:
+    description: Job dependencies as JSON (toJSON(needs)); only job IDs and results are included
+    required: true
+  webhook:
+    description: Slack incoming webhook supplied by the calling repository
+    required: true
+outputs:
+  notified:
+    description: "'true' after successful delivery, 'false' when no dependency failed"
+    value: ${{ steps.notify.outputs.notified }}
+runs:
+  using: composite
+  steps:
+    - name: Summarize and notify
+      id: notify
+      shell: bash -e -u -o pipefail {0}
+      env:
+        NEEDS_JSON: ${{ inputs.needs-json }}
+        WEBHOOK: ${{ inputs.webhook }}
+      run: |
+        MESSAGE=$(python3 "${GITHUB_ACTION_PATH}/failure_summary.py")
+        if [[ -z "$MESSAGE" ]]; then
+          echo "notified=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        export MESSAGE
+        bash "${GITHUB_ACTION_PATH}/../send-slack-alert/send_slack_alert.sh"
+        echo "notified=true" >> "$GITHUB_OUTPUT"

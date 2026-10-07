@@ -100,6 +100,14 @@ jobs:
           token: ${{ inputs.use-pat && secrets.PAT || github.token }}
           ref: ${{ inputs.freeze-commit }}
 
+      - name: Checkout docs version tools
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: docs-version-tools
+          persist-credentials: false
+
       - name: Get release branch ref
         id: release-branch
         run: |
@@ -116,9 +124,20 @@ jobs:
           RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
           echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
+          popd
           git switch --force-create ${RELEASE_BRANCH}
+          python3 "$GITHUB_WORKSPACE/docs-version-tools/.github/scripts/update_docs_versions.py" \
+            --docs-dir docs --version "$VERSION" > "$RUNNER_TEMP/frozen-docs-files.txt"
 
           if [[ "$DRY_RUN" != "true" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            while IFS= read -r file; do
+              git add -- "$file"
+            done < "$RUNNER_TEMP/frozen-docs-files.txt"
+            if ! git diff --cached --quiet; then
+              git commit -s -m "fix: update documentation versions for ${VERSION}"
+            fi
             git push -u origin ${RELEASE_BRANCH} --force
           fi
 

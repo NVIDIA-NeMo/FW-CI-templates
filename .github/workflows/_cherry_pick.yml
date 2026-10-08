@@ -62,7 +62,7 @@ on:
         description: 'Token with read access to the github-audits SSO roster, used to map the PR author to an NVIDIA email. Needed together with NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN to ping the author on Slack.'
         required: false
       NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN:
-        description: 'Slack bot token (users:read, users:read.email) used to resolve the author email to a Slack user ID so the failure alert pings them. Falls back to the plain @github-login when unset, the author is not in the roster, or the lookup fails.'
+        description: 'Slack bot token (users:read, users:read.email) used to resolve the author email to a Slack user ID so the failure alert pings them. Pings the PR author and whoever merged it when they are in the SSO roster. Falls back to the plain @github-login for the author when unset, not in the roster, or the lookup fails; a merger who cannot be resolved is left out.'
         required: false
 
 defaults:
@@ -115,11 +115,11 @@ jobs:
         with:
           username: ${{ github.actor }}
           github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
-          sso_users_filename: ${{ runner.temp }}/users_sso.json
+          sso_users_filename: users_sso.json
 
       - name: Cherry pick
         env:
-          SSO_FILE: ${{ runner.temp }}/users_sso.json
+          SSO_FILE: ${{ github.workspace }}/users_sso.json
           SLACK_BOT_TOKEN: ${{ secrets.NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN }}
           GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
           # copy-pr-bot trusts a real NVIDIA SSO identity, not a GitHub
@@ -326,25 +326,38 @@ jobs:
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
               # Slack only pings on a Slack user ID (<@U...>), not a GitHub
-              # login. Map login -> NVIDIA email via the SSO roster, then
-              # email -> Slack ID via users.lookupByEmail. Any miss keeps the
-              # plain @login text.
-              MENTION="@$AUTHOR"
-              if [[ -f "$SSO_FILE" && -n "$SLACK_BOT_TOKEN" ]]; then
-                EMAIL=$(jq -r --arg u "$AUTHOR" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
-                if [[ -n "$EMAIL" ]]; then
-                  { set +x; } 2>/dev/null  # keep the token out of the xtrace
-                  SLACK_ID=$(curl -sS --max-time 10 -G https://slack.com/api/users.lookupByEmail \
-                    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                    --data-urlencode "email=$EMAIL" | jq -r '.user.id // empty' || true)
-                  set -x
-                  if [[ -n "$SLACK_ID" ]]; then
-                    MENTION="<@$SLACK_ID>"
-                  fi
+              # login. For a login listed in the SSO roster (NVIDIA members
+              # only), map login -> NVIDIA email -> Slack ID via
+              # users.lookupByEmail. Prints nothing when any step is missing.
+              slack_mention() {
+                local login="$1" email slack_id=""
+                [[ -f "$SSO_FILE" && -n "$SLACK_BOT_TOKEN" ]] || return 0
+                email=$(jq -r --arg u "$login" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
+                [[ -n "$email" ]] || return 0
+                { set +x; } 2>/dev/null  # keep the token out of the xtrace
+                slack_id=$(curl -sS --max-time 10 -G https://slack.com/api/users.lookupByEmail \
+                  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                  --data-urlencode "email=$email" | jq -r '.user.id // empty' || true)
+                set -x
+                if [[ -n "$slack_id" ]]; then
+                  echo "<@$slack_id>"
+                fi
+              }
+
+              # Author is always named (plain @login if not pingable); whoever
+              # clicked merge is added only when they resolve to a roster
+              # member and are a different person.
+              MENTIONS=$(slack_mention "$AUTHOR")
+              MENTIONS="${MENTIONS:-@$AUTHOR}"
+              MERGED_BY=$(gh api "repos/$REPOSITORY/pulls/$PR_ID" -q '.merged_by.login // empty' || true)
+              if [[ -n "$MERGED_BY" && "$MERGED_BY" != "$AUTHOR" ]]; then
+                MERGER_MENTION=$(slack_mention "$MERGED_BY")
+                if [[ -n "$MERGER_MENTION" ]]; then
+                  MENTIONS="$MENTIONS $MERGER_MENTION"
                 fi
               fi
 
-              MESSAGE="Hey $MENTION: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
+              MESSAGE="Hey $MENTIONS: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
 
               Please resolve manually and create a PR.
 

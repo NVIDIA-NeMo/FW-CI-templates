@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.13.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.2...v1.13.0) (2026-10-08)
+
+
+### Features
+
+* add shared CI failure Slack summary action ([#593](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/593)) ([631c404](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/631c404d00a9e60afc591cd071d35d2e18f82fc6))
+* **code-freeze:** add github app authentication ([#592](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/592)) ([61445a1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/61445a177938967f70c94094b98402e979452151))
+* ping PR author and merger on cherry-pick failure alert ([#597](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/597)) ([ae97cb2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ae97cb2b59c62c194d71a7c95111acc85715808b))
+
 ## [1.12.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.1...v1.12.2) (2026-10-02)
 
 

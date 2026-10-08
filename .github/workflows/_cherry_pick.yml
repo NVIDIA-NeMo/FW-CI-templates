@@ -59,7 +59,10 @@ on:
       SLACK_WEBHOOK_SECONDARY:
         required: false
       NVIDIA_MANAGEMENT_ORG_PAT:
-        description: 'Token with read access to the github-audits SSO roster. When set, the failure alert pings the PR author as <@email-prefix> instead of plain @github-login. Falls back to the plain handle when unset or the author is not in the roster.'
+        description: 'Token with read access to the github-audits SSO roster, used to map the PR author to an NVIDIA email. Needed together with NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN to ping the author on Slack.'
+        required: false
+      NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN:
+        description: 'Slack bot token (users:read, users:read.email) used to resolve the author email to a Slack user ID so the failure alert pings them. Falls back to the plain @github-login when unset, the author is not in the roster, or the lookup fails.'
         required: false
 
 defaults:
@@ -117,6 +120,7 @@ jobs:
       - name: Cherry pick
         env:
           SSO_FILE: ${{ runner.temp }}/users_sso.json
+          SLACK_BOT_TOKEN: ${{ secrets.NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN }}
           GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
           # copy-pr-bot trusts a real NVIDIA SSO identity, not a GitHub
           # App's bot identity -- confirmed this applies to BOTH who opens
@@ -321,13 +325,22 @@ jobs:
 
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
-              # Slack only pings on a Slack handle, not a GitHub login. The
-              # SSO roster maps login -> NVIDIA email; its prefix is the handle.
+              # Slack only pings on a Slack user ID (<@U...>), not a GitHub
+              # login. Map login -> NVIDIA email via the SSO roster, then
+              # email -> Slack ID via users.lookupByEmail. Any miss keeps the
+              # plain @login text.
               MENTION="@$AUTHOR"
-              if [[ -f "$SSO_FILE" ]]; then
+              if [[ -f "$SSO_FILE" && -n "$SLACK_BOT_TOKEN" ]]; then
                 EMAIL=$(jq -r --arg u "$AUTHOR" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
                 if [[ -n "$EMAIL" ]]; then
-                  MENTION="<@${EMAIL%%@*}>"
+                  { set +x; } 2>/dev/null  # keep the token out of the xtrace
+                  SLACK_ID=$(curl -sS --max-time 10 -G https://slack.com/api/users.lookupByEmail \
+                    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                    --data-urlencode "email=$EMAIL" | jq -r '.user.id // empty' || true)
+                  set -x
+                  if [[ -n "$SLACK_ID" ]]; then
+                    MENTION="<@$SLACK_ID>"
+                  fi
                 fi
               fi
 

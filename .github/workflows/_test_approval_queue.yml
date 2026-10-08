@@ -308,6 +308,10 @@ jobs:
 
           def is_internal_contributor(pr_info):
               login = pr_info.get("user", {}).get("login", "")
+              # Match check-nvidia-sso's exact trusted service-account policy.
+              # These accounts need not appear in the human SSO users export.
+              if login in {"svcnvidia-nemo-ci", "svcnemo-autobot"}:
+                  return True
               org_roles = set(sso_users.get(login, {}).get("org_roles", []))
               return bool(org_roles.intersection(internal_org_roles))
 

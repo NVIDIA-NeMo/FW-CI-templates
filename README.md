@@ -43,3 +43,21 @@ Use [Notify CI failure](.github/actions/notify-ci-failure/README.md) in a final
 workflow job to summarize failed dependencies in Slack. Each repository owns its
 schedule/dispatch/branch policy and webhook; the shared action handles bounded
 message formatting and reuses the existing Slack sender.
+
+## Test approval queues
+
+`_test_approval_queue.yml` classifies the pull-request author, not the workflow
+actor. `svcnemo-autobot` and `svcnvidia-nemo-ci` join the internal queue even when
+absent from the human SSO export, matching `check-nvidia-sso`'s existing exact
+service-account policy. Other authors still require one of `internal_org_roles`
+in their SSO record; bot-like usernames and unrelated GitHub bots are not trusted.
+
+This classification does not grant copy-pr-bot vetting or bypass environments,
+branch filters, queue ordering, or concurrency limits. Callers must update their
+pinned shared-workflow ref after the correction lands upstream.
+
+Validate with PyYAML 6.0.3 installed:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_test_approval_queue.py'
+```

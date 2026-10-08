@@ -331,7 +331,10 @@ jobs:
               # users.lookupByEmail. Prints nothing when any step is missing.
               slack_mention() {
                 local login="$1" email slack_id=""
-                [[ -f "$SSO_FILE" && -n "$SLACK_BOT_TOKEN" ]] || return 0
+                if [[ ! -f "$SSO_FILE" || -z "$SLACK_BOT_TOKEN" ]]; then
+                  echo "::warning::Slack mention skipped: SSO roster or Slack bot token unavailable" >&2
+                  return 0
+                fi
                 email=$(jq -r --arg u "$login" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
                 [[ -n "$email" ]] || return 0
                 { set +x; } 2>/dev/null  # keep the token out of the xtrace

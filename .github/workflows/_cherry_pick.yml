@@ -58,6 +58,9 @@ on:
         required: true
       SLACK_WEBHOOK_SECONDARY:
         required: false
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: 'Token with read access to the github-audits SSO roster. When set, the failure alert pings the PR author as <@email-prefix> instead of plain @github-login. Falls back to the plain handle when unset or the author is not in the roster.'
+        required: false
 
 defaults:
   run:
@@ -66,6 +69,9 @@ defaults:
 jobs:
   main:
     runs-on: ubuntu-latest
+    env:
+      # Job-level so step `if:` conditions can see whether it is set.
+      SSO_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
     steps:
       # Repo-scoped token, least-privilege: contents (push branches),
       # pull-requests (open PR, request reviewer), issues (labels + the
@@ -88,8 +94,29 @@ jobs:
           fetch-depth: 0
           token: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
 
+      # Best-effort: only used to turn the PR author's GitHub login into an
+      # NVIDIA email prefix for the Slack mention. Never fails the job.
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        if: env.SSO_TOKEN != ''
+        continue-on-error: true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          path: ci-templates
+          persist-credentials: false
+
+      - name: Download NVIDIA SSO roster
+        if: env.SSO_TOKEN != ''
+        continue-on-error: true
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
+        with:
+          username: ${{ github.actor }}
+          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          sso_users_filename: ${{ runner.temp }}/users_sso.json
+
       - name: Cherry pick
         env:
+          SSO_FILE: ${{ runner.temp }}/users_sso.json
           GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
           # copy-pr-bot trusts a real NVIDIA SSO identity, not a GitHub
           # App's bot identity -- confirmed this applies to BOTH who opens
@@ -294,7 +321,17 @@ jobs:
 
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
-              MESSAGE="Hey @$AUTHOR: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
+              # Slack only pings on a Slack handle, not a GitHub login. The
+              # SSO roster maps login -> NVIDIA email; its prefix is the handle.
+              MENTION="@$AUTHOR"
+              if [[ -f "$SSO_FILE" ]]; then
+                EMAIL=$(jq -r --arg u "$AUTHOR" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
+                if [[ -n "$EMAIL" ]]; then
+                  MENTION="<@${EMAIL%%@*}>"
+                fi
+              fi
+
+              MESSAGE="Hey $MENTION: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
 
               Please resolve manually and create a PR.
 

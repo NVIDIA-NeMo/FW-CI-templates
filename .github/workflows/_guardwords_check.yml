@@ -6,11 +6,21 @@
 
 name: Guardwords check
 
+# Call only from a trusted workflow definition on the default branch. Do not pass
+# private credentials from a workflow definition loaded from a PR or mirror branch.
 on:
   workflow_call:
     inputs:
       bot-app-id:
         description: GitHub App ID for a read-only installation token.
+        required: true
+        type: string
+      base-sha:
+        description: Trusted pull request base commit SHA.
+        required: true
+        type: string
+      head-sha:
+        description: Verified pull request head commit SHA.
         required: true
         type: string
     secrets:
@@ -20,26 +30,17 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   guardwords-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out pull request mirror
+      - name: Check out pull request head
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          ref: ${{ inputs.head-sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Get pull request details
-        id: pr
-        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
-
-      - name: Verify mirror commit
-        env:
-          PR_INFO: ${{ steps.pr.outputs.pr-info }}
-        run: jq -e --arg sha "$GITHUB_SHA" '.head.sha == $sha' <<< "$PR_INFO" >/dev/null
 
       - name: Check out guardwords scanner
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -78,7 +79,5 @@ jobs:
 
       - name: Scan added lines
         env:
-          BASE_SHA: ${{ fromJSON(steps.pr.outputs.pr-info).base.sha }}
-          HEAD_SHA: ${{ github.sha }}
           GUARDWORDS_FILE: ${{ github.workspace }}/.guardwords/guardwords.yaml
-        run: python3 guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "$BASE_SHA" --head "$HEAD_SHA"
+        run: python3 guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}"

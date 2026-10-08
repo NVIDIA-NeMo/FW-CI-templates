@@ -14,6 +14,17 @@ jobs:
       - name: Run tests
         run: python3 -m unittest discover -s .github/scripts -p "test_code_freeze.py"
 
+  test-approval-queue-tests:
+    name: Test approval queue tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Install test dependency
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Run tests
+        run: python3 -m unittest discover -s .github/scripts -p "test_approval_queue.py"
+
   sso-download-tests:
     name: SSO download tests
     runs-on: ubuntu-latest

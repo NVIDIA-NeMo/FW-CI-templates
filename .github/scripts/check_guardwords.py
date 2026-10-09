@@ -96,6 +96,21 @@ def find_added_matches(
     return locations
 
 
+def find_description_matches(
+    description: str, patterns: list[str], *, case_sensitive: bool
+) -> list[str]:
+    """Return description line numbers without exposing text or matched values."""
+    search_patterns = (
+        patterns if case_sensitive else [pattern.casefold() for pattern in patterns]
+    )
+    locations = []
+    for line_number, line in enumerate(description.split("\n"), start=1):
+        candidate = line if case_sensitive else line.casefold()
+        if any(pattern in candidate for pattern in search_patterns):
+            locations.append(f"PR description:{line_number}")
+    return locations
+
+
 def _git_diff(base: str, head: str) -> str:
     """Get an uncontextualized diff; discard Git's diagnostics to keep output safe."""
     result = subprocess.run(
@@ -176,12 +191,19 @@ def main() -> int:
     parser.add_argument("--patterns", type=Path)
     parser.add_argument("--base")
     parser.add_argument("--head")
+    parser.add_argument("--pr-description-file", type=Path)
     parser.add_argument("--staged", action="store_true")
     parser.add_argument("--skip-if-unavailable", action="store_true")
     args = parser.parse_args()
 
     if args.staged:
-        if not args.skip_if_unavailable or args.patterns or args.base or args.head:
+        if (
+            not args.skip_if_unavailable
+            or args.patterns
+            or args.base
+            or args.head
+            or args.pr_description_file is not None
+        ):
             return 2
         configuration = _private_patterns()
         if configuration is None:
@@ -204,10 +226,21 @@ def main() -> int:
         try:
             patterns, case_sensitive = _load_patterns(args.patterns)
             diff = _git_diff(args.base, args.head)
-        except (RuntimeError, ValueError):
+            description = (
+                args.pr_description_file.read_text(encoding="utf-8")
+                if args.pr_description_file is not None
+                else ""
+            )
+        except (OSError, UnicodeError, RuntimeError, ValueError):
             return 2
 
     locations = find_added_matches(diff, patterns, case_sensitive=case_sensitive)
+    if not args.staged:
+        locations.extend(
+            find_description_matches(
+                description, patterns, case_sensitive=case_sensitive
+            )
+        )
     if locations:
         print("\n".join(locations))
         return 1

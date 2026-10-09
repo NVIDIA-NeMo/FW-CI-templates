@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -100,24 +102,88 @@ def _git_diff(base: str, head: str) -> str:
     return result.stdout
 
 
+
+def _staged_git_diff() -> str:
+    """Get staged added lines without including Git diagnostics in output."""
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--no-ext-diff", "--no-color", "--unified=0", "--no-prefix"],
+        check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    if result.returncode:
+        raise RuntimeError("could not inspect staged changes")
+    return result.stdout
+
+
+def _private_patterns() -> tuple[list[str], bool] | None:
+    """Fetch private patterns using the user's configured Git credentials."""
+    try:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_path = Path(temporary_directory) / "guardwords"
+            environment = os.environ.copy()
+            environment["GIT_TERMINAL_PROMPT"] = "0"
+            environment["GCM_INTERACTIVE"] = "never"
+            result = subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--quiet",
+                    "--depth=1",
+                    "https://github.com/NVIDIA-NeMo/Guardwords.git",
+                    str(repository_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=20,
+                env=environment,
+            )
+            if result.returncode:
+                return None
+            return _load_patterns(repository_path / "guardwords.yaml")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--patterns", required=True, type=Path)
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--head", required=True)
+    parser.add_argument("--patterns", type=Path)
+    parser.add_argument("--base")
+    parser.add_argument("--head")
+    parser.add_argument("--staged", action="store_true")
+    parser.add_argument("--skip-if-unavailable", action="store_true")
     args = parser.parse_args()
 
-    try:
-        patterns, case_sensitive = _load_patterns(args.patterns)
-        locations = find_added_matches(_git_diff(args.base, args.head), patterns, case_sensitive=case_sensitive)
-    except (RuntimeError, ValueError):
-        return 2
+    if args.staged:
+        if not args.skip_if_unavailable or args.patterns or args.base or args.head:
+            return 2
+        configuration = _private_patterns()
+        if configuration is None:
+            print("Guardwords check skipped: private catalog unavailable.")
+            return 0
+        patterns, case_sensitive = configuration
+        try:
+            diff = _staged_git_diff()
+        except (OSError, RuntimeError):
+            print("Guardwords check skipped: staged changes unavailable.")
+            return 0
+    else:
+        if args.skip_if_unavailable or args.patterns is None or args.base is None or args.head is None:
+            return 2
+        try:
+            patterns, case_sensitive = _load_patterns(args.patterns)
+            diff = _git_diff(args.base, args.head)
+        except (RuntimeError, ValueError):
+            return 2
 
+    locations = find_added_matches(diff, patterns, case_sensitive=case_sensitive)
     if locations:
-        print("\n".join(locations))
+        print("\\n".join(locations))
         return 1
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

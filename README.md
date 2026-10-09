@@ -43,3 +43,24 @@ Use [Notify CI failure](.github/actions/notify-ci-failure/README.md) in a final
 workflow job to summarize failed dependencies in Slack. Each repository owns its
 schedule/dispatch/branch policy and webhook; the shared action handles bounded
 message formatting and reuses the existing Slack sender.
+
+## Test approval queue contributor classification
+
+`_test_approval_queue.yml` uses the pull request author, not the workflow actor,
+when assigning internal and external queue slots. The service accounts
+`svcnvidia-nemo-ci` and `svcnemo-autobot` are internal, matching the existing
+`check-nvidia-sso` policy. Other authors still require one of `internal_org_roles`
+in the SSO users asset; unlisted authors remain external.
+
+This classification does not bypass branch filters, queue concurrency limits,
+the target deployment environment, or protection of the approval manager's own
+`approval_environment`. A manager job waiting on that environment requires
+maintainer action before it can process any queue. Callers pinned to an older
+workflow revision must update their immutable pin after this fix is merged.
+
+Validate the workflow's actual classification and queue filtering locally with
+Python 3.12 and `PyYAML==6.0.3`:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p "test_approval_queue.py"
+```

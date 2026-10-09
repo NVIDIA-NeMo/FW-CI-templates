@@ -308,6 +308,10 @@ jobs:
 
           def is_internal_contributor(pr_info):
               login = pr_info.get("user", {}).get("login", "")
+              # Keep the service-account policy aligned with check-nvidia-sso.
+              # Classify the PR author, never the actor who triggered the workflow.
+              if login in {"svcnvidia-nemo-ci", "svcnemo-autobot"}:
+                  return True
               org_roles = set(sso_users.get(login, {}).get("org_roles", []))
               return bool(org_roles.intersection(internal_org_roles))
 

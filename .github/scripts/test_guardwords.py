@@ -95,5 +95,46 @@ class GuardwordsScannerTests(unittest.TestCase):
             self.assertEqual(stderr.getvalue(), "")
 
 
+    def test_staged_mode_skips_when_private_catalog_is_unavailable(self) -> None:
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+
+        with patch.object(check_guardwords, "_private_patterns", return_value=None), patch.object(
+            sys,
+            "argv",
+            ["check_guardwords.py", "--staged", "--skip-if-unavailable"],
+        ):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = check_guardwords.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue(), "Guardwords check skipped: private catalog unavailable.\\n")
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_staged_mode_fails_with_location_only(self) -> None:
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -1,0 +2 @@
++value = 'sensitive-marker'
+"""
+        with patch.object(check_guardwords, "_private_patterns", return_value=(["sensitive-marker"], False)), patch.object(
+            check_guardwords, "_staged_git_diff", return_value=diff
+        ), patch.object(sys, "argv", ["check_guardwords.py", "--staged", "--skip-if-unavailable"]):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = check_guardwords.main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "example.py:2\\n")
+        self.assertNotIn("sensitive-marker", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
 if __name__ == "__main__":
     unittest.main()

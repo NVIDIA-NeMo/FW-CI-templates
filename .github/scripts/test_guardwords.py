@@ -121,7 +121,7 @@ class GuardwordsScannerTests(unittest.TestCase):
                 exit_code = check_guardwords.main()
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue(), "Guardwords check skipped: private catalog unavailable.\\n")
+        self.assertEqual(stdout.getvalue(), "Guardwords check skipped: private catalog unavailable.\n")
         self.assertEqual(stderr.getvalue(), "")
 
     def test_staged_mode_fails_with_location_only(self) -> None:
@@ -143,7 +143,7 @@ class GuardwordsScannerTests(unittest.TestCase):
                 exit_code = check_guardwords.main()
 
         self.assertEqual(exit_code, 1)
-        self.assertEqual(stdout.getvalue(), "example.py:2\\n")
+        self.assertEqual(stdout.getvalue(), "example.py:2\n")
         self.assertNotIn("sensitive-marker", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 

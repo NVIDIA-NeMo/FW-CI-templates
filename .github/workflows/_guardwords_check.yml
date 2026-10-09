@@ -6,8 +6,8 @@
 
 name: Guardwords check
 
-# Call only from a trusted workflow definition on the default branch. Do not pass
-# private credentials from a workflow definition loaded from a PR or mirror branch.
+# Call for pushes to approved pull-request mirror refs, such as after /ok to test.
+# The caller must verify the mirror SHA against PR metadata before passing SHAs.
 on:
   workflow_call:
     inputs:
@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       base-sha:
-        description: Trusted pull request base commit SHA.
+        description: Pull request base commit SHA.
         required: true
         type: string
       head-sha:

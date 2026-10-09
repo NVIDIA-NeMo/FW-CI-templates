@@ -31,6 +31,11 @@ on:
         description: Verified pull request head commit SHA.
         required: true
         type: string
+      pr-description:
+        description: Pull request description from verified PR metadata, scanned in full.
+        required: false
+        default: ""
+        type: string
     secrets:
       BOT_KEY:
         description: GitHub App private key; installation must have Contents read access to NVIDIA-NeMo/Guardwords.
@@ -85,7 +90,12 @@ jobs:
       - name: Install YAML parser
         run: python -I -m pip install --quiet --disable-pip-version-check --no-input "PyYAML==6.0.2"
 
-      - name: Scan added lines
+      - name: Scan added lines and PR description
         env:
           GUARDWORDS_FILE: ${{ github.workspace }}/.guardwords/guardwords.yaml
-        run: python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}"
+          PR_DESCRIPTION: ${{ inputs.pr-description }}
+        run: |
+          description_file="$(mktemp)"
+          trap 'rm -f "$description_file"' EXIT
+          python3 -I -c 'import os, sys; from pathlib import Path; Path(sys.argv[1]).write_text(os.environ["PR_DESCRIPTION"], encoding="utf-8")' "$description_file"
+          python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}" --pr-description-file "$description_file"

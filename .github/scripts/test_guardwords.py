@@ -533,5 +533,152 @@ class GuardwordsScannerTests(unittest.TestCase):
         )
 
 
+class GuardwordsDescriptionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workspace = TemporaryDirectory()
+        self.addCleanup(self.workspace.cleanup)
+        self.root = Path(self.workspace.name)
+        self.repository = self.root / "repo"
+        self.repository.mkdir()
+        self._git("init", "--quiet")
+        self._git("config", "user.name", "Guardwords Test")
+        self._git("config", "user.email", "guardwords-test@example.invalid")
+        self._git("config", "commit.gpgsign", "false")
+        (self.repository / "example.py").write_text("ordinary\n", encoding="utf-8")
+        self._git("add", "example.py")
+        self._git("commit", "--quiet", "-m", "base")
+        self.base = self._git("rev-parse", "HEAD").stdout.strip()
+        self.patterns = self.root / "guardwords.yaml"
+        self.patterns.write_text(
+            "matching:\n  mode: literal\n  case_sensitive: false\n"
+            "patterns:\n  - pattern: sensitive-marker\n",
+            encoding="utf-8",
+        )
+        self.description = self.root / "description.txt"
+        self.description.write_text("ordinary description\n", encoding="utf-8")
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(self.repository), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _scan(
+        self, *, include_description: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        command = [
+            sys.executable,
+            "-I",
+            str(Path(check_guardwords.__file__).resolve()),
+            "--patterns",
+            str(self.patterns),
+            "--base",
+            self.base,
+            "--head",
+            "HEAD",
+        ]
+        if include_description:
+            command.extend(["--pr-description-file", str(self.description)])
+        return subprocess.run(
+            command, cwd=self.repository, capture_output=True, text=True
+        )
+
+    def test_description_only_match_reports_locations_without_text(self) -> None:
+        self.description.write_text(
+            "# Summary\nSensitive-Marker and sensitive-marker\n\nSENSITIVE-MARKER\n",
+            encoding="utf-8",
+        )
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "PR description:2\nPR description:4\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_reports_diff_and_description_matches_together(self) -> None:
+        (self.repository / "example.py").write_text(
+            "sensitive-marker\n", encoding="utf-8"
+        )
+        self._git("add", "example.py")
+        self._git("commit", "--quiet", "-m", "synthetic addition")
+        self.description.write_text("sensitive-marker\n", encoding="utf-8")
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "example.py:1\nPR description:1\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_clean_empty_and_omitted_descriptions_pass(self) -> None:
+        for description in ["ordinary description\n", ""]:
+            with self.subTest(description=description):
+                self.description.write_text(description, encoding="utf-8")
+                result = self._scan()
+                self.assertEqual(
+                    (result.returncode, result.stdout, result.stderr), (0, "", "")
+                )
+        self.description.unlink()
+        result = self._scan(include_description=False)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_description_read_errors_fail_without_disclosure(self) -> None:
+        self.description.unlink()
+        result = self._scan()
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (2, "", ""))
+        self.description.write_bytes(b"sensitive-marker\xff")
+        result = self._scan()
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (2, "", ""))
+
+    def test_case_sensitive_description_matching(self) -> None:
+        self.patterns.write_text(self.patterns.read_text().replace("false", "true"))
+        self.description.write_text(
+            "Sensitive-Marker\nsensitive-marker\n", encoding="utf-8"
+        )
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "PR description:2\n")
+
+    def test_workflow_passes_description_as_data_without_shell_execution(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load(
+            (
+                Path(__file__).resolve().parents[1]
+                / "workflows"
+                / "_guardwords_check.yml"
+            ).read_text()
+        )
+        step = workflow["jobs"]["guardwords-check"]["steps"][-1]
+        self.assertEqual(step["env"]["PR_DESCRIPTION"], "${{ inputs.pr-description }}")
+        checker = self.repository / "guardwords-checker" / ".github" / "scripts"
+        checker.mkdir(parents=True)
+        (checker / "check_guardwords.py").write_bytes(
+            Path(check_guardwords.__file__).read_bytes()
+        )
+        marker = self.root / "shell-payload-ran"
+        environment = os.environ.copy()
+        environment["PATH"] = (
+            str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
+        )
+        environment["GUARDWORDS_FILE"] = str(self.patterns)
+        environment["PR_DESCRIPTION"] = (
+            f"$(touch {marker}) `touch {marker}`\n+++ sensitive-marker\n@@ -1 +99 @@\n"
+        )
+        script = (
+            step["run"]
+            .replace("${{ inputs.base-sha }}", self.base)
+            .replace("${{ inputs.head-sha }}", "HEAD")
+        )
+        result = subprocess.run(
+            ["bash", "-e", "-c", script],
+            cwd=self.repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "PR description:2\n")
+        self.assertEqual(result.stderr, "")
+        self.assertFalse(marker.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

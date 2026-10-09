@@ -2,6 +2,39 @@
 
 A repository to centrally manage workflows across the NeMo-FW library landscape.
 
+## Guardwords checks
+
+The reusable `_guardwords_check.yml` workflow scans added diff lines and an optional
+`pr-description` input against the private catalog. Pass the full description from
+the same verified PR metadata used to validate the mirror commit. For mirror-push
+callers, expose the description from the PR metadata job:
+
+```yaml
+outputs:
+  description: ${{ fromJSON(steps.pr.outputs.pr-info).body || '' }}
+```
+
+Then add this input to the reusable workflow call alongside its existing inputs:
+
+```yaml
+pr-description: ${{ needs.pr_info.outputs.description }}
+```
+
+Description matches report only `PR description:<line>`; neither matched values nor
+description text are printed. The entire supplied description is scanned, including
+Markdown and code blocks. Omitting the input preserves diff-only checking. This
+does not change the local pre-commit hook, which scans staged additions and skips
+when the private catalog is unavailable.
+
+A description edit does not trigger a mirror-push workflow by itself. Rerun the
+caller with refreshed PR metadata to check an edited description.
+
+Validate locally with:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_guardwords.py'
+```
+
 ## Code freeze authentication
 
 Pass `app-id: ${{ vars.BOT_ID }}` and the `BOT_KEY` secret to `_code_freeze.yml`.

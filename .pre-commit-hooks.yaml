@@ -1,0 +1,10 @@
+- id: guardwords-check
+  name: Check staged changes for private guardwords
+  description: Checks staged additions when the private catalog is accessible.
+  entry: check-guardwords --staged --skip-if-unavailable
+  language: python
+  additional_dependencies:
+    - PyYAML==6.0.2
+  always_run: true
+  verbose: true
+  pass_filenames: false

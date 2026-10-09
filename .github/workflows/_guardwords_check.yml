@@ -1,0 +1,91 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Guardwords check
+
+# Call for pushes to approved pull-request mirror refs, such as after /ok to test.
+# The caller must verify the mirror SHA against PR metadata before passing SHAs.
+on:
+  workflow_call:
+    inputs:
+      bot-app-id:
+        description: GitHub App ID for a read-only installation token.
+        required: true
+        type: string
+      base-sha:
+        description: Pull request base commit SHA.
+        required: true
+        type: string
+      head-sha:
+        description: Verified pull request head commit SHA.
+        required: true
+        type: string
+    secrets:
+      BOT_KEY:
+        description: GitHub App private key; installation must have Contents read access to NVIDIA-NeMo/Guardwords.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  guardwords-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.head-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out guardwords scanner
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: guardwords-checker
+          persist-credentials: false
+
+      - name: Create read-only Guardwords token
+        id: guardwords-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ inputs.bot-app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          owner: NVIDIA-NeMo
+          repositories: Guardwords
+          permission-contents: read
+
+      - name: Check out private guardwords
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: NVIDIA-NeMo/Guardwords
+          ref: main
+          token: ${{ steps.guardwords-token.outputs.token }}
+          path: .guardwords
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install YAML parser
+        run: python -I -m pip install --quiet --disable-pip-version-check --no-input "PyYAML==6.0.2"
+
+      - name: Scan added lines
+        env:
+          GUARDWORDS_FILE: ${{ github.workspace }}/.guardwords/guardwords.yaml
+        run: python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}"

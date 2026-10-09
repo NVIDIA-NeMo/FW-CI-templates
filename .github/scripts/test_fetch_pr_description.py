@@ -3,6 +3,7 @@
 
 """PR body fetches fail safely and never expose response or token values."""
 
+import http.client
 import io
 import json
 import os
@@ -107,6 +108,8 @@ class FetchDescriptionTests(unittest.TestCase):
             urllib.error.URLError("sensitive-marker synthetic-token"),
             TimeoutError("sensitive-marker synthetic-token"),
             ValueError("sensitive-marker synthetic-token"),
+            http.client.BadStatusLine("sensitive-marker synthetic-token"),
+            http.client.IncompleteRead(b"sensitive-marker synthetic-token"),
         ]:
             with self.subTest(error=type(error).__name__):
                 code, stdout, stderr = self._run(error=error)

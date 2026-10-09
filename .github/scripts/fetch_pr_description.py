@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -63,7 +64,14 @@ def main() -> int:
             head=args.head,
             output=args.output,
         )
-    except (OSError, UnicodeError, ValueError, KeyError, TypeError):
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        KeyError,
+        TypeError,
+        http.client.HTTPException,
+    ):
         print(
             "Guardwords check failed: PR description unavailable or metadata mismatch.",
             file=sys.stderr,

@@ -6,4 +6,5 @@
   additional_dependencies:
     - PyYAML==6.0.2
   always_run: true
+  verbose: true
   pass_filenames: false

@@ -636,48 +636,93 @@ class GuardwordsDescriptionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "PR description:2\n")
 
-    def test_workflow_passes_description_as_data_without_shell_execution(self) -> None:
+    def test_workflow_fetches_description_without_logging_or_shell_execution(
+        self,
+    ) -> None:
+        import json
         import yaml
 
+        scripts = Path(__file__).resolve().parent
         workflow = yaml.safe_load(
-            (
-                Path(__file__).resolve().parents[1]
-                / "workflows"
-                / "_guardwords_check.yml"
-            ).read_text()
+            (scripts.parent / "workflows" / "_guardwords_check.yml").read_text()
         )
         step = workflow["jobs"]["guardwords-check"]["steps"][-1]
-        self.assertEqual(step["env"]["PR_DESCRIPTION"], "${{ inputs.pr-description }}")
+        self.assertNotIn("PR_DESCRIPTION", step["env"])
+        self.assertNotIn("inputs.pr-description", step["run"])
+        self.assertEqual(workflow["permissions"]["pull-requests"], "read")
         checker = self.repository / "guardwords-checker" / ".github" / "scripts"
         checker.mkdir(parents=True)
-        (checker / "check_guardwords.py").write_bytes(
-            Path(check_guardwords.__file__).read_bytes()
-        )
+        for name in ["check_guardwords.py", "fetch_pr_description.py"]:
+            (checker / name).write_bytes((scripts / name).read_bytes())
         marker = self.root / "shell-payload-ran"
+        api_response = self.root / "response.json"
+        api_response.write_text(
+            json.dumps(
+                {
+                    "number": 42,
+                    "base": {"repo": {"full_name": "example/repo"}},
+                    "head": {"sha": self.base},
+                    "body": f"$(touch {marker}) `touch {marker}`\n+++ sensitive-marker\n@@ -1 +99 @@\n",
+                }
+            )
+        )
+        binary_dir = self.root / "bin"
+        binary_dir.mkdir()
+        python_shim = binary_dir / "python3"
+        python_shim.write_text(
+            "#!" + sys.executable + "\n"
+            "import io, os, runpy, sys, urllib.request\n"
+            "from pathlib import Path\n"
+            "if sys.argv[2].endswith('fetch_pr_description.py'):\n"
+            "    urllib.request.urlopen = lambda *a, **k: io.BytesIO(Path(os.environ['TEST_API_RESPONSE']).read_bytes())\n"
+            "    sys.argv = sys.argv[2:]\n"
+            "    runpy.run_path(sys.argv[0], run_name='__main__')\n"
+            "else:\n"
+            "    os.execv(sys.executable, [sys.executable] + sys.argv[1:])\n"
+        )
+        python_shim.chmod(0o755)
         environment = os.environ.copy()
-        environment["PATH"] = (
-            str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
+        environment.update(
+            {
+                "PATH": str(binary_dir) + os.pathsep + environment["PATH"],
+                "GUARDWORDS_FILE": str(self.patterns),
+                "GH_TOKEN": "synthetic-token",
+                "PR_NUMBER": "42",
+                "PR_REPOSITORY": "example/repo",
+                "BASE_SHA": self.base,
+                "HEAD_SHA": self.base,
+                "TEST_API_RESPONSE": str(api_response),
+                "TMPDIR": str(self.root),
+            }
         )
-        environment["GUARDWORDS_FILE"] = str(self.patterns)
-        environment["PR_DESCRIPTION"] = (
-            f"$(touch {marker}) `touch {marker}`\n+++ sensitive-marker\n@@ -1 +99 @@\n"
+        # Include the runner's displayed script and environment to catch logging regressions.
+        displayed_configuration = step["run"] + "\n".join(
+            f"{key}: {environment[key]}" for key in step["env"]
         )
-        script = (
-            step["run"]
-            .replace("${{ inputs.base-sha }}", self.base)
-            .replace("${{ inputs.head-sha }}", "HEAD")
-        )
+        self.assertNotIn("sensitive-marker", displayed_configuration)
         result = subprocess.run(
-            ["bash", "-e", "-c", script],
+            ["bash", "-e", "-c", step["run"]],
             cwd=self.repository,
             env=environment,
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stdout, "PR description:2\n")
-        self.assertEqual(result.stderr, "")
+        self.assertEqual(
+            (result.returncode, result.stdout, result.stderr),
+            (1, "PR description:2\n", ""),
+        )
         self.assertFalse(marker.exists())
+        self.assertEqual(list(self.root.glob("tmp.*")), [])
+        environment["PR_NUMBER"] = "0"
+        api_response.unlink()
+        result = subprocess.run(
+            ["bash", "-e", "-c", step["run"]],
+            cwd=self.repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
 
 if __name__ == "__main__":

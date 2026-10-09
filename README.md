@@ -4,35 +4,49 @@ A repository to centrally manage workflows across the NeMo-FW library landscape.
 
 ## Guardwords checks
 
-The reusable `_guardwords_check.yml` workflow scans added diff lines and an optional
-`pr-description` input against the private catalog. Pass the full description from
-the same verified PR metadata used to validate the mirror commit. For mirror-push
-callers, expose the description from the PR metadata job:
+The reusable `_guardwords_check.yml` workflow scans added diff lines and optionally
+fetches the PR description using its `pr-number` input. Pass the PR number from the
+same verified metadata used to validate the mirror commit. For mirror-push callers,
+expose the number from the PR metadata job:
 
 ```yaml
 outputs:
-  description: ${{ fromJSON(steps.pr.outputs.pr-info).body || '' }}
+  pr-number: ${{ fromJSON(steps.pr.outputs.pr-info).number }}
 ```
 
 Then add this input to the reusable workflow call alongside its existing inputs:
 
 ```yaml
-pr-description: ${{ needs.pr_info.outputs.description }}
+pr-number: ${{ fromJSON(needs.pr_info.outputs.pr-number) }}
 ```
 
-Description matches report only `PR description:<line>`; neither matched values nor
-description text are printed. The entire supplied description is scanned, including
-Markdown and code blocks. Omitting the input preserves diff-only checking. This
-does not change the local pre-commit hook, which scans staged additions and skips
-when the private catalog is unavailable.
+Callers of this workflow revision must allow these read-only token permissions:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: read
+```
+
+The workflow fetches the description directly into a temporary file in the runner.
+It verifies the PR number, base repository, and head SHA before writing the body,
+and fails with a generic message if the fetch or verification fails. Raw description
+text is never a workflow input, step environment value, output, or printed message.
+Description matches report only `PR description:<line>`. The entire fetched body is
+scanned, including Markdown and code blocks.
+
+Omitting `pr-number` (or passing zero) preserves diff-only checking and makes no PR
+API request. This does not change the local pre-commit hook, which scans staged
+additions and skips when the private catalog is unavailable.
 
 A description edit does not trigger a mirror-push workflow by itself. Rerun the
-caller with refreshed PR metadata to check an edited description.
+caller to fetch and check the current description.
 
 Validate locally with:
 
 ```sh
 python3 -m unittest discover -s .github/scripts -p 'test_guardwords.py'
+python3 -m unittest discover -s .github/scripts -p 'test_fetch_pr_description.py'
 ```
 
 ## Code freeze authentication

@@ -31,11 +31,11 @@ on:
         description: Verified pull request head commit SHA.
         required: true
         type: string
-      pr-description:
-        description: Pull request description from verified PR metadata, scanned in full.
+      pr-number:
+        description: Pull request number in the calling repository; zero skips description scanning.
         required: false
-        default: ""
-        type: string
+        default: 0
+        type: number
     secrets:
       BOT_KEY:
         description: GitHub App private key; installation must have Contents read access to NVIDIA-NeMo/Guardwords.
@@ -43,6 +43,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   guardwords-check:
@@ -93,9 +94,15 @@ jobs:
       - name: Scan added lines and PR description
         env:
           GUARDWORDS_FILE: ${{ github.workspace }}/.guardwords/guardwords.yaml
-          PR_DESCRIPTION: ${{ inputs.pr-description }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          PR_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ inputs.base-sha }}
+          HEAD_SHA: ${{ inputs.head-sha }}
         run: |
           description_file="$(mktemp)"
           trap 'rm -f "$description_file"' EXIT
-          python3 -I -c 'import os, sys; from pathlib import Path; Path(sys.argv[1]).write_text(os.environ["PR_DESCRIPTION"], encoding="utf-8")' "$description_file"
-          python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}" --pr-description-file "$description_file"
+          if [ "$PR_NUMBER" != "0" ]; then
+            python3 -I guardwords-checker/.github/scripts/fetch_pr_description.py --repository "$PR_REPOSITORY" --number "$PR_NUMBER" --head "$HEAD_SHA" --output "$description_file"
+          fi
+          python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "$BASE_SHA" --head "$HEAD_SHA" --pr-description-file "$description_file"

@@ -18,6 +18,8 @@ import os
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -307,6 +309,115 @@ class GuardwordsScannerTests(unittest.TestCase):
                 ),
                 ["hidden.txt:1", "textconv.txt:1"],
             )
+
+    def test_git_helpers_preserve_embedded_carriage_returns(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            repository = workspace / "repo"
+            repository.mkdir()
+            self._git(repository, "init", "--quiet")
+            self._git(repository, "config", "user.name", "Guardwords Test")
+            self._git(
+                repository, "config", "user.email", "guardwords-test@example.invalid"
+            )
+            self._git(repository, "config", "commit.gpgsign", "false")
+            (repository / "example.py").write_bytes(b"")
+            (repository / "unicode.py").write_bytes(b"")
+            (repository / "crlf.py").write_bytes(b"ordinary\r\n")
+            self._git(repository, "add", ".")
+            self._git(repository, "commit", "--quiet", "-m", "base")
+            base = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+
+            (repository / "example.py").write_bytes(
+                b"prefix\rsensitive-marker\nsensitive-marker\n"
+            )
+            (repository / "unicode.py").write_bytes(
+                b"prefix\xe2\x80\xa8sensitive-marker\nprefix\xc2\x85sensitive-marker\n"
+            )
+            (repository / "crlf.py").write_bytes(b"ordinary\r\nsensitive-marker\r\n")
+            self._git(repository, "add", "-A")
+
+            expected = [
+                "crlf.py:2",
+                "example.py:1",
+                "example.py:2",
+                "unicode.py:1",
+                "unicode.py:2",
+            ]
+            patterns_file = workspace / "guardwords.yaml"
+            patterns_file.write_text(
+                "matching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+            previous_directory = Path.cwd()
+            try:
+                os.chdir(repository)
+                staged_diff = check_guardwords._staged_git_diff()
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        staged_diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    expected,
+                )
+                staged_stdout = StringIO()
+                staged_stderr = StringIO()
+                with (
+                    patch.object(
+                        check_guardwords,
+                        "_private_patterns",
+                        return_value=(["sensitive-marker"], False),
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        ["check_guardwords.py", "--staged", "--skip-if-unavailable"],
+                    ),
+                    redirect_stdout(staged_stdout),
+                    redirect_stderr(staged_stderr),
+                ):
+                    staged_exit = check_guardwords.main()
+                self.assertEqual(staged_exit, 1)
+                self.assertEqual(staged_stdout.getvalue(), "\n".join(expected) + "\n")
+                self.assertEqual(staged_stderr.getvalue(), "")
+
+                self._git(repository, "commit", "--quiet", "-m", "embedded separators")
+                head = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+                committed_diff = check_guardwords._git_diff(base, head)
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        committed_diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    expected,
+                )
+
+                committed_stdout = StringIO()
+                committed_stderr = StringIO()
+                with (
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "check_guardwords.py",
+                            "--patterns",
+                            str(patterns_file),
+                            "--base",
+                            base,
+                            "--head",
+                            head,
+                        ],
+                    ),
+                    redirect_stdout(committed_stdout),
+                    redirect_stderr(committed_stderr),
+                ):
+                    committed_exit = check_guardwords.main()
+            finally:
+                os.chdir(previous_directory)
+
+            self.assertEqual(committed_exit, 1)
+            self.assertEqual(committed_stdout.getvalue(), "\n".join(expected) + "\n")
+            self.assertNotIn("sensitive-marker", committed_stdout.getvalue())
+            self.assertEqual(committed_stderr.getvalue(), "")
 
     def test_isolated_pip_and_scanner_ignore_pr_controlled_imports(self) -> None:
         with TemporaryDirectory() as temporary_directory:

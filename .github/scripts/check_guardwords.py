@@ -112,12 +112,10 @@ def _git_diff(base: str, head: str) -> str:
         ],
         check=False,
         capture_output=True,
-        text=True,
-        errors="replace",
     )
     if result.returncode:
         raise RuntimeError("could not inspect pull request changes")
-    return result.stdout
+    return result.stdout.decode("utf-8", errors="replace")
 
 
 def _staged_git_diff() -> str:
@@ -136,12 +134,10 @@ def _staged_git_diff() -> str:
         ],
         check=False,
         capture_output=True,
-        text=True,
-        errors="replace",
     )
     if result.returncode:
         raise RuntimeError("could not inspect staged changes")
-    return result.stdout
+    return result.stdout.decode("utf-8", errors="replace")
 
 
 def _private_patterns() -> tuple[list[str], bool] | None:

@@ -181,7 +181,7 @@ def main() -> int:
 
     locations = find_added_matches(diff, patterns, case_sensitive=case_sensitive)
     if locations:
-        print("\\n".join(locations))
+        print("\n".join(locations))
         return 1
     return 0
 

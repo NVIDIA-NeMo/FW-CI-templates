@@ -36,26 +36,34 @@ def _load_patterns(path: Path) -> tuple[list[str], bool]:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         matching = document["matching"]
         entries = document["patterns"]
-        if matching["mode"] != "literal" or not isinstance(matching["case_sensitive"], bool):
+        if matching["mode"] != "literal" or not isinstance(
+            matching["case_sensitive"], bool
+        ):
             raise ValueError
         patterns = [entry["pattern"] for entry in entries]
-        if not patterns or any(not isinstance(pattern, str) or not pattern for pattern in patterns):
+        if not patterns or any(
+            not isinstance(pattern, str) or not pattern for pattern in patterns
+        ):
             raise ValueError
     except (OSError, UnicodeError, yaml.YAMLError, KeyError, TypeError, ValueError):
         raise ValueError("invalid private guardword configuration") from None
     return patterns, matching["case_sensitive"]
 
 
-def find_added_matches(diff: str, patterns: list[str], *, case_sensitive: bool) -> list[str]:
+def find_added_matches(
+    diff: str, patterns: list[str], *, case_sensitive: bool
+) -> list[str]:
     """Return only file and line locations for matching added diff lines."""
     locations: list[str] = []
     seen: set[str] = set()
     current_path: str | None = None
     new_line_number: int | None = None
     in_hunk = False
-    search_patterns = patterns if case_sensitive else [pattern.casefold() for pattern in patterns]
+    search_patterns = (
+        patterns if case_sensitive else [pattern.casefold() for pattern in patterns]
+    )
 
-    for line in diff.splitlines():
+    for line in diff.split("\n"):
         if line.startswith("diff --git "):
             current_path = None
             new_line_number = None
@@ -72,7 +80,7 @@ def find_added_matches(diff: str, patterns: list[str], *, case_sensitive: bool) 
             continue
         if current_path is None or new_line_number is None:
             continue
-        if line.startswith("+") and not line.startswith("+++"):
+        if line.startswith("+"):
             added_line = line[1:]
             candidate = added_line if case_sensitive else added_line.casefold()
             if any(pattern in candidate for pattern in search_patterns):
@@ -91,7 +99,17 @@ def find_added_matches(diff: str, patterns: list[str], *, case_sensitive: bool) 
 def _git_diff(base: str, head: str) -> str:
     """Get an uncontextualized diff; discard Git's diagnostics to keep output safe."""
     result = subprocess.run(
-        ["git", "diff", "--no-ext-diff", "--no-color", "--unified=0", "--no-prefix", f"{base}...{head}"],
+        [
+            "git",
+            "diff",
+            "--text",
+            "--no-textconv",
+            "--no-ext-diff",
+            "--no-color",
+            "--unified=0",
+            "--no-prefix",
+            f"{base}...{head}",
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -102,11 +120,20 @@ def _git_diff(base: str, head: str) -> str:
     return result.stdout
 
 
-
 def _staged_git_diff() -> str:
     """Get staged added lines without including Git diagnostics in output."""
     result = subprocess.run(
-        ["git", "diff", "--cached", "--no-ext-diff", "--no-color", "--unified=0", "--no-prefix"],
+        [
+            "git",
+            "diff",
+            "--cached",
+            "--text",
+            "--no-textconv",
+            "--no-ext-diff",
+            "--no-color",
+            "--unified=0",
+            "--no-prefix",
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -171,7 +198,12 @@ def main() -> int:
             print("Guardwords check skipped: staged changes unavailable.")
             return 0
     else:
-        if args.skip_if_unavailable or args.patterns is None or args.base is None or args.head is None:
+        if (
+            args.skip_if_unavailable
+            or args.patterns is None
+            or args.base is None
+            or args.head is None
+        ):
             return 2
         try:
             patterns, case_sensitive = _load_patterns(args.patterns)
@@ -184,6 +216,7 @@ def main() -> int:
         print("\n".join(locations))
         return 1
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

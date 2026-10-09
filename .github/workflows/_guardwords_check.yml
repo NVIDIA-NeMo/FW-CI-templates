@@ -83,9 +83,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install YAML parser
-        run: python -m pip install --quiet --disable-pip-version-check --no-input "PyYAML==6.0.2"
+        run: python -I -m pip install --quiet --disable-pip-version-check --no-input "PyYAML==6.0.2"
 
       - name: Scan added lines
         env:
           GUARDWORDS_FILE: ${{ github.workspace }}/.guardwords/guardwords.yaml
-        run: python3 guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}"
+        run: python3 -I guardwords-checker/.github/scripts/check_guardwords.py --patterns "$GUARDWORDS_FILE" --base "${{ inputs.base-sha }}" --head "${{ inputs.head-sha }}"

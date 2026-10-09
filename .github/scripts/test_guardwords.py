@@ -14,6 +14,7 @@
 
 """The Guardwords scanner reports locations without printing matched values."""
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -94,6 +95,16 @@ class GuardwordsScannerTests(unittest.TestCase):
             self.assertEqual(stdout.getvalue(), "example.py:2\n")
             self.assertEqual(stderr.getvalue(), "")
 
+
+    def test_private_catalog_fetch_skips_when_access_is_unavailable(self) -> None:
+        denied = subprocess.CompletedProcess(
+            args=["git", "clone"],
+            returncode=128,
+            stdout="",
+            stderr="",
+        )
+        with patch.object(check_guardwords.subprocess, "run", return_value=denied):
+            self.assertIsNone(check_guardwords._private_patterns())
 
     def test_staged_mode_skips_when_private_catalog_is_unavailable(self) -> None:
         from contextlib import redirect_stderr, redirect_stdout

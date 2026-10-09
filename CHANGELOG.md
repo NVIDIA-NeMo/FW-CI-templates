@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.13.0...v1.14.0) (2026-10-09)
+
+
+### Features
+
+* add reusable guardwords check workflow ([#599](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/599)) ([a5aaf7d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a5aaf7d8b074d6b04d06f75566a57eda2fd7e173))
+
 ## [1.13.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.2...v1.13.0) (2026-10-08)
 
 

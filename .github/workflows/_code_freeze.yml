@@ -72,6 +72,11 @@ on:
         description: "Dev tag for the next dev version bumped on main (e.g. 'dev0'); pass an empty string to omit it"
         type: string
         default: dev0
+      cherry-pick-psa:
+        required: false
+        description: "Override the default cherry-pick PSA paragraph in the freeze announcement (e.g. if this repo's cherry-pick direction/label/process differs from the default). Leave empty to use the default message."
+        type: string
+        default: ""
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -304,13 +309,43 @@ jobs:
           ref: v0.17.0
           path: send-slack-alert
 
+      # The PSA paragraph describes a specific cherry-pick direction/label
+      # convention (main -> release branch by default) that not every
+      # consumer follows -- inputs.cherry-pick-psa lets a repo override it
+      # with their own, instead of every repo being stuck with text that
+      # may not match how their bot actually works.
+      - name: Build announcement message
+        id: build-message
+        env:
+          DRY_RUN: ${{ inputs.dry-run }}
+          LIBRARY_NAME: ${{ inputs.library-name }}
+          CHERRY_PICK_PSA: ${{ inputs.cherry-pick-psa }}
+        run: |
+          DEFAULT_PSA="PSA: For automated cherry picks, please assign the label \`{RELEASE_BRANCH}\` to your PR _before_ merging to \`main\`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team $SLACK_WEBHOOK_ADMIN will reach out to you."
+          PSA="${CHERRY_PICK_PSA:-$DEFAULT_PSA}"
+          # {RELEASE_BRANCH} is a placeholder, not a shell variable -- lets a
+          # consumer's cherry-pick-psa reference the actual freshly-cut
+          # branch name (release-branch-prefix aware) without needing to
+          # know/hardcode it ahead of time.
+          PSA="${PSA//\{RELEASE_BRANCH\}/$RELEASE_BRANCH}"
+
+          PREFIX=""
+          if [[ "$DRY_RUN" == "true" ]]; then
+            PREFIX="This is a dry-run, nothing actually happened: "
+          fi
+
+          {
+            echo "text<<CODE_FREEZE_MESSAGE_EOF"
+            echo "${PREFIX}We have frozen release branch \`$RELEASE_BRANCH\` of \`$LIBRARY_NAME\` 🚀✨🎉"
+            echo ""
+            echo "$PSA"
+            echo "CODE_FREEZE_MESSAGE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Send Slack alert
         uses: ./send-slack-alert/.github/actions/send-slack-alert
         with:
-          message: >
-            ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
-
-            PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+          message: ${{ steps.build-message.outputs.text }}
 
 
           webhook: ${{ env.SLACK_WEBHOOK }}

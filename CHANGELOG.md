@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.14.0...v1.15.0) (2026-10-12)
+
+
+### Features
+
+* scan PR descriptions in the guardwords workflow ([#602](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/602)) ([3453d89](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3453d898b59a43d4dadbfb168dff81fc7ce88074))
+
 ## [1.14.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.13.0...v1.14.0) (2026-10-09)
 
 

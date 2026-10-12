@@ -1,0 +1,127 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Python/uv dependency updates, grouped by manifest role.",
+  "extends": [
+    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/base#add-renovate-config-2"
+  ],
+  "enabledManagers": [
+    "pep621"
+  ],
+  "packageRules": [
+    {
+      "description": "Use targeted lockfile updates for Python dependencies.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDatasources": [
+        "pypi"
+      ],
+      "rangeStrategy": "update-lockfile"
+    },
+    {
+      "description": "Group non-major core runtime updates.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "project.dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python runtime",
+      "groupSlug": "python-runtime",
+      "groupSingleUpdates": true
+    },
+    {
+      "description": "Group non-major optional dependency updates.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "project.optional-dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python integrations",
+      "groupSlug": "python-integrations",
+      "groupSingleUpdates": true
+    },
+    {
+      "description": "Group non-major development dependency updates.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "dependency-groups",
+        "tool.uv.dev-dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python development",
+      "groupSlug": "python-development",
+      "groupSingleUpdates": true
+    },
+    {
+      "description": "Keep documentation dependencies and their plugins together.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "dependency-groups"
+      ],
+      "matchJsonata": [
+        "managerData.depGroup in ['docs', 'doc', 'documentation']"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python documentation",
+      "groupSlug": "python-documentation",
+      "groupSingleUpdates": true
+    },
+    {
+      "description": "Update build requirements in the manifest because isolated build dependencies are not controlled by uv.lock.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "build-system.requires"
+      ],
+      "rangeStrategy": "bump"
+    },
+    {
+      "description": "Group non-major build requirement changes.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "build-system.requires"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python build tools",
+      "groupSlug": "python-build-tools",
+      "groupSingleUpdates": true
+    },
+    {
+      "description": "Keep Python runtime support and source-mapped dependencies under explicit maintainer control.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "requires-python",
+        "tool.uv.sources"
+      ],
+      "enabled": false
+    }
+  ]
+}

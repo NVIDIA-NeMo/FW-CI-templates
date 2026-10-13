@@ -3,13 +3,11 @@
   "description": "Python/uv dependency updates, grouped by manifest role.",
   "extends": [
     "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/base#add-renovate-config-2",
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/uv-overrides#add-renovate-config-2",
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/uv-lock-security#add-renovate-config-2"
+    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/uv-overrides#add-renovate-config-2"
   ],
   "enabledManagers": [
     "pep621",
-    "custom.regex",
-    "custom.jsonata"
+    "custom.regex"
   ],
   "packageRules": [
     {

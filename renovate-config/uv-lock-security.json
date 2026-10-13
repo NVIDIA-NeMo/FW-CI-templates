@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Report vulnerabilities in uv.lock packages on the OSV Dependency Dashboard without editing lockfiles.",
+  "dependencyDashboard": true,
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "customManagers": [
+    {
+      "customType": "jsonata",
+      "description": "Expose public PyPI packages from uv.lock, including transitive dependencies, for vulnerability reporting.",
+      "fileFormat": "toml",
+      "managerFilePatterns": [
+        "/(^|/)uv\\.lock$/"
+      ],
+      "matchStrings": [
+        "package[source.registry in ['https://pypi.org/simple', 'https://pypi.org/simple/']].{'depName': name, 'packageName': name, 'currentValue': version}"
+      ],
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+      "depTypeTemplate": "uv.lock"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep the lockfile detector read-only; custom managers cannot regenerate uv's dependency graph and artifact hashes.",
+      "matchManagers": [
+        "custom.jsonata"
+      ],
+      "matchDepTypes": [
+        "uv.lock"
+      ],
+      "enabled": false
+    }
+  ]
+}

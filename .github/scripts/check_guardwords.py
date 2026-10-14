@@ -155,12 +155,34 @@ def _staged_git_diff() -> str:
     return result.stdout.decode("utf-8", errors="replace")
 
 
+def _environment_outside_repository() -> dict[str, str]:
+    """Drop the invoking repository's Git variables so a clone cannot write to it.
+
+    A commit hook inherits variables such as GIT_INDEX_FILE. When that path is
+    absolute (linked worktrees, `git commit -a`, `git commit <paths>`), a clone
+    writes its checkout into the committing repository's index while its objects
+    go to the temporary clone, leaving the index pointing at missing blobs.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    repository_variables = set(result.stdout.split())
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name not in repository_variables
+    }
+
+
 def _private_patterns() -> tuple[list[str], bool] | None:
     """Fetch private patterns using the user's configured Git credentials."""
     try:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_path = Path(temporary_directory) / "guardwords"
-            environment = os.environ.copy()
+            environment = _environment_outside_repository()
             environment["GIT_TERMINAL_PROMPT"] = "0"
             environment["GCM_INTERACTIVE"] = "never"
             result = subprocess.run(

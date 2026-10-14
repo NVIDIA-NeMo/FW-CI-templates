@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.0...v1.15.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* keep the guardwords catalog clone out of the committing index ([#605](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/605)) ([44fb48a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/44fb48a001ae2aa3eb63801406b18f0d142c6f01))
+
 ## [1.15.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.14.0...v1.15.0) (2026-10-12)
 
 

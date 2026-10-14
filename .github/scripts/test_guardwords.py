@@ -192,6 +192,67 @@ class GuardwordsScannerTests(unittest.TestCase):
         with patch.object(check_guardwords.subprocess, "run", return_value=denied):
             self.assertIsNone(check_guardwords._private_patterns())
 
+    def test_private_catalog_fetch_leaves_committing_index_untouched(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            catalog = workspace / "catalog"
+            catalog.mkdir()
+            self._git(catalog, "init", "--quiet")
+            (catalog / "README.md").write_text("catalog\n", encoding="utf-8")
+            (catalog / "guardwords.yaml").write_text(
+                "matching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+            self._git(catalog, "add", ".")
+            self._git(
+                catalog,
+                "-c",
+                "user.name=Guardwords Test",
+                "-c",
+                "user.email=guardwords-test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "-m",
+                "catalog",
+            )
+
+            repository = workspace / "repo"
+            repository.mkdir()
+            self._git(repository, "init", "--quiet")
+            (repository / "example.py").write_text("ordinary\n", encoding="utf-8")
+            self._git(repository, "add", ".")
+            index_before = (repository / ".git" / "index").read_bytes()
+
+            global_config = workspace / "gitconfig"
+            global_config.write_text(
+                f'[url "{catalog.as_uri()}"]\n'
+                "\tinsteadOf = https://github.com/NVIDIA-NeMo/Guardwords.git\n"
+                "[protocol \"file\"]\n\tallow = always\n",
+                encoding="utf-8",
+            )
+            # Git exports an absolute GIT_INDEX_FILE to hooks in linked worktrees and
+            # for `git commit -a` or `git commit <paths>`.
+            hook_environment = {
+                "GIT_CONFIG_GLOBAL": str(global_config),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_DIR": str(repository / ".git"),
+                "GIT_INDEX_FILE": str(repository / ".git" / "index"),
+            }
+            with patch.dict(os.environ, hook_environment):
+                configuration = check_guardwords._private_patterns()
+
+            self.assertEqual(configuration, (["sensitive-marker"], False))
+            self.assertEqual(
+                (repository / ".git" / "index").read_bytes(), index_before
+            )
+            self.assertEqual(
+                self._git(repository, "ls-files").stdout.splitlines(),
+                ["example.py"],
+            )
+
     def test_staged_mode_skips_when_private_catalog_is_unavailable(self) -> None:
         from contextlib import redirect_stderr, redirect_stdout
         from io import StringIO

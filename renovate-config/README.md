@@ -7,7 +7,7 @@ Consumers enable the profile with:
 ```json
 {
   "extends": [
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/python-uv#add-renovate-config-2"
+    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/python-uv#main"
   ],
   "baseBranchPatterns": ["$default"]
 }

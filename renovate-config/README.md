@@ -13,7 +13,14 @@ Consumers enable the profile with:
 }
 ```
 
-References without a branch suffix use this repository's default branch.
+The consumer reference above uses this repository's default branch. To test a
+feature branch or pin a tag, append `#<branch-or-tag>` to that reference.
+
+Inside `python-uv.json`, the relative imports `./base` and `./uv-overrides` load
+sibling presets from the same repository and branch or tag as `python-uv.json`.
+Only shared presets support relative imports; a consumer's own `renovate.json`
+must use the full repository reference shown above. See Renovate's
+[relative preset reference documentation](https://docs.renovatebot.com/config-presets/#relative-preset-references).
 
 The profile groups ordinary minor and patch updates by manifest role, waits seven
 days after release, requires Dependency Dashboard approval for major updates, and

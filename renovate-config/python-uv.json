@@ -2,8 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Python/uv dependency updates, grouped by manifest role.",
   "extends": [
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/base",
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/uv-overrides"
+    "./base",
+    "./uv-overrides"
   ],
   "enabledManagers": [
     "pep621",

@@ -7,11 +7,13 @@ Consumers enable the profile with:
 ```json
 {
   "extends": [
-    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/python-uv#main"
+    "github>NVIDIA-NeMo/FW-CI-templates//renovate-config/python-uv"
   ],
   "baseBranchPatterns": ["$default"]
 }
 ```
+
+References without a branch suffix use this repository's default branch.
 
 The profile groups ordinary minor and patch updates by manifest role, waits seven
 days after release, requires Dependency Dashboard approval for major updates, and

@@ -155,9 +155,10 @@ jobs:
           sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" "$PACKAGE_INFO_FILE"
           sed -i "/^DEV/c\DEV = ''" "$PACKAGE_INFO_FILE"
 
-          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
-
-          VERSION=$(python -c "import package_info; print(f\"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}\")")
+          # Load by path from the checkout root so package modules cannot shadow the stdlib.
+          VERSION=$(python -c \
+            'import runpy, sys; info = runpy.run_path(sys.argv[1]); print("{MAJOR}.{MINOR}.{PATCH}".format(**info))' \
+            "$PACKAGE_INFO_FILE")
           RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
           echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
@@ -239,10 +240,11 @@ jobs:
         run: |
           cd ${{ github.run_id }}
 
-          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
+          PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
-          MAJOR=$(python -c "import package_info; print(package_info.MAJOR)")
-          MINOR=$(python -c "import package_info; print(package_info.MINOR)")
+          # Keep the package directory off Python's import path when reading version metadata.
+          MAJOR=$(python -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["MAJOR"])' "$PACKAGE_INFO_FILE")
+          MINOR=$(python -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["MINOR"])' "$PACKAGE_INFO_FILE")
 
           if [[ "${{ inputs.release-type }}" == "major" ]]; then
             NEXT_MAJOR=$(( MAJOR + 1))
@@ -260,13 +262,13 @@ jobs:
           fi
 
           if [[ "$PACKAGING" == "setuptools" ]]; then
-            sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" package_info.py
-            sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" package_info.py
-            sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" package_info.py
-            sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" package_info.py
-            sed -i "/^DEV/c\DEV = '$NEXT_DEV'" package_info.py
+            sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" "$PACKAGE_INFO_FILE"
+            sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" "$PACKAGE_INFO_FILE"
+            sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" "$PACKAGE_INFO_FILE"
+            sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" "$PACKAGE_INFO_FILE"
+            sed -i "/^DEV/c\DEV = '$NEXT_DEV'" "$PACKAGE_INFO_FILE"
           elif [[ "$PACKAGING" == "hatch" ]]; then
-            sed -i "/^__version__/c\__version__ = '$NEXT_VERSION'" package_info.py
+            sed -i "/^__version__/c\__version__ = '$NEXT_VERSION'" "$PACKAGE_INFO_FILE"
           fi
 
           echo "version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"

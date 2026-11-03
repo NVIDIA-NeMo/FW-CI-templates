@@ -68,15 +68,21 @@ class CodeFreezeTests(unittest.TestCase):
                     self.assertNotIn("test-key", result.stdout + result.stderr)
                     self.assertNotIn("test-legacy-token", result.stdout if app_id or key else "")
 
-    def fixture(self):
+    def fixture(self, python_package="package", src_dir="", shadow_stdlib=False):
         remote = self.root / "remote.git"
         checkout = self.root / "123"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
         subprocess.run(["git", "init", "-b", "main", str(checkout)], check=True, capture_output=True)
-        package = checkout / "package"
-        package.mkdir()
+        package = checkout / src_dir / python_package.replace(".", "/")
+        package.mkdir(parents=True)
+        imports = ""
+        if shadow_stdlib:
+            (package / "collections").mkdir()
+            (package / "collections/__init__.py").write_text("")
+            (package / "__init__.py").write_text("raise RuntimeError('Do not import the package')\n")
+            imports = "import subprocess\nfrom importlib.metadata import version\n"
         (package / "package_info.py").write_text(
-            "MAJOR = 1\nMINOR = 2\nPATCH = 3\nPRE_RELEASE = 'rc0'\nDEV = 'dev0'\n"
+            imports + "MAJOR = 1\nMINOR = 2\nPATCH = 3\nPRE_RELEASE = 'rc0'\nDEV = 'dev0'\n"
             "__version__ = '1.2.3rc0.dev0'\n"
         )
         for args in [
@@ -90,6 +96,39 @@ class CodeFreezeTests(unittest.TestCase):
         ]:
             subprocess.run(["git", "-C", str(checkout), *args], check=True, capture_output=True)
         return checkout, remote
+
+    def test_version_reads_do_not_shadow_standard_library_modules(self):
+        for src_dir, python_package in [("", "nemo"), ("src/", "nemo"), ("src/", "namespace.nemo")]:
+            for job, name, packaging in [
+                ("create-release-branch", "Get release branch ref", "setuptools"),
+                ("bump-next-version", "Bump version", "setuptools"),
+                ("bump-next-version", "Bump version", "hatch"),
+            ]:
+                with self.subTest(src_dir=src_dir, package=python_package, job=job, packaging=packaging):
+                    with tempfile.TemporaryDirectory(dir=self.root) as work:
+                        previous_root, self.root = self.root, Path(work)
+                        try:
+                            checkout, _ = self.fixture(python_package, src_dir, shadow_stdlib=True)
+                            output = self.root / "outputs"
+                            script = step(job, name)["run"].replace("${{ github.run_id }}", "123")
+                            script = script.replace("${{ inputs.release-type }}", "minor")
+                            result = self.shell(script, {
+                                "DRY_RUN": "true", "SRC_DIR": src_dir, "PYPROJECT_NAME": python_package,
+                                "RELEASE_BRANCH_PREFIX": "", "PACKAGING": packaging,
+                                "NEXT_PRERELEASE": "rc0", "NEXT_DEV": "dev0", "GITHUB_OUTPUT": str(output),
+                            })
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            expected = "r1.2.3" if job == "create-release-branch" else "1.3.0rc0.dev0"
+                            self.assertEqual(output.read_text(), f"version={expected}\n")
+                            info = (checkout / src_dir / python_package.replace(".", "/") / "package_info.py").read_text()
+                            if job == "bump-next-version":
+                                if packaging == "hatch":
+                                    self.assertIn(f"__version__ = '{expected}'", info)
+                                else:
+                                    self.assertIn("MINOR = 3\n", info)
+                                    self.assertIn("PATCH = 0\n", info)
+                        finally:
+                            self.root = previous_root
 
     def test_release_branch_push_is_suppressed_in_dry_run(self):
         for dry_run in ["true", "false"]:

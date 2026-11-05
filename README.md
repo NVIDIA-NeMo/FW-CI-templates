@@ -73,6 +73,10 @@ minted token are required; the workflow fails instead of selecting legacy
 credentials. The version-bump PR receives an explicit App token. Its checkout
 does not persist credentials, avoiding duplicate Authorization headers.
 
+Set `update-release-docs: true` to update `docs/conf.py`, `docs/project.json`,
+and `docs/versions1.json` on the new release branch. The step runs only on
+non-dry runs and derives the docs URL pattern from the existing version picker.
+
 Validate locally with:
 
 ```sh

@@ -4,14 +4,14 @@
 
 """Execute freeze workflow shells against disposable Git repositories."""
 
+import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = yaml.load(
@@ -179,6 +179,72 @@ class CodeFreezeTests(unittest.TestCase):
         self.assertEqual(pull["if"], "${{ inputs.dry-run != true }}")
         self.assertEqual(pull["with"]["token"],
                          "${{ inputs.app-id != '' && steps.github-token.outputs.token || github.token }}")
+
+    def test_release_docs_metadata_is_idempotent_and_preserves_old_links(self):
+        cases = [
+            ("core_r0.20.0", "core_", "https://docs.example/core/", "latest", False),
+            ("r0.7.0", "", "https://docs.example/bridge/", "versioned", True),
+        ]
+        script = step("create-release-branch", "Update release docs metadata")["run"].replace(
+            "${{ github.run_id }}", "."
+        )
+        for branch, prefix, root_url, mode, has_target in cases:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory(dir=self.root) as work:
+                docs = Path(work) / "docs"
+                docs.mkdir()
+                (docs / "conf.py").write_text('project = "Example"\nrelease = "nightly"\n')
+                (docs / "project.json").write_text('{"name": "example", "version": "nightly"}\n')
+                entries = [
+                    {"version": "nightly", "url": root_url + "nightly/"},
+                    {"name": "0.6.0 (latest) · 26.08", "version": "0.6.0",
+                     "url": root_url + ("0.6.0/" if mode == "versioned" else "latest/"),
+                     "preferred": True},
+                ]
+                if has_target:
+                    entries.insert(1, {"name": "0.7.0 (latest)", "version": "0.7.0",
+                                       "url": root_url + "0.7.0/"})
+                    entries.append({"name": "0.5.1 (latest) · 26.06.01", "version": "0.5.1",
+                                    "url": root_url + "0.5.1/"})
+                (docs / "versions1.json").write_text(json.dumps(entries, indent=2) + "\n")
+                env = {
+                    "RELEASE_BRANCH": branch,
+                    "RELEASE_BRANCH_PREFIX": prefix,
+                }
+                for attempt in range(2):
+                    result = self.shell(script, env, cwd=work)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    manifest = json.loads((docs / "versions1.json").read_text())
+                    version = branch.removeprefix(prefix + "r")
+                    current = next(entry for entry in manifest if entry["version"] == version)
+                    self.assertEqual(current["name"], version + " (latest)")
+                    expected_url = root_url + ("latest/" if mode == "latest" else version + "/")
+                    self.assertEqual(current["url"], expected_url)
+                    self.assertTrue(current["preferred"])
+                    self.assertEqual(sum(bool(entry.get("preferred")) for entry in manifest), 1)
+                    self.assertNotIn("name", manifest[0])
+                    old = next(entry for entry in manifest if entry["version"] == "0.6.0")
+                    self.assertEqual(old["name"], "0.6.0 · 26.08")
+                    self.assertEqual(old["url"], root_url + "0.6.0/")
+                    if has_target:
+                        stale = next(entry for entry in manifest if entry["version"] == "0.5.1")
+                        self.assertEqual(stale["name"], "0.5.1 · 26.06.01")
+                    self.assertEqual(json.loads((docs / "project.json").read_text())["version"], version)
+                    self.assertIn(f'release = "{version}"', (docs / "conf.py").read_text())
+                    files = tuple((docs / name).read_bytes() for name in
+                                  ("conf.py", "project.json", "versions1.json"))
+                    if attempt == 0:
+                        first = files
+                    else:
+                        self.assertEqual(files, first)
+    def test_release_docs_job_is_opt_in_and_skips_dry_runs(self):
+        docs_step = step("create-release-branch", "Update release docs metadata")
+        self.assertEqual(docs_step["if"], "${{ inputs.update-release-docs && inputs.dry-run != true }}")
+        self.assertEqual(
+            step("create-release-branch", "Commit release docs metadata")["if"], docs_step["if"]
+        )
+        self.assertEqual(
+            WORKFLOW["on"]["workflow_call"]["inputs"]["update-release-docs"]["default"], "false"
+        )
 
 
 if __name__ == "__main__":

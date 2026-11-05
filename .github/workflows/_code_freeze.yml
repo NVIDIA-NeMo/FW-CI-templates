@@ -72,6 +72,11 @@ on:
         description: "Dev tag for the next dev version bumped on main (e.g. 'dev0'); pass an empty string to omit it"
         type: string
         default: dev0
+      update-release-docs:
+        required: false
+        description: Update documentation metadata on the new release branch
+        type: boolean
+        default: false
     secrets:
       SLACK_WEBHOOK:
         required: true
@@ -165,6 +170,105 @@ jobs:
 
           if [[ "$DRY_RUN" != "true" ]]; then
             git push -u origin "${RELEASE_BRANCH}" --force
+          fi
+
+      - name: Update release docs metadata
+        if: ${{ inputs.update-release-docs && inputs.dry-run != true }}
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
+        run: |
+          cd ${{ github.run_id }}
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          branch = os.environ["RELEASE_BRANCH"]
+          branch_prefix = os.environ["RELEASE_BRANCH_PREFIX"] + "r"
+          if not branch.startswith(branch_prefix):
+              raise ValueError(f"Unexpected release branch: {branch}")
+          version = branch.removeprefix(branch_prefix)
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise ValueError(f"Unexpected release version: {version}")
+
+          display_name = f"{version} (latest)"
+
+          docs = Path("docs")
+          conf = docs / "conf.py"
+          conf_text, count = re.subn(
+              r"^release = .*?$", f'release = "{version}"', conf.read_text(),
+              count=1, flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise ValueError("Expected one Sphinx release setting")
+          conf.write_text(conf_text)
+
+          project = docs / "project.json"
+          project_text = project.read_text()
+          if "version" not in json.loads(project_text):
+              raise ValueError("project.json has no version")
+          project_text, count = re.subn(
+              r'(\"version\"\s*:\s*\")[^\"]+(\")',
+              lambda match: f"{match.group(1)}{version}{match.group(2)}",
+              project_text, count=1,
+          )
+          if count != 1:
+              raise ValueError("Expected one project.json version")
+          project.write_text(project_text)
+
+          manifest = docs / "versions1.json"
+          manifest_text = manifest.read_text()
+          entries = json.loads(manifest_text)
+          nightly = next((entry for entry in entries if entry["version"] == "nightly"), None)
+          if nightly is None or not nightly["url"].endswith("/nightly/"):
+              raise ValueError("Expected nightly docs URL")
+          root = nightly["url"].removesuffix("nightly/")
+          current = next((entry for entry in entries if entry.get("preferred")), None)
+          if current is None:
+              raise ValueError("Expected a preferred docs version")
+          if current["url"] == root + "latest/":
+              preferred_url = root + "latest/"
+          elif current["url"] == root + current["version"] + "/":
+              preferred_url = root + version + "/"
+          else:
+              raise ValueError("Unexpected preferred docs URL")
+          indentation = re.search(r'^([ ]+)\{', manifest_text, re.MULTILINE)
+          indent = len(indentation.group(1)) if indentation else 4
+          target = None
+          for entry in entries:
+              if entry["version"] == version:
+                  target = entry
+              else:
+                  if entry.pop("preferred", False):
+                      entry["url"] = root + entry["version"] + "/"
+                  if "name" in entry:
+                      entry["name"] = entry["name"].replace(" (latest)", "", 1)
+          preferred = {**(target or {}), "name": display_name, "version": version,
+                       "url": preferred_url, "preferred": True}
+          if target is None:
+              entries.insert(1, preferred)
+          else:
+              entries[entries.index(target)] = preferred
+          if len({entry["version"] for entry in entries}) != len(entries):
+              raise ValueError("Duplicate docs versions")
+          if sum(entry.get("preferred", False) for entry in entries) != 1:
+              raise ValueError("Expected one preferred docs version")
+          manifest.write_text(json.dumps(entries, indent=indent, ensure_ascii=False) + "\n")
+          PY
+
+      - name: Commit release docs metadata
+        if: ${{ inputs.update-release-docs && inputs.dry-run != true }}
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
+        run: |
+          cd ${{ github.run_id }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/conf.py docs/project.json docs/versions1.json
+          if ! git diff --cached --quiet; then
+            git commit -s -m "docs: set ${RELEASE_BRANCH} release documentation"
+            git push origin "HEAD:${RELEASE_BRANCH}"
           fi
 
       - name: Create cherry-pick label

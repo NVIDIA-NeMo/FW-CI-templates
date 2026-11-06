@@ -644,8 +644,8 @@ jobs:
       # so an empty, "optional and unset" webhook would otherwise turn this
       # alert step itself into a second, unrelated failure.
       - name: Alert Slack on request failure
-        if: always() && (steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && steps.slack-webhook.outputs.configured == 'true'
+        if: always() && (steps.merge-base.outcome == 'failure' || steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && steps.slack-webhook.outputs.configured == 'true'
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
-          message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message }}
+          message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message || format('suggest-reviewers could not resolve the PR merge-base on {0} -- {1}/{2}/actions/runs/{3}', needs.resolve-pr.outputs.html_url, github.server_url, github.repository, github.run_id) }}
           webhook: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}

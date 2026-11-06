@@ -33,10 +33,12 @@
 #      (core.setFailed's underlying mechanism).
 #
 # Requests reviewers on a PR based on `# suggest:` comment lines in the
-# calling repo's .github/CODEOWNERS. Advisory only: GitHub's own CODEOWNERS
-# parser ignores comment lines, so a `# suggest:` entry can never become a
-# required reviewer no matter what branch protection does — only the real,
-# non-comment CODEOWNERS lines are enforced.
+# calling repo's .github/CODEOWNERS, read from the repo's default branch (not
+# the PR's own copy, so a PR can't change who is suggested for it and a PR that
+# predates a CODEOWNERS update still gets the current rules). Advisory only:
+# GitHub's own CODEOWNERS parser ignores comment lines, so a `# suggest:`
+# entry can never become a required reviewer no matter what branch protection
+# does — only the real, non-comment CODEOWNERS lines are enforced.
 #
 # Skips a suggested owner that's textually identical to an already-enforced
 # owner for the SAME FILE — see .github/scripts/codeowners_suggestions.py
@@ -218,13 +220,15 @@ jobs:
       - name: Build glob groups from CODEOWNERS
         id: build-groups
         shell: python
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           import json
           import os
           import sys
 
           sys.path.insert(0, "ci-templates/.github/scripts")
-          from codeowners_suggestions import parse_codeowners, to_glob  # noqa: E402
+          from codeowners_suggestions import parse_codeowners, read_file_at_ref, to_glob  # noqa: E402
 
 
           def gh_output(name, value):
@@ -233,13 +237,14 @@ jobs:
 
 
           codeowners_path = ".github/CODEOWNERS"
-          if not os.path.exists(codeowners_path):
-              print(f"{codeowners_path} not found, skipping.")
+          default_branch = os.environ["DEFAULT_BRANCH"]
+          codeowners_text = read_file_at_ref(f"refs/remotes/origin/{default_branch}", codeowners_path)
+          if codeowners_text is None:
+              print(f"{codeowners_path} not found on {default_branch}, skipping.")
               gh_output("has_rules", "false")
               raise SystemExit(0)
 
-          with open(codeowners_path, encoding="utf-8") as f:
-              parsed = parse_codeowners(f.read())
+          parsed = parse_codeowners(codeowners_text)
           enforced_rules = parsed["enforced_rules"]
           suggest_rules = parsed["suggest_rules"]
 
@@ -307,17 +312,16 @@ jobs:
       # that elevated token for its *entire* scope (see that step for why
       # that's deliberate).
       #
-      # Every value that can contain PR-controlled content (CODEOWNERS text
-      # from this PR's own checkout, changed-file names from this PR's own
-      # diff) is passed in via `env:` and read from os.environ -- NEVER
-      # string-interpolated with `${{ }}` directly into the script body below.
+      # Every value that can contain PR-controlled content (changed-file
+      # names from this PR's own diff) is passed in via `env:` and read from
+      # os.environ -- NEVER string-interpolated with `${{ }}` directly into the script body below.
       # `${{ }}` substitution happens as raw text substitution BEFORE this
       # script is parsed as Python; a value containing an unescaped quote
       # could otherwise break out of a string literal and inject arbitrary
-      # code running with this step's token. A CODEOWNERS pattern/owner or a
-      # filename are both attacker-controlled the moment a PR can edit
-      # CODEOWNERS or add a file with an unusual name -- neither is "trusted
-      # because it's repo content", since it's THIS PR's own content.
+      # code running with this step's token. A filename is attacker-controlled
+      # the moment a PR can add a file with an unusual name -- it isn't
+      # "trusted because it's repo content", since it's THIS PR's own content.
+      # CODEOWNERS text is read from the default branch, so a PR can't edit it.
       - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
         if: steps.build-groups.outputs.has_rules == 'true'
         id: resolve

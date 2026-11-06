@@ -30,8 +30,16 @@ without blocking merge.
 from __future__ import annotations
 
 import re
+import subprocess
 
 _SUGGEST_PREFIX = re.compile(r"^#\s*suggest:\s*(.+)$")
+
+
+def read_file_at_ref(ref: str, path: str) -> str | None:
+    """Returns `path` as committed at `ref` (read from git, not the working
+    tree), or None if the ref or the file doesn't exist there."""
+    result = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True, encoding="utf-8")
+    return result.stdout if result.returncode == 0 else None
 
 
 def to_glob(pattern: str) -> list[str]:

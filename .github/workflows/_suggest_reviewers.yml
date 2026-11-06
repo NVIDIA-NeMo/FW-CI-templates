@@ -276,6 +276,23 @@ jobs:
           gh_output("enforced_count", str(len(enforced_rules)))
           gh_output("suggest_count", str(len(suggest_rules)))
 
+      # The PR's own changes are head vs the commit it forked from, not head vs
+      # the base branch's current tip. If the base branch moved on after the PR
+      # branched, diffing against the tip counts every file those newer base
+      # commits touched as a change in this PR (and suggests reviewers for them).
+      - name: Resolve PR merge-base
+        id: merge-base
+        env:
+          BASE_SHA: ${{ needs.resolve-pr.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          if merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA"); then
+            echo "sha=$merge_base" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No merge-base for $BASE_SHA and $HEAD_SHA, falling back to the base sha."
+            echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       # The actual "does file X match pattern Y" glob test, delegated entirely
       # to this already-trusted-elsewhere-in-this-repo action instead of a
       # hand-rolled regex engine. json: true so file lists come back as real
@@ -297,7 +314,7 @@ jobs:
         id: changed-files
         uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
         with:
-          base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+          base_sha: ${{ steps.merge-base.outputs.sha }}
           sha: ${{ needs.resolve-pr.outputs.head_sha }}
           files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
           json: true

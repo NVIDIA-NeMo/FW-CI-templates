@@ -33,8 +33,8 @@
 #      (core.setFailed's underlying mechanism).
 #
 # Requests reviewers on a PR based on `# suggest:` comment lines in the
-# calling repo's .github/CODEOWNERS, read from the PR's base branch (not the
-# PR's own copy, so a PR can't change who is suggested for it and a PR that
+# calling repo's .github/CODEOWNERS, read from the repo's default branch (not
+# the PR's own copy, so a PR can't change who is suggested for it and a PR that
 # predates a CODEOWNERS update still gets the current rules). Advisory only:
 # GitHub's own CODEOWNERS parser ignores comment lines, so a `# suggest:`
 # entry can never become a required reviewer no matter what branch protection
@@ -120,7 +120,6 @@ jobs:
     outputs:
       number: ${{ steps.pr.outputs.number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
-      base_ref: ${{ steps.pr.outputs.base_ref }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
       draft: ${{ steps.pr.outputs.draft }}
       author: ${{ steps.pr.outputs.author }}
@@ -170,7 +169,6 @@ jobs:
 
           gh_output("number", str(pr["number"]))
           gh_output("base_sha", pr["base"]["sha"])
-          gh_output("base_ref", pr["base"]["ref"])
           gh_output("head_sha", pr["head"]["sha"])
           # Python's str(False) is "False" (capitalized) -- GitHub Actions'
           # if: expressions compare against lowercase 'true'/'false', so this
@@ -223,7 +221,7 @@ jobs:
         id: build-groups
         shell: python
         env:
-          BASE_REF: ${{ needs.resolve-pr.outputs.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           import json
           import os
@@ -239,10 +237,10 @@ jobs:
 
 
           codeowners_path = ".github/CODEOWNERS"
-          base_ref = os.environ["BASE_REF"]
-          codeowners_text = read_file_at_ref(f"refs/remotes/origin/{base_ref}", codeowners_path)
+          default_branch = os.environ["DEFAULT_BRANCH"]
+          codeowners_text = read_file_at_ref(f"refs/remotes/origin/{default_branch}", codeowners_path)
           if codeowners_text is None:
-              print(f"{codeowners_path} not found on {base_ref}, skipping.")
+              print(f"{codeowners_path} not found on {default_branch}, skipping.")
               gh_output("has_rules", "false")
               raise SystemExit(0)
 
@@ -323,7 +321,7 @@ jobs:
       # code running with this step's token. A filename is attacker-controlled
       # the moment a PR can add a file with an unusual name -- it isn't
       # "trusted because it's repo content", since it's THIS PR's own content.
-      # CODEOWNERS text is read from the base branch, so a PR can't edit it.
+      # CODEOWNERS text is read from the default branch, so a PR can't edit it.
       - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
         if: steps.build-groups.outputs.has_rules == 'true'
         id: resolve

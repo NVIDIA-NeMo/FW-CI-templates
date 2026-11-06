@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.0...v1.16.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* diff suggested-reviewer changed files against the PR merge-base ([#616](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/616)) ([5568008](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/556800827f7d58d3ecf5a2a6d76477947fe0f15e))
+
 ## [1.16.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.1...v1.16.0) (2026-11-06)
 
 

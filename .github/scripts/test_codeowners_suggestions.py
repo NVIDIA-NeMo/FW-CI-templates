@@ -13,12 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import subprocess
+import tempfile
 import unittest
 
 from codeowners_suggestions import (
     find_redundant_rules,
     parse_codeowners,
     pattern_covers,
+    read_file_at_ref,
     resolve_last_match_per_file,
     to_glob,
 )
@@ -144,6 +148,57 @@ class FindRedundantRulesTests(unittest.TestCase):
         enforced_rules = [{"pattern": "/docker/", "owners": ["@nvidia-nemo/automation"]}]
         suggest_rules = [{"pattern": "/nemo_gym/sandbox/", "owners": ["@nvidia-nemo/gym_core"]}]
         self.assertEqual(find_redundant_rules(enforced_rules, suggest_rules), [])
+
+
+class ReadFileAtRefTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        previous_cwd = os.getcwd()
+        self.addCleanup(os.chdir, previous_cwd)
+        os.chdir(tmp.name)
+        self.git("init", "-q", "-b", "main")
+        os.makedirs(".github")
+
+    def git(self, *args):
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    def commit_codeowners(self, text):
+        with open(".github/CODEOWNERS", "w", encoding="utf-8") as f:
+            f.write(text)
+        self.git("add", ".github/CODEOWNERS")
+        self.git("commit", "-q", "-m", "update")
+
+    def test_reads_committed_content_not_working_tree(self):
+        self.commit_codeowners("# suggest: /a/ @base-owner\n")
+        with open(".github/CODEOWNERS", "w", encoding="utf-8") as f:
+            f.write("# suggest: /a/ @pr-owner\n")
+
+        self.assertEqual(read_file_at_ref("main", ".github/CODEOWNERS"), "# suggest: /a/ @base-owner\n")
+
+    def test_reads_the_named_ref_when_head_is_elsewhere(self):
+        self.commit_codeowners("# suggest: /a/ @base-owner\n")
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit_codeowners("# suggest: /a/ @pr-owner\n")
+
+        self.assertEqual(read_file_at_ref("main", ".github/CODEOWNERS"), "# suggest: /a/ @base-owner\n")
+
+    def test_missing_file_returns_none(self):
+        with open("README.md", "w", encoding="utf-8") as f:
+            f.write("x")
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "init")
+
+        self.assertIsNone(read_file_at_ref("main", ".github/CODEOWNERS"))
+
+    def test_missing_ref_returns_none(self):
+        self.commit_codeowners("# suggest: /a/ @base-owner\n")
+
+        self.assertIsNone(read_file_at_ref("refs/remotes/origin/nope", ".github/CODEOWNERS"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.16.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.1...v1.16.0) (2026-11-06)
+
+
+### Features
+
+* add Autobot review configuration ([#613](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/613)) ([1a6de61](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/1a6de61788b18256d5dbb6a62ecc5e450ae51983))
+* add shared grouped Python Renovate presets ([#604](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/604)) ([c28ec96](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c28ec9648579c60ee7f77b397d911feb22c39f37))
+
+
+### Bug Fixes
+
+* **suggest-reviewers:** read CODEOWNERS from the default branch ([#615](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/615)) ([848a6f2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/848a6f2ec3ee5cef76a373136cde098e6293a467))
+
 ## [1.15.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.0...v1.15.1) (2026-10-14)
 
 

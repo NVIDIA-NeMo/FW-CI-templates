@@ -86,6 +86,16 @@ on:
         required: false
         default: main
         type: string
+      pr_number:
+        description: >
+          Optional. Run against this existing PR instead of the one the calling
+          event belongs to -- for a caller with `on: workflow_dispatch:` that
+          wants to (re)suggest reviewers on a PR that is already open. Leave
+          empty for the normal pull_request / pull-request/N push triggers,
+          which are unaffected.
+        required: false
+        default: ""
+        type: string
       app-id:
         description: >
           GitHub App ID to mint a short-lived, org-scoped token for team-reviewer
@@ -136,9 +146,13 @@ jobs:
         env:
           PR_INFO_JSON: ${{ steps.get-pr-info.outputs.pr-info }}
           PR_PAYLOAD_JSON: ${{ toJSON(github.event.pull_request) }}
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           import json
           import os
+          import urllib.request
 
 
           def gh_output(name, value):
@@ -154,7 +168,21 @@ jobs:
 
 
           pr_info_raw = os.environ.get("PR_INFO_JSON", "")
-          if pr_info_raw:
+          pr_number_input = os.environ.get("PR_NUMBER_INPUT", "").strip()
+          if pr_number_input:
+              if not pr_number_input.isdigit():
+                  print(f"::error::pr_number must be a PR number, got {pr_number_input!r}.")
+                  raise SystemExit(1)
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPO']}/pulls/{pr_number_input}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  pr = json.load(response)
+          elif pr_info_raw:
               pr = parse_until_not_string(pr_info_raw)
           else:
               pr = parse_until_not_string(os.environ.get("PR_PAYLOAD_JSON", "null"))
@@ -203,6 +231,14 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+
+      # A manual run (pr_number) checks out the default branch, which doesn't
+      # contain the PR's commits -- fetch its head so the merge-base and diff work.
+      - name: Fetch PR head
+        if: inputs.pr_number != ''
+        env:
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
+        run: git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"
 
       - name: Checkout NVIDIA-NeMo/FW-CI-templates
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

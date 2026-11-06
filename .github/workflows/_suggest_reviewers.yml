@@ -280,18 +280,20 @@ jobs:
       # the base branch's current tip. If the base branch moved on after the PR
       # branched, diffing against the tip counts every file those newer base
       # commits touched as a change in this PR (and suggests reviewers for them).
+      # If the merge-base can't be resolved this step fails rather than falling
+      # back to that diff. It stays non-blocking: suggest-reviewers is advisory
+      # and not a required check, so a failure here never gates merging.
       - name: Resolve PR merge-base
         id: merge-base
         env:
           BASE_SHA: ${{ needs.resolve-pr.outputs.base_sha }}
           HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
         run: |
-          if merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA"); then
-            echo "sha=$merge_base" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::No merge-base for $BASE_SHA and $HEAD_SHA, falling back to the base sha."
-            echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          if ! merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA"); then
+            echo "::error::No merge-base for $BASE_SHA and $HEAD_SHA in this checkout; not suggesting reviewers from a base-tip diff."
+            exit 1
           fi
+          echo "sha=$merge_base" >> "$GITHUB_OUTPUT"
 
       # The actual "does file X match pattern Y" glob test, delegated entirely
       # to this already-trusted-elsewhere-in-this-repo action instead of a

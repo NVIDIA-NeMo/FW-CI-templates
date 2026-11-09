@@ -72,7 +72,7 @@ on:
         required: false
         type: string
         default: HYBRID
-      gh-release-generate-notes:
+      gh-release-new-contributors:
         required: false
         type: boolean
         default: false
@@ -209,7 +209,7 @@ jobs:
 
       - name: Determine fromTag for changelog
         id: determine-from-tag
-        if: inputs.gh-release-use-changelog-builder == true
+        if: inputs.gh-release-use-changelog-builder == true || inputs.gh-release-new-contributors == true
         run: |
           cd ${{ github.run_id }}
 
@@ -248,6 +248,31 @@ jobs:
           mode: ${{ inputs.gh-release-changelog-mode }}
           includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
 
+      - name: Find new contributors
+        id: new-contributors
+        if: inputs.gh-release-new-contributors == true
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FROM_TAG: ${{ steps.determine-from-tag.outputs.from-tag }}
+          SHA: ${{ inputs.release-ref }}
+        run: |
+          ARGS=(-f tag_name="${TAG_PREFIX}v${VERSION}" -f target_commitish="$SHA")
+          if [[ -n "$FROM_TAG" ]]; then
+            ARGS+=(-f previous_tag_name="$FROM_TAG")
+          fi
+
+          NOTES=$(gh api -X POST "repos/$REPOSITORY/releases/generate-notes" "${ARGS[@]}" --jq .body)
+          SECTION=$(printf '%s\n' "$NOTES" | awk '/^## New Contributors/{f=1} /^\*\*Full Changelog\*\*/{f=0} f')
+
+          if [[ -n "$SECTION" ]]; then
+            {
+              echo "section<<EOF_NEW_CONTRIBUTORS"
+              echo "$SECTION"
+              echo "EOF_NEW_CONTRIBUTORS"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create release
         id: version-number
         env:
@@ -255,6 +280,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
           BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
+          NEW_CONTRIBUTORS: ${{ steps.new-contributors.outputs.section }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -276,6 +302,10 @@ jobs:
             CHANGELOG="Release: $NAME"
           fi
 
+          if [[ -n "$NEW_CONTRIBUTORS" ]]; then
+            CHANGELOG="$CHANGELOG"$'\n\n'"$NEW_CONTRIBUTORS"
+          fi
+
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
 
           PAYLOAD=$(jq -nc \
@@ -284,7 +314,6 @@ jobs:
                       --arg NAME "$NAME" \
                       --arg BODY "$CHANGELOG" \
                       --argjson PRERELEASE "$IS_PRERELEASE" \
-                      --argjson GENERATE_NOTES "${{ inputs.gh-release-generate-notes }}" \
                       '{
                         "tag_name": $TAG_NAME,
                         "target_commitish": $CI_COMMIT_BRANCH,
@@ -292,7 +321,6 @@ jobs:
                         "body": $BODY,
                         "draft": false,
                         "prerelease": $PRERELEASE,
-                        "generate_release_notes": $GENERATE_NOTES,
                       }'
                   )
           echo -E "$PAYLOAD" > payload.txt

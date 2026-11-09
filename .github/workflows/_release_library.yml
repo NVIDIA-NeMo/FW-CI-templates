@@ -102,6 +102,11 @@ on:
         description: Mode for changelog builder (PR / COMMIT / HYBRID).
         type: string
         default: HYBRID
+      gh-release-generate-notes:
+        required: false
+        description: Ask GitHub to append auto-generated notes (What's Changed, New Contributors, Full Changelog) after the release body
+        type: boolean
+        default: false
       has-src-dir:
         required: false
         description: Whether the package has a src directory
@@ -370,6 +375,7 @@ jobs:
       gh-release-changelog-included-paths: ${{ inputs.gh-release-changelog-included-paths }}
       gh-release-from-tag: ${{ inputs.gh-release-from-tag }}
       gh-release-changelog-mode: ${{ inputs.gh-release-changelog-mode }}
+      gh-release-generate-notes: ${{ inputs.gh-release-generate-notes }}
       publish-docs: ${{ inputs.publish-docs }}
       docs-target-path: ${{ inputs.docs-target-path }}
       docs-project-type: ${{ inputs.docs-project-type }}

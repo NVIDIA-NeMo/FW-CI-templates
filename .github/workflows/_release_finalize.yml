@@ -72,6 +72,10 @@ on:
         required: false
         type: string
         default: HYBRID
+      gh-release-generate-notes:
+        required: false
+        type: boolean
+        default: false
       publish-docs:
         required: false
         type: boolean
@@ -280,6 +284,7 @@ jobs:
                       --arg NAME "$NAME" \
                       --arg BODY "$CHANGELOG" \
                       --argjson PRERELEASE "$IS_PRERELEASE" \
+                      --argjson GENERATE_NOTES "${{ inputs.gh-release-generate-notes }}" \
                       '{
                         "tag_name": $TAG_NAME,
                         "target_commitish": $CI_COMMIT_BRANCH,
@@ -287,6 +292,7 @@ jobs:
                         "body": $BODY,
                         "draft": false,
                         "prerelease": $PRERELEASE,
+                        "generate_release_notes": $GENERATE_NOTES,
                       }'
                   )
           echo -E "$PAYLOAD" > payload.txt

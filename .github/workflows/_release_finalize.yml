@@ -243,6 +243,7 @@ jobs:
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
           includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
+          outputFile: ${{ github.run_id }}/release-changelog.md
 
       - name: Create release
         id: version-number
@@ -250,7 +251,7 @@ jobs:
           SHA: ${{ inputs.release-ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
-          BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
+          BUILT_CHANGELOG_FILE: ${{ github.workspace }}/${{ github.run_id }}/release-changelog.md
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -260,16 +261,20 @@ jobs:
           IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
           NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 
-          if [[ -n "$BUILT_CHANGELOG" ]]; then
-            CHANGELOG="$BUILT_CHANGELOG"
+          # Keep large release notes out of both the environment and process arguments.
+          CHANGELOG_FILE=$(mktemp)
+          trap 'rm -f -- "$CHANGELOG_FILE"' EXIT
+          if [[ -s "$BUILT_CHANGELOG_FILE" ]]; then
+            cp "$BUILT_CHANGELOG_FILE" "$CHANGELOG_FILE"
           elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
             DATE=$(date +"%Y-%m-%d")
-            CHANGELOG="Prerelease: $NAME ($DATE)"
+            printf '%s' "Prerelease: $NAME ($DATE)" > "$CHANGELOG_FILE"
           elif [[ -f CHANGELOG.md ]]; then
             CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
             CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+            printf '%s' "$CHANGELOG" > "$CHANGELOG_FILE"
           else
-            CHANGELOG="Release: $NAME"
+            printf '%s' "Release: $NAME" > "$CHANGELOG_FILE"
           fi
 
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
@@ -278,7 +283,7 @@ jobs:
                       --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
                       --arg CI_COMMIT_BRANCH "$SHA" \
                       --arg NAME "$NAME" \
-                      --arg BODY "$CHANGELOG" \
+                      --rawfile BODY "$CHANGELOG_FILE" \
                       --argjson PRERELEASE "$IS_PRERELEASE" \
                       '{
                         "tag_name": $TAG_NAME,

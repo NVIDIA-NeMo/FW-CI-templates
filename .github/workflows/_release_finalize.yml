@@ -225,6 +225,13 @@ jobs:
 
           echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
 
+      - name: Prepare changelog file
+        id: changelog-file
+        if: inputs.gh-release-use-changelog-builder == true
+        run: |
+          CHANGELOG_FILE=$(mktemp "${RUNNER_TEMP}/release-changelog.XXXXXX")
+          echo "path=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
+
       - name: Build Changelog
         id: build-changelog
         if: inputs.gh-release-use-changelog-builder == true
@@ -241,7 +248,7 @@ jobs:
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
           includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
-          outputFile: ${{ github.run_id }}/release-changelog.md
+          outputFile: ${{ steps.changelog-file.outputs.path }}
 
       - name: Create release
         id: version-number
@@ -249,7 +256,8 @@ jobs:
           SHA: ${{ inputs.release-ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
-          BUILT_CHANGELOG_FILE: ${{ github.workspace }}/${{ github.run_id }}/release-changelog.md
+          HAS_BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog != '' }}
+          BUILT_CHANGELOG_FILE: ${{ steps.changelog-file.outputs.path }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -260,10 +268,16 @@ jobs:
           NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 
           # Keep large release notes out of both the environment and process arguments.
-          CHANGELOG_FILE=$(mktemp)
+          CHANGELOG_FILE="$BUILT_CHANGELOG_FILE"
+          if [[ -z "$CHANGELOG_FILE" ]]; then
+            CHANGELOG_FILE=$(mktemp)
+          fi
           trap 'rm -f -- "$CHANGELOG_FILE"' EXIT
-          if [[ -s "$BUILT_CHANGELOG_FILE" ]]; then
-            cp "$BUILT_CHANGELOG_FILE" "$CHANGELOG_FILE"
+          if [[ "$HAS_BUILT_CHANGELOG" == "true" ]]; then
+            if [[ ! -s "$CHANGELOG_FILE" ]]; then
+              echo "::error::The nonempty built changelog was not written to its file."
+              exit 1
+            fi
           elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
             DATE=$(date +"%Y-%m-%d")
             printf '%s' "Prerelease: $NAME ($DATE)" > "$CHANGELOG_FILE"

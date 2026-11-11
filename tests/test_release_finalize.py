@@ -17,7 +17,14 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/_release_fin
 
 class ReleasePayloadTests(unittest.TestCase):
     def build_payload(
-        self, *, generated: str | None = None, legacy: str | None = None, version: str = "1.2.3"
+        self,
+        *,
+        generated: str | None = None,
+        legacy: str | None = None,
+        version: str = "1.2.3",
+        file_state: str = "present",
+        builder_enabled: bool = True,
+        expected_error: bool = False,
     ) -> dict[str, object]:
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["create-gh-release"]
         build = next(step for step in job["steps"] if step.get("id") == "build-changelog")
@@ -35,14 +42,14 @@ class ReleasePayloadTests(unittest.TestCase):
                 "inputs.release-ref": "a" * 40,
                 "steps.app-token.outputs.token": "test-token",
                 "inputs.validate-only || inputs.dry-run": "true",
-                "steps.build-changelog.outputs.changelog": generated or "",
+                "steps.build-changelog.outputs.changelog": (generated or "") if builder_enabled else "",
+                "steps.build-changelog.outputs.changelog != ''": "true" if generated and builder_enabled else "false",
+                "steps.changelog-file.outputs.path": "",
             }
 
             def render(value: str) -> str:
                 return re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda match: expressions[match[1]], value)
 
-            if generated is not None and "outputFile" in build["with"]:
-                (workspace / render(build["with"]["outputFile"])).write_text(generated)
             if legacy is not None:
                 (checkout / "CHANGELOG.md").write_text(
                     f"## NVIDIA Test {version}\n\n{legacy}\n\n## Older release\nOld notes\n"
@@ -63,10 +70,41 @@ class ReleasePayloadTests(unittest.TestCase):
                 TAG_PREFIX="test-",
                 GITHUB_OUTPUT=str(workspace / "outputs"),
                 TMPDIR=str(temporary_files),
+                RUNNER_TEMP=str(temporary_files),
                 PUBLISH_MARKER=str(workspace / "published"),
                 PATH=str(commands) + os.pathsep + os.environ["PATH"],
-                **{key: render(value) for key, value in create["env"].items()},
             )
+            prepare = next((step for step in job["steps"] if step.get("id") == "changelog-file"), None)
+            if builder_enabled and prepare is not None:
+                prepared_output = workspace / "prepare-outputs"
+                prepared = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", prepare["run"]],
+                    cwd=workspace,
+                    env=dict(env, GITHUB_OUTPUT=str(prepared_output)),
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                self.assertEqual(prepared.returncode, 0, prepared.stderr[-2000:])
+                path = Path(prepared_output.read_text().strip().removeprefix("path="))
+                self.assertTrue(path.is_relative_to(temporary_files))
+                self.assertEqual(path.stat().st_size, 0)
+                expressions["steps.changelog-file.outputs.path"] = str(path)
+            built_path = (
+                workspace / render(build["with"]["outputFile"])
+                if builder_enabled
+                else checkout / "release-changelog.md"
+            )
+            if builder_enabled and generated:
+                built_path.write_text(generated)
+            if file_state == "missing":
+                built_path.unlink(missing_ok=True)
+            elif file_state == "empty":
+                built_path.write_text("")
+            elif file_state == "stale":
+                built_path.write_text("Unrelated prior notes\n")
+            env.update({key: render(value) for key, value in create["env"].items()})
             result = subprocess.run(
                 ["bash", "--noprofile", "--norc", "-euo", "pipefail", str(script)],
                 cwd=workspace,
@@ -76,10 +114,15 @@ class ReleasePayloadTests(unittest.TestCase):
                 timeout=30,
                 check=False,
             )
-            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             self.assertFalse((workspace / "published").exists())
             self.assertFalse((checkout / "unexpected-command").exists())
             self.assertEqual(list(temporary_files.iterdir()), [])
+            if expected_error:
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("The nonempty built changelog was not written to its file.", result.stdout)
+                self.assertFalse((checkout / "payload.txt").exists())
+                return {}
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             payload = json.loads((checkout / "payload.txt").read_text())
             self.assertEqual(payload["tag_name"], f"test-v{version}")
             self.assertEqual(payload["target_commitish"], "a" * 40)
@@ -116,6 +159,23 @@ class ReleasePayloadTests(unittest.TestCase):
         payload = self.build_payload(generated="Alpha notes\n", version="1.2.3a1")
         self.assertEqual(payload["body"], "Alpha notes\n")
         self.assertTrue(payload["prerelease"])
+
+    def test_nonempty_generated_notes_require_a_present_nonempty_file(self) -> None:
+        for state in ("missing", "empty"):
+            with self.subTest(file_state=state):
+                self.build_payload(generated="Expected current notes\n", file_state=state, expected_error=True)
+
+    def test_empty_generated_notes_ignore_stale_file_contents(self) -> None:
+        payload = self.build_payload(generated="", file_state="stale")
+        self.assertEqual(payload["body"], "Release: NVIDIA Test 1.2.3")
+
+    def test_disabled_builder_ignores_stale_checkout_notes(self) -> None:
+        payload = self.build_payload(builder_enabled=False, file_state="stale")
+        self.assertEqual(payload["body"], "Release: NVIDIA Test 1.2.3")
+
+    def test_newline_only_generated_notes_are_preserved(self) -> None:
+        payload = self.build_payload(generated="\n\n")
+        self.assertEqual(payload["body"], "\n\n")
 
 
 if __name__ == "__main__":

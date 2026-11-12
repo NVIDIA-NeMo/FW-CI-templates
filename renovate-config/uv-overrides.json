@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Detect simple root uv override requirements while keeping changes under maintainer control.",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Detect simple versioned requirements in root tool.uv.override-dependencies",
+      "managerFilePatterns": [
+        "/^pyproject\\.toml$/"
+      ],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "(?:^|\\r?\\n)[ \\t]*\\[tool\\.uv\\][ \\t]*(?:#[^\\r\\n]*)?(?:\\r?\\n[ \\t]*(?:[^ \\t\\[\\r\\n][^\\r\\n]*|\\[[ \\t]*(?:#[^\\r\\n]*)?)?)*",
+        "(?:^|\\r?\\n)[ \\t]*override-dependencies[ \\t]*=[ \\t]*\\[(?:\\s|#[^\\r\\n]*(?:\\r?\\n|$)|\"[^\"\\r\\n]*\"[ \\t]*,?)*\\]",
+        "(?:^|\\r?\\n)[ \\t]*(?:override-dependencies[ \\t]*=[ \\t]*\\[)?[ \\t]*(?:\"[^\"\\r\\n]*\"[ \\t]*,?[ \\t]*)+",
+        "\"(?<depName>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\\s*(?:==|>=)\\s*(?<currentValue>[0-9][0-9A-Za-z.!+_-]*)\""
+      ],
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+      "depTypeTemplate": "tool.uv.override-dependencies"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep uv overrides read-only because the regex manager does not update uv.lock.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepTypes": [
+        "tool.uv.override-dependencies"
+      ],
+      "enabled": false
+    }
+  ]
+}

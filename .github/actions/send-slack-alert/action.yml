@@ -29,4 +29,4 @@ runs:
           ]
         }')
 
-        curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $WEBHOOK
+        bash "${GITHUB_ACTION_PATH}/send_slack_alert.sh"

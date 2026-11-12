@@ -1,0 +1,790 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""The Guardwords scanner reports locations without printing matched values."""
+
+import os
+import subprocess
+import sys
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+import check_guardwords
+
+
+class GuardwordsScannerTests(unittest.TestCase):
+    def test_reports_only_file_and_line_for_added_match(self) -> None:
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -1,0 +2 @@
++value = 'sensitive-marker'
+"""
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            ["example.py:2"],
+        )
+
+    def test_matches_added_lines_starting_with_plus_signs(self) -> None:
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -0,0 +1,2 @@
++++sensitive-marker
++sensitive-marker
+"""
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            ["example.py:1", "example.py:2"],
+        )
+
+    def test_marker_in_file_header_is_not_a_match(self) -> None:
+        diff = """diff --git sensitive-marker.txt sensitive-marker.txt
+--- /dev/null
++++ sensitive-marker.txt
+@@ -0,0 +1 @@
++ordinary content
+"""
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            [],
+        )
+
+    def test_preserves_non_lf_separators_inside_added_records(self) -> None:
+        for separator in ("\u2028", "\u0085", "\r"):
+            with self.subTest(separator=repr(separator)):
+                diff = (
+                    "diff --git example.py example.py\n"
+                    "--- example.py\n"
+                    "+++ example.py\n"
+                    "@@ -0,0 +1,2 @@\n"
+                    f"+prefix{separator}sensitive-marker\n"
+                    "+sensitive-marker\n"
+                )
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    ["example.py:1", "example.py:2"],
+                )
+
+    def test_matches_crlf_added_record_and_ignores_deleted_record(self) -> None:
+        diff = (
+            "diff --git example.py example.py\n"
+            "--- example.py\n"
+            "+++ example.py\n"
+            "@@ -1 +1 @@\n"
+            "-prefix\u2028sensitive-marker\n"
+            "+sensitive-marker\r\n"
+        )
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            ["example.py:1"],
+        )
+
+    def test_ignores_deleted_match(self) -> None:
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -1 +0,0 @@
+-sensitive-marker
+"""
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            [],
+        )
+
+    def test_matches_case_insensitively(self) -> None:
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -0,0 +1 @@
++VALUE = 'Sensitive-Marker'
+"""
+
+        self.assertEqual(
+            check_guardwords.find_added_matches(
+                diff, ["sensitive-marker"], case_sensitive=False
+            ),
+            ["example.py:1"],
+        )
+
+    def test_cli_output_does_not_include_matched_value(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            patterns_file = Path(temporary_directory) / "guardwords.yaml"
+            patterns_file.write_text(
+                "version: 1\nmatching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+            diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -1,0 +2 @@
++value = 'sensitive-marker'
+"""
+            with (
+                patch.object(check_guardwords, "_git_diff", return_value=diff),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "check_guardwords.py",
+                        "--patterns",
+                        str(patterns_file),
+                        "--base",
+                        "base",
+                        "--head",
+                        "head",
+                    ],
+                ),
+            ):
+                from contextlib import redirect_stderr, redirect_stdout
+                from io import StringIO
+
+                stdout = StringIO()
+                stderr = StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = check_guardwords.main()
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "example.py:2\n")
+            self.assertNotIn("sensitive-marker", stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_private_catalog_fetch_skips_when_access_is_unavailable(self) -> None:
+        denied = subprocess.CompletedProcess(
+            args=["git", "clone"],
+            returncode=128,
+            stdout="",
+            stderr="",
+        )
+        with patch.object(check_guardwords.subprocess, "run", return_value=denied):
+            self.assertIsNone(check_guardwords._private_patterns())
+
+    def test_private_catalog_fetch_leaves_committing_index_untouched(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            catalog = workspace / "catalog"
+            catalog.mkdir()
+            self._git(catalog, "init", "--quiet")
+            (catalog / "README.md").write_text("catalog\n", encoding="utf-8")
+            (catalog / "guardwords.yaml").write_text(
+                "matching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+            self._git(catalog, "add", ".")
+            self._git(
+                catalog,
+                "-c",
+                "user.name=Guardwords Test",
+                "-c",
+                "user.email=guardwords-test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "-m",
+                "catalog",
+            )
+
+            repository = workspace / "repo"
+            repository.mkdir()
+            self._git(repository, "init", "--quiet")
+            (repository / "example.py").write_text("ordinary\n", encoding="utf-8")
+            self._git(repository, "add", ".")
+            index_before = (repository / ".git" / "index").read_bytes()
+
+            global_config = workspace / "gitconfig"
+            global_config.write_text(
+                f'[url "{catalog.as_uri()}"]\n'
+                "\tinsteadOf = https://github.com/NVIDIA-NeMo/Guardwords.git\n"
+                "[protocol \"file\"]\n\tallow = always\n",
+                encoding="utf-8",
+            )
+            # Git exports an absolute GIT_INDEX_FILE to hooks in linked worktrees and
+            # for `git commit -a` or `git commit <paths>`.
+            hook_environment = {
+                "GIT_CONFIG_GLOBAL": str(global_config),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_DIR": str(repository / ".git"),
+                "GIT_INDEX_FILE": str(repository / ".git" / "index"),
+            }
+            with patch.dict(os.environ, hook_environment):
+                configuration = check_guardwords._private_patterns()
+
+            self.assertEqual(configuration, (["sensitive-marker"], False))
+            self.assertEqual(
+                (repository / ".git" / "index").read_bytes(), index_before
+            )
+            self.assertEqual(
+                self._git(repository, "ls-files").stdout.splitlines(),
+                ["example.py"],
+            )
+
+    def test_staged_mode_skips_when_private_catalog_is_unavailable(self) -> None:
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+
+        with (
+            patch.object(check_guardwords, "_private_patterns", return_value=None),
+            patch.object(
+                sys,
+                "argv",
+                ["check_guardwords.py", "--staged", "--skip-if-unavailable"],
+            ),
+        ):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = check_guardwords.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            stdout.getvalue(),
+            "Guardwords check skipped: private catalog unavailable.\n",
+        )
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_staged_mode_fails_with_location_only(self) -> None:
+        from contextlib import redirect_stderr, redirect_stdout
+        from io import StringIO
+
+        diff = """diff --git example.py example.py
+--- example.py
++++ example.py
+@@ -1,0 +2 @@
++value = 'sensitive-marker'
+"""
+        with (
+            patch.object(
+                check_guardwords,
+                "_private_patterns",
+                return_value=(["sensitive-marker"], False),
+            ),
+            patch.object(check_guardwords, "_staged_git_diff", return_value=diff),
+            patch.object(
+                sys,
+                "argv",
+                ["check_guardwords.py", "--staged", "--skip-if-unavailable"],
+            ),
+        ):
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = check_guardwords.main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "example.py:2\n")
+        self.assertNotIn("sensitive-marker", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_diff_helpers_force_text_and_disable_textconv(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            repository = Path(temporary_directory)
+            self._git(repository, "init", "--quiet")
+            self._git(repository, "config", "user.name", "Guardwords Test")
+            self._git(
+                repository, "config", "user.email", "guardwords-test@example.invalid"
+            )
+            self._git(repository, "config", "commit.gpgsign", "false")
+            (repository / ".gitattributes").write_text(
+                "hidden.txt -diff\ntextconv.txt diff=mask\n", encoding="utf-8"
+            )
+            (repository / "hidden.txt").write_text("ordinary\n", encoding="utf-8")
+            (repository / "textconv.txt").write_text("ordinary\n", encoding="utf-8")
+            (repository / "removed.txt").write_text(
+                "sensitive-marker\n", encoding="utf-8"
+            )
+            textconv = repository / "mask-textconv.sh"
+            textconv.write_text(
+                "#!/bin/sh\nsed 's/sensitive-marker/ordinary/' \"$1\"\n",
+                encoding="utf-8",
+            )
+            textconv.chmod(0o755)
+            self._git(repository, "config", "diff.mask.textconv", str(textconv))
+            self._git(repository, "add", ".")
+            self._git(repository, "commit", "--quiet", "-m", "base")
+            base = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+
+            (repository / "hidden.txt").write_text(
+                "sensitive-marker\n", encoding="utf-8"
+            )
+            (repository / "textconv.txt").write_text(
+                "sensitive-marker\n", encoding="utf-8"
+            )
+            (repository / "removed.txt").unlink()
+            (repository / "clean-binary.bin").write_bytes(b"\x00ordinary\n")
+            self._git(repository, "add", "-A")
+
+            previous_directory = Path.cwd()
+            try:
+                os.chdir(repository)
+                staged_diff = check_guardwords._staged_git_diff()
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        staged_diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    ["hidden.txt:1", "textconv.txt:1"],
+                )
+                self._git(repository, "commit", "--quiet", "-m", "text additions")
+                head = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+                committed_diff = check_guardwords._git_diff(base, head)
+            finally:
+                os.chdir(previous_directory)
+
+            self.assertEqual(
+                check_guardwords.find_added_matches(
+                    committed_diff, ["sensitive-marker"], case_sensitive=False
+                ),
+                ["hidden.txt:1", "textconv.txt:1"],
+            )
+
+    def test_git_helpers_preserve_embedded_carriage_returns(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            repository = workspace / "repo"
+            repository.mkdir()
+            self._git(repository, "init", "--quiet")
+            self._git(repository, "config", "user.name", "Guardwords Test")
+            self._git(
+                repository, "config", "user.email", "guardwords-test@example.invalid"
+            )
+            self._git(repository, "config", "commit.gpgsign", "false")
+            (repository / "example.py").write_bytes(b"")
+            (repository / "unicode.py").write_bytes(b"")
+            (repository / "crlf.py").write_bytes(b"ordinary\r\n")
+            self._git(repository, "add", ".")
+            self._git(repository, "commit", "--quiet", "-m", "base")
+            base = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+
+            (repository / "example.py").write_bytes(
+                b"prefix\rsensitive-marker\nsensitive-marker\n"
+            )
+            (repository / "unicode.py").write_bytes(
+                b"prefix\xe2\x80\xa8sensitive-marker\nprefix\xc2\x85sensitive-marker\n"
+            )
+            (repository / "crlf.py").write_bytes(b"ordinary\r\nsensitive-marker\r\n")
+            self._git(repository, "add", "-A")
+
+            expected = [
+                "crlf.py:2",
+                "example.py:1",
+                "example.py:2",
+                "unicode.py:1",
+                "unicode.py:2",
+            ]
+            patterns_file = workspace / "guardwords.yaml"
+            patterns_file.write_text(
+                "matching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+            previous_directory = Path.cwd()
+            try:
+                os.chdir(repository)
+                staged_diff = check_guardwords._staged_git_diff()
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        staged_diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    expected,
+                )
+                staged_stdout = StringIO()
+                staged_stderr = StringIO()
+                with (
+                    patch.object(
+                        check_guardwords,
+                        "_private_patterns",
+                        return_value=(["sensitive-marker"], False),
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        ["check_guardwords.py", "--staged", "--skip-if-unavailable"],
+                    ),
+                    redirect_stdout(staged_stdout),
+                    redirect_stderr(staged_stderr),
+                ):
+                    staged_exit = check_guardwords.main()
+                self.assertEqual(staged_exit, 1)
+                self.assertEqual(staged_stdout.getvalue(), "\n".join(expected) + "\n")
+                self.assertEqual(staged_stderr.getvalue(), "")
+
+                self._git(repository, "commit", "--quiet", "-m", "embedded separators")
+                head = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+                committed_diff = check_guardwords._git_diff(base, head)
+                self.assertEqual(
+                    check_guardwords.find_added_matches(
+                        committed_diff, ["sensitive-marker"], case_sensitive=False
+                    ),
+                    expected,
+                )
+
+                committed_stdout = StringIO()
+                committed_stderr = StringIO()
+                with (
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "check_guardwords.py",
+                            "--patterns",
+                            str(patterns_file),
+                            "--base",
+                            base,
+                            "--head",
+                            head,
+                        ],
+                    ),
+                    redirect_stdout(committed_stdout),
+                    redirect_stderr(committed_stderr),
+                ):
+                    committed_exit = check_guardwords.main()
+            finally:
+                os.chdir(previous_directory)
+
+            self.assertEqual(committed_exit, 1)
+            self.assertEqual(committed_stdout.getvalue(), "\n".join(expected) + "\n")
+            self.assertNotIn("sensitive-marker", committed_stdout.getvalue())
+            self.assertEqual(committed_stderr.getvalue(), "")
+
+    def test_isolated_pip_and_scanner_ignore_pr_controlled_imports(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory)
+            repository = workspace / "repo"
+            repository.mkdir()
+            pip_package = repository / "pip"
+            pip_package.mkdir()
+            marker = repository / "pip-payload-ran"
+            (pip_package / "__init__.py").write_text("", encoding="utf-8")
+            (pip_package / "__main__.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            (repository / "yaml.py").write_text(
+                "raise RuntimeError('PR-controlled yaml import was executed')\n",
+                encoding="utf-8",
+            )
+
+            pip_result = subprocess.run(
+                [sys.executable, "-I", "-m", "pip", "--version"],
+                cwd=repository,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(pip_result.returncode, 0, pip_result.stderr)
+            self.assertFalse(marker.exists())
+
+            self._git(repository, "init", "--quiet")
+            self._git(repository, "config", "user.name", "Guardwords Test")
+            self._git(
+                repository, "config", "user.email", "guardwords-test@example.invalid"
+            )
+            self._git(repository, "config", "commit.gpgsign", "false")
+            (repository / "example.py").write_text(
+                "ordinary\nordinary\n", encoding="utf-8"
+            )
+            self._git(repository, "add", "example.py")
+            self._git(repository, "commit", "--quiet", "-m", "base")
+            base = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+            (repository / "example.py").write_text(
+                "ordinary\nsensitive-marker\n", encoding="utf-8"
+            )
+            self._git(repository, "add", "example.py")
+            self._git(repository, "commit", "--quiet", "-m", "match")
+            head = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+            patterns_file = workspace / "guardwords.yaml"
+            patterns_file.write_text(
+                "matching:\n  mode: literal\n  case_sensitive: false\n"
+                "patterns:\n  - id: synthetic\n    category: test\n    pattern: sensitive-marker\n",
+                encoding="utf-8",
+            )
+
+            command = [
+                sys.executable,
+                "-I",
+                str(Path(check_guardwords.__file__).resolve()),
+                "--patterns",
+                str(patterns_file),
+            ]
+            result = subprocess.run(
+                [*command, "--base", base, "--head", head],
+                cwd=repository,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.stdout, "example.py:2\n")
+            self.assertNotIn("sensitive-marker", result.stdout)
+            self.assertEqual(result.stderr, "")
+            self.assertFalse(marker.exists())
+
+            (repository / "clean.py").write_text(
+                "ordinary addition\n", encoding="utf-8"
+            )
+            self._git(repository, "add", "clean.py")
+            self._git(repository, "commit", "--quiet", "-m", "clean addition")
+            clean_head = self._git(repository, "rev-parse", "HEAD").stdout.strip()
+            clean_result = subprocess.run(
+                [*command, "--base", head, "--head", clean_head],
+                cwd=repository,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(clean_result.returncode, 0, clean_result.stderr)
+            self.assertEqual(clean_result.stdout, "")
+
+            patterns_file.write_text("not: [valid", encoding="utf-8")
+            invalid_result = subprocess.run(
+                [*command, "--base", base, "--head", head],
+                cwd=repository,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(invalid_result.returncode, 2)
+            self.assertEqual(invalid_result.stdout, "")
+            self.assertEqual(invalid_result.stderr, "")
+            self.assertFalse(marker.exists())
+
+    @staticmethod
+    def _git(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(repository), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
+class GuardwordsDescriptionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workspace = TemporaryDirectory()
+        self.addCleanup(self.workspace.cleanup)
+        self.root = Path(self.workspace.name)
+        self.repository = self.root / "repo"
+        self.repository.mkdir()
+        self._git("init", "--quiet")
+        self._git("config", "user.name", "Guardwords Test")
+        self._git("config", "user.email", "guardwords-test@example.invalid")
+        self._git("config", "commit.gpgsign", "false")
+        (self.repository / "example.py").write_text("ordinary\n", encoding="utf-8")
+        self._git("add", "example.py")
+        self._git("commit", "--quiet", "-m", "base")
+        self.base = self._git("rev-parse", "HEAD").stdout.strip()
+        self.patterns = self.root / "guardwords.yaml"
+        self.patterns.write_text(
+            "matching:\n  mode: literal\n  case_sensitive: false\n"
+            "patterns:\n  - pattern: sensitive-marker\n",
+            encoding="utf-8",
+        )
+        self.description = self.root / "description.txt"
+        self.description.write_text("ordinary description\n", encoding="utf-8")
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(self.repository), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _scan(
+        self, *, include_description: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        command = [
+            sys.executable,
+            "-I",
+            str(Path(check_guardwords.__file__).resolve()),
+            "--patterns",
+            str(self.patterns),
+            "--base",
+            self.base,
+            "--head",
+            "HEAD",
+        ]
+        if include_description:
+            command.extend(["--pr-description-file", str(self.description)])
+        return subprocess.run(
+            command, cwd=self.repository, capture_output=True, text=True
+        )
+
+    def test_description_only_match_reports_locations_without_text(self) -> None:
+        self.description.write_text(
+            "# Summary\nSensitive-Marker and sensitive-marker\n\nSENSITIVE-MARKER\n",
+            encoding="utf-8",
+        )
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "PR description:2\nPR description:4\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_reports_diff_and_description_matches_together(self) -> None:
+        (self.repository / "example.py").write_text(
+            "sensitive-marker\n", encoding="utf-8"
+        )
+        self._git("add", "example.py")
+        self._git("commit", "--quiet", "-m", "synthetic addition")
+        self.description.write_text("sensitive-marker\n", encoding="utf-8")
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "example.py:1\nPR description:1\n")
+        self.assertEqual(result.stderr, "")
+
+    def test_clean_empty_and_omitted_descriptions_pass(self) -> None:
+        for description in ["ordinary description\n", ""]:
+            with self.subTest(description=description):
+                self.description.write_text(description, encoding="utf-8")
+                result = self._scan()
+                self.assertEqual(
+                    (result.returncode, result.stdout, result.stderr), (0, "", "")
+                )
+        self.description.unlink()
+        result = self._scan(include_description=False)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_description_read_errors_fail_without_disclosure(self) -> None:
+        self.description.unlink()
+        result = self._scan()
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (2, "", ""))
+        self.description.write_bytes(b"sensitive-marker\xff")
+        result = self._scan()
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (2, "", ""))
+
+    def test_case_sensitive_description_matching(self) -> None:
+        self.patterns.write_text(self.patterns.read_text().replace("false", "true"))
+        self.description.write_text(
+            "Sensitive-Marker\nsensitive-marker\n", encoding="utf-8"
+        )
+        result = self._scan()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "PR description:2\n")
+
+    def test_workflow_fetches_description_without_logging_or_shell_execution(
+        self,
+    ) -> None:
+        import json
+        import yaml
+
+        scripts = Path(__file__).resolve().parent
+        workflow = yaml.safe_load(
+            (scripts.parent / "workflows" / "_guardwords_check.yml").read_text()
+        )
+        step = workflow["jobs"]["guardwords-check"]["steps"][-1]
+        self.assertNotIn("PR_DESCRIPTION", step["env"])
+        self.assertNotIn("inputs.pr-description", step["run"])
+        self.assertEqual(workflow["permissions"]["pull-requests"], "read")
+        checker = self.repository / "guardwords-checker" / ".github" / "scripts"
+        checker.mkdir(parents=True)
+        for name in ["check_guardwords.py", "fetch_pr_description.py"]:
+            (checker / name).write_bytes((scripts / name).read_bytes())
+        marker = self.root / "shell-payload-ran"
+        api_response = self.root / "response.json"
+        api_response.write_text(
+            json.dumps(
+                {
+                    "number": 42,
+                    "base": {"repo": {"full_name": "example/repo"}},
+                    "head": {"sha": self.base},
+                    "body": f"$(touch {marker}) `touch {marker}`\n+++ sensitive-marker\n@@ -1 +99 @@\n",
+                }
+            )
+        )
+        binary_dir = self.root / "bin"
+        binary_dir.mkdir()
+        python_shim = binary_dir / "python3"
+        python_shim.write_text(
+            "#!" + sys.executable + "\n"
+            "import io, os, runpy, sys, urllib.request\n"
+            "from pathlib import Path\n"
+            "if sys.argv[2].endswith('fetch_pr_description.py'):\n"
+            "    urllib.request.urlopen = lambda *a, **k: io.BytesIO(Path(os.environ['TEST_API_RESPONSE']).read_bytes())\n"
+            "    sys.argv = sys.argv[2:]\n"
+            "    runpy.run_path(sys.argv[0], run_name='__main__')\n"
+            "else:\n"
+            "    os.execv(sys.executable, [sys.executable] + sys.argv[1:])\n"
+        )
+        python_shim.chmod(0o755)
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PATH": str(binary_dir) + os.pathsep + environment["PATH"],
+                "GUARDWORDS_FILE": str(self.patterns),
+                "GH_TOKEN": "synthetic-token",
+                "PR_NUMBER": "42",
+                "PR_REPOSITORY": "example/repo",
+                "BASE_SHA": self.base,
+                "HEAD_SHA": self.base,
+                "TEST_API_RESPONSE": str(api_response),
+                "TMPDIR": str(self.root),
+            }
+        )
+        # Include the runner's displayed script and environment to catch logging regressions.
+        displayed_configuration = step["run"] + "\n".join(
+            f"{key}: {environment[key]}" for key in step["env"]
+        )
+        self.assertNotIn("sensitive-marker", displayed_configuration)
+        result = subprocess.run(
+            ["bash", "-e", "-c", step["run"]],
+            cwd=self.repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            (result.returncode, result.stdout, result.stderr),
+            (1, "PR description:2\n", ""),
+        )
+        self.assertFalse(marker.exists())
+        self.assertEqual(list(self.root.glob("tmp.*")), [])
+        environment["PR_NUMBER"] = "0"
+        api_response.unlink()
+        result = subprocess.run(
+            ["bash", "-e", "-c", step["run"]],
+            cwd=self.repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+
+if __name__ == "__main__":
+    unittest.main()

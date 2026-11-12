@@ -45,6 +45,8 @@ WAITING_ON_CUSTOMER_LABEL = "waiting-on-customer"
 WAITING_ON_CUSTOMER_COLOR = "c2e0c6"
 WAITING_ON_CUSTOMER_DESCRIPTION = "Waiting on the original author to respond"
 
+APPROVED_LABEL = "Approved"
+
 SKIPPED_REPOS = {"Megatron-Bridge"}
 
 CLASSIFICATION_SYSTEM_PROMPT = """\
@@ -258,11 +260,67 @@ def _is_excluded(item: dict) -> bool:
     )
 
 
+def _get_waiting_linked_pr_urls(content: dict) -> list[str]:
+    """Return open linked PR URLs carrying the waiting-on-maintainers label."""
+    linked_prs = content.get("closedByPullRequestsReferences", {}).get("nodes", [])
+    waiting_pr_urls: list[str] = []
+
+    for pull_request in linked_prs:
+        if pull_request.get("state") != "OPEN":
+            continue
+
+        labels = pull_request.get("labels", {}).get("nodes", [])
+        label_names = {label.get("name", "") for label in labels}
+        if WAITING_ON_MAINTAINERS_LABEL in label_names:
+            waiting_pr_urls.append(pull_request.get("url", ""))
+
+    return [url for url in waiting_pr_urls if url]
+
+
+def _determine_needs_attention(
+    *,
+    item_type: str,
+    repo_name: str,
+    classification: str,
+    last_comment_date: str,
+    last_approval_date: str = "",
+    all_reviewers_approved: bool = False,
+    has_approved_label: bool = False,
+    has_waiting_linked_pr: bool = False,
+    now: datetime | None = None,
+) -> tuple[bool, bool, bool]:
+    """Calculate follow-up state and report which staleness rules matched.
+
+    Returns (needs_attention, comment_is_stale, approved_unmerged_override).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    cutoff = now - timedelta(hours=48)
+    comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
+    is_stale = comment_dt < cutoff
+    needs_attention = classification == "waiting-on-maintainers" and is_stale
+
+    approved_unmerged = False
+    if item_type == "PullRequest" and last_approval_date and all_reviewers_approved:
+        approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
+        megatron_approval_gate_passed = repo_name != "Megatron-LM" or has_approved_label
+        approved_unmerged = approval_dt < cutoff and megatron_approval_gate_passed
+        if approved_unmerged:
+            needs_attention = True
+
+    if item_type == "Issue" and has_waiting_linked_pr:
+        needs_attention = False
+
+    return needs_attention, is_stale, approved_unmerged
+
+
 def update_labels(issues: list[dict], org: str, token: str):
     """Update labels on all issues based on LLM classification.
 
     - waiting-on-maintainers (needs_attention=True): add waiting-on-maintainers, remove waiting-on-customer
     - waiting-on-author (needs_attention=False): add waiting-on-customer, remove waiting-on-maintainers
+    - Issues with a linked PR waiting on maintainers: remove waiting-on-maintainers
     - Excluded items (Megatron-LM dev PRs, draft PRs): remove both labels
     - Migration: remove deprecated 'needs-follow-up' label wherever found
     """
@@ -372,6 +430,19 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                   labels(first: 100) {
                     nodes {
                       name
+                    }
+                  }
+                  closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
+                    totalCount
+                    nodes {
+                      url
+                      state
+                      labels(first: 50) {
+                        totalCount
+                        nodes {
+                          name
+                        }
+                      }
                     }
                   }
                 }
@@ -485,6 +556,21 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
             has_maintainers_label = WAITING_ON_MAINTAINERS_LABEL in label_names
             has_waiting_on_customer_label = WAITING_ON_CUSTOMER_LABEL in label_names
             has_deprecated_label = DEPRECATED_NEEDS_FOLLOWUP_LABEL in label_names
+            has_approved_label = APPROVED_LABEL in label_names
+
+            waiting_linked_pr_urls = []
+            if item_type == "Issue":
+                waiting_linked_pr_urls = _get_waiting_linked_pr_urls(content)
+
+                linked_prs = content.get("closedByPullRequestsReferences", {})
+                linked_pr_nodes = linked_prs.get("nodes", [])
+                if linked_prs.get("totalCount", 0) > len(linked_pr_nodes):
+                    print(f"  Warning: linked PR results truncated for {repo_name}#{content.get('number')}")
+                for linked_pr in linked_pr_nodes:
+                    linked_labels = linked_pr.get("labels", {})
+                    if linked_labels.get("totalCount", 0) > len(linked_labels.get("nodes", [])):
+                        print(f"  Warning: linked PR labels truncated for {linked_pr.get('url', 'unknown PR')}")
+            has_waiting_linked_pr = bool(waiting_linked_pr_urls)
 
             # Only include open issues/PRs (also include closed items with labels to clean up)
             if content.get("state") != "OPEN" and not has_maintainers_label and not has_waiting_on_customer_label and not has_deprecated_label:
@@ -614,6 +700,9 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 "has_maintainers_label": has_maintainers_label,
                 "has_waiting_on_customer_label": has_waiting_on_customer_label,
                 "has_deprecated_label": has_deprecated_label,
+                "has_approved_label": has_approved_label,
+                "has_waiting_linked_pr": has_waiting_linked_pr,
+                "waiting_linked_pr_urls": waiting_linked_pr_urls,
                 "target_branch": target_branch,
                 "is_draft": is_draft,
                 "last_approval_date": last_approval_date,
@@ -626,24 +715,23 @@ def fetch_project_items(org: str, project_number: int, token: str, llm_client: o
                 classification = classify_with_llm(llm_client, llm_model, item_dict)
                 item_dict["classification"] = classification
 
-                # Only flag as needing attention if classified as waiting-on-maintainers
-                # AND the last comment is more than 48 hours old
-                comment_dt = datetime.fromisoformat(last_comment_date.replace("Z", "+00:00"))
-                is_stale = comment_dt < datetime.now(timezone.utc) - timedelta(hours=48)
-                item_dict["needs_attention"] = classification == "waiting-on-maintainers" and is_stale
+                item_dict["needs_attention"], is_stale, approved_unmerged = _determine_needs_attention(
+                    item_type=item_type,
+                    repo_name=repo_name,
+                    classification=classification,
+                    last_comment_date=last_comment_date,
+                    last_approval_date=last_approval_date,
+                    all_reviewers_approved=all_reviewers_approved,
+                    has_approved_label=has_approved_label,
+                    has_waiting_linked_pr=has_waiting_linked_pr,
+                )
 
-                # Approved PRs not merged after 48 hours need follow-up,
-                # but only if ALL reviewers' latest reviews are approvals.
-                # If any reviewer's latest state is not APPROVED (e.g.
-                # changes requested, commented, dismissed), defer to the
-                # LLM classification instead.
-                if item_type == "PullRequest" and last_approval_date and all_reviewers_approved:
-                    approval_dt = datetime.fromisoformat(last_approval_date.replace("Z", "+00:00"))
-                    approval_stale = approval_dt < datetime.now(timezone.utc) - timedelta(hours=48)
-                    if approval_stale:
-                        item_dict["needs_attention"] = True
-
-                print(f"  {item_dict['url']}: {classification} (stale={is_stale}, approved_unmerged={'48h+' if item_type == 'PullRequest' and last_approval_date and item_dict['needs_attention'] else 'n/a'})")
+                linked_pr_note = ", ".join(waiting_linked_pr_urls) if waiting_linked_pr_urls else "n/a"
+                print(
+                    f"  {item_dict['url']}: {classification} "
+                    f"(stale={is_stale}, approved_unmerged={'48h+' if approved_unmerged else 'n/a'}, "
+                    f"suppressed_by_linked_pr={linked_pr_note})"
+                )
 
             items_list.append(item_dict)
 
@@ -698,6 +786,9 @@ def write_debug_csv(items: list[dict], org: str, output_path: str):
         "has_waiting_on_customer_label",
         "waiting_on_customer_action",
         "has_deprecated_label",
+        "has_waiting_linked_pr",
+        "waiting_linked_pr_urls",
+        "suppression_reason",
     ]
 
     with open(output_path, "w", newline="") as f:
@@ -739,6 +830,9 @@ def write_debug_csv(items: list[dict], org: str, output_path: str):
                 "has_waiting_on_customer_label": item["has_waiting_on_customer_label"],
                 "waiting_on_customer_action": waiting_action,
                 "has_deprecated_label": item.get("has_deprecated_label", False),
+                "has_waiting_linked_pr": item.get("has_waiting_linked_pr", False),
+                "waiting_linked_pr_urls": ",".join(item.get("waiting_linked_pr_urls", [])),
+                "suppression_reason": "linked-pr-waiting-on-maintainers" if item.get("has_waiting_linked_pr") else "",
             })
 
     print(f"Debug CSV written to {output_path}")

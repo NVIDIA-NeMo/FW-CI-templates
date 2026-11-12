@@ -1,5 +1,259 @@
 # Changelog
 
+## [1.16.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.0...v1.16.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* diff suggested-reviewer changed files against the PR merge-base ([#616](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/616)) ([5568008](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/556800827f7d58d3ecf5a2a6d76477947fe0f15e))
+
+## [1.16.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.1...v1.16.0) (2026-11-06)
+
+
+### Features
+
+* add Autobot review configuration ([#613](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/613)) ([1a6de61](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/1a6de61788b18256d5dbb6a62ecc5e450ae51983))
+* add shared grouped Python Renovate presets ([#604](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/604)) ([c28ec96](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c28ec9648579c60ee7f77b397d911feb22c39f37))
+
+
+### Bug Fixes
+
+* **suggest-reviewers:** read CODEOWNERS from the default branch ([#615](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/615)) ([848a6f2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/848a6f2ec3ee5cef76a373136cde098e6293a467))
+
+## [1.15.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.15.0...v1.15.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* keep the guardwords catalog clone out of the committing index ([#605](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/605)) ([44fb48a](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/44fb48a001ae2aa3eb63801406b18f0d142c6f01))
+
+## [1.15.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.14.0...v1.15.0) (2026-10-12)
+
+
+### Features
+
+* scan PR descriptions in the guardwords workflow ([#602](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/602)) ([3453d89](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3453d898b59a43d4dadbfb168dff81fc7ce88074))
+
+## [1.14.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.13.0...v1.14.0) (2026-10-09)
+
+
+### Features
+
+* add reusable guardwords check workflow ([#599](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/599)) ([a5aaf7d](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/a5aaf7d8b074d6b04d06f75566a57eda2fd7e173))
+
+## [1.13.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.2...v1.13.0) (2026-10-08)
+
+
+### Features
+
+* add shared CI failure Slack summary action ([#593](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/593)) ([631c404](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/631c404d00a9e60afc591cd071d35d2e18f82fc6))
+* **code-freeze:** add github app authentication ([#592](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/592)) ([61445a1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/61445a177938967f70c94094b98402e979452151))
+* ping PR author and merger on cherry-pick failure alert ([#597](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/597)) ([ae97cb2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/ae97cb2b59c62c194d71a7c95111acc85715808b))
+
+## [1.12.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.1...v1.12.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* open the cherry-pick PR as PAT, not the App token ([#589](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/589)) ([773c653](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/773c65328c4ade3106483cafed7fbbf78e9816ae))
+
+## [1.12.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.12.0...v1.12.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* use PAT, not the App token, for the /ok to test comment ([#587](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/587)) ([5d6b32f](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5d6b32f25afe29f62549ec8238b88c24ee8ff6aa))
+
+## [1.12.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.11.0...v1.12.0) (2026-09-30)
+
+
+### Features
+
+* support single-target cherry-pick direction and CI label carryover ([#584](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/584)) ([486cfe7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/486cfe7f4ce409ec3b6c06f46beead444fb20c3b))
+
+## [1.11.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.1...v1.11.0) (2026-09-23)
+
+
+### Features
+
+* add build wheel environment input ([#566](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/566)) ([4ba12f7](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4ba12f712f03d20c9fe60ddb959117ceec7fdd74))
+
+
+### Bug Fixes
+
+* refresh SSO release assets before retrying downloads ([#582](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/582)) ([dd2a544](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/dd2a5444b3d2870911e73430714626eed2316351))
+
+## [1.10.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.10.0...v1.10.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* read changed-files matches from disk, not a giant env var ([#573](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/573)) ([28c72f8](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/28c72f837e145313e789b4e8dbc18fc66f049d4c))
+
+## [1.10.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.2...v1.10.0) (2026-09-15)
+
+
+### Features
+
+* Python port of _suggest_reviewers.yml (no JS/actions-github-script) ([#570](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/570)) ([3f26101](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3f2610125e0dd3c2dbde78598911b285ae421e0c))
+* Python port of the CODEOWNERS org-membership check ([#571](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/571)) ([c323d18](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/c323d1895284bf5d9ba68c95bd5f531b68e12822))
+
+## [1.9.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.1...v1.9.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* expose attempt-independent runner label base ([#567](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/567)) ([2f35537](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2f3553721a14d3ba6b48d72383b7c39224c6539a))
+
+## [1.9.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.9.0...v1.9.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* AUT-2166 tighten Claude review authorization ([#561](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/561)) ([6f6f506](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6f6f50631fadf4a3f7b813926e80322fb82bfccc))
+* fail Slack alerts on HTTP rejection ([#563](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/563)) ([5bc7a03](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5bc7a0327f326f97eed97b17f1458f2a3376b848))
+
+## [1.9.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.10...v1.9.0) (2026-08-26)
+
+
+### Features
+
+* add ephemeral runner routing workflow ([#560](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/560)) ([4a2b02c](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/4a2b02ca23c9b42d9f87c9597e90685cd70b6117))
+
+
+### Bug Fixes
+
+* avoid duplicate community follow-up labels ([#548](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/548)) ([f1fdd63](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f1fdd634b464dd3aebb6c7dec9beead24f19183f))
+
+## [1.8.10](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.9...v1.8.10) (2026-08-13)
+
+
+### Bug Fixes
+
+* abort when SSO list download fails ([#547](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/547)) ([87d7dd1](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/87d7dd1b638a0c47058a195e0e60ee79df1afa6b))
+* resolve cherry-pick pull requests from merge commits ([#544](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/544)) ([6e5017e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6e5017e435b6904acfef8ae38c90c9a431505d3b))
+
+## [1.8.9](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.8...v1.8.9) (2026-08-07)
+
+
+### Bug Fixes
+
+* **community:** route app tokens by installation ([#541](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/541)) ([eebe2d3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/eebe2d394f9f5c0857d009767e471191e8954fe2))
+
+## [1.8.8](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.7...v1.8.8) (2026-08-06)
+
+
+### Bug Fixes
+
+* preserve community bot membership checks ([#538](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/538)) ([559a1f9](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/559a1f9f1918be82363afb2cbc8ee824e19acf6f))
+
+## [1.8.7](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.6...v1.8.7) (2026-08-03)
+
+
+### Bug Fixes
+
+* trust svcnemo-autobot in community labeling ([#535](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/535)) ([df8dcb4](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/df8dcb48d0749dabb5eae5ff45d36d7f0bf571b8))
+
+## [1.8.6](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.5...v1.8.6) (2026-08-02)
+
+
+### Bug Fixes
+
+* trust svcnemo-autobot in SSO check ([#533](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/533)) ([e58e3b6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e58e3b6631161a5de373d4acc45523a8b647be5d))
+
+## [1.8.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.4...v1.8.5) (2026-07-29)
+
+
+### Bug Fixes
+
+* tolerate trailing whitespace in /claude review trigger phrase ([#531](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/531)) ([220aeab](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/220aeab0838301875d9182fe9aa408c9eed9f2a5))
+
+## [1.8.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.3...v1.8.4) (2026-07-15)
+
+
+### Bug Fixes
+
+* Claude review comment identity and publish contract ([#525](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/525)) ([e630cd2](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e630cd279a71a988c168aa7d8be1bb0c34290f3b))
+
+## [1.8.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.2...v1.8.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* allow Claude review top-level PR comments ([#523](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/523)) ([3ce78b3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3ce78b38564a6e2ac3443ef350cd4dc3b77fa5e8))
+
+## [1.8.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.1...v1.8.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* Fix claude review merge conflict ([#521](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/521)) ([e06f922](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/e06f922ac5241af765420f612cdea717c4982c4c))
+
+## [1.8.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.8.0...v1.8.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* harden automated code review ([#519](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/519)) ([4080220](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/40802207e5230f2a4632598c0a8100f953507224))
+
+## [1.8.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.5...v1.8.0) (2026-07-09)
+
+
+### Features
+
+* AUT-760 pin GitHub Actions to immutable commit SHAs ([#513](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/513)) ([f567841](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f56784116c79108e19370caa7f6bd9c5d52dd7dd))
+* **docs:** Get Fern token from AWS Secrets Mgr ([#508](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/508)) ([63b9543](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/63b95437a95aad077ebb76c6a98bea86ae62af41))
+
+## [1.7.5](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.4...v1.7.5) (2026-07-09)
+
+
+### Bug Fixes
+
+* handle local copyright base refs ([#516](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/516)) ([5cb7260](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5cb7260d389ee8473778e0d91edb21476fcdaad9))
+
+## [1.7.4](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.3...v1.7.4) (2026-07-08)
+
+
+### Bug Fixes
+
+* checkout reusable workflow source for copyright checker ([#514](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/514)) ([5510b97](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/5510b9763cfb111707fa6b378d5daf731f47325c))
+
+## [1.7.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.2...v1.7.3) (2026-07-08)
+
+
+### Bug Fixes
+
+* use workflow ref for copyright checker ([#511](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/511)) ([350e7f6](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/350e7f6acecc59c1d52ffbac4057d1bf60226fa5))
+
+## [1.7.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.7.1...v1.7.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* accept SPDX copyright headers ([#510](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/510)) ([6be5b36](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6be5b360f060d87f8e30aac11796229d504473eb))
+* remove hardcoded uv 0.7.2 pin in build-wheel step ([#503](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/503)) ([961fcdf](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/961fcdf928e59c0fb71e001c15eb25ee2deb5a39))
+
+## [1.6.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.1...v1.6.0) (2026-06-25)
+
+
+### Features
+
+* Use deployment: false for environments ([#498](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/498)) ([2d1e439](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/2d1e439bb124b6c49de612a6761131952ab33930))
+
+## [1.5.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.5.0...v1.5.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* Add GITHUB_TOKEN to all community bot steps ([#495](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/495)) ([0211d55](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0211d5507fef149a83de50b2cf5723b595ee06b2))
+
+## [1.5.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.3...v1.5.0) (2026-06-03)
+
+
+### Features
+
+* Use app token for community bot ([#493](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/493)) ([3ca4f19](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/3ca4f19b8e909b5b3e18f55b08d19f73d16a9b05))
+
 ## [1.4.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.4.2...v1.4.3) (2026-06-03)
 
 

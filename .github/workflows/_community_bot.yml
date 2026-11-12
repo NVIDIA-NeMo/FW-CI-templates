@@ -20,9 +20,17 @@ on:
         required: false
         description: The issue author to test with
         type: string
+      app-id:
+        required: false
+        description: The GitHub App ID to use for the bot token
+        type: string
+        default: ""
     secrets:
+      BOT_KEY:
+        required: false
       GH_TOKEN:
-        required: true
+        description: Optional legacy PAT fallback
+        required: false
 
 jobs:
   manage-community-label:
@@ -30,24 +38,54 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    environment: ${{ inputs.environment }}
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ISSUE_NUMBER: ${{ github.event_name == 'push' && inputs.issue_number || github.event.issue.number }}
       COMMUNITY_PROJECT_ID: ${{ inputs.community_project_id }}
+      REPO: ${{ github.repository }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - name: Create repository GitHub App token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: repo-app-token
         with:
-          token: ${{ secrets.GH_TOKEN }}
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-members: read
+          permission-metadata: read
+          permission-organization-projects: ${{ github.repository_owner == 'NVIDIA-NeMo' && 'write' || '' }}
+          permission-pull-requests: write
+
+      - name: Create cross-organization GitHub App token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: cross-org-app-token
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          # The workflow is shared by repositories in these two organizations.
+          owner: ${{ github.repository_owner == 'NVIDIA-NeMo' && 'NVIDIA' || 'NVIDIA-NeMo' }}
+          permission-members: read
+          permission-organization-projects: ${{ github.repository_owner != 'NVIDIA-NeMo' && 'write' || '' }}
+
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          token: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
 
       - name: Check pre-conditions
         id: pre-flight
         env:
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
           IS_VALID_EVENT: ${{ github.event_name == 'issues' || github.event_name == 'issue_comment' }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ISSUE_AUTHOR: ${{ github.event_name == 'push' && inputs.issue_author || github.event.issue.user.login }}
-          REPO: ${{ github.repository }}
+          REPO_GITHUB_TOKEN: ${{ steps.repo-app-token.outputs.token || secrets.GH_TOKEN || github.token }}
+          NVIDIA_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA-NeMo' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
+          NVIDIA_NEMO_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         run: |
           # Get the username who triggered the action
           USERNAME="${{ github.actor }}"
@@ -55,47 +93,68 @@ jobs:
           # For manual testing, always treat as community user
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "Manual test mode - treating as community user"
-            echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
-            echo "is_valid_event=true" | tee -a $GITHUB_OUTPUT
-            echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
+            echo "is_maintainer=false" | tee -a "$GITHUB_OUTPUT"
+            echo "is_valid_event=true" | tee -a "$GITHUB_OUTPUT"
+            echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Checking if $ISSUE_AUTHOR is a repo collaborator..."
-          API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
-          REPO_MEMBERSHIP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            $API_URL)
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR)
+              IS_ASSOCIATED=true
+              ;;
+            *)
+              IS_ASSOCIATED=false
+              ;;
+          esac
 
-          echo "Checking if $ISSUE_AUTHOR is an org collaborator to NVIDIA-NeMo..."
-          API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$ISSUE_AUTHOR"
-          ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            $API_URL)
-
-          echo "Checking if $ISSUE_AUTHOR is an org collaborator to NVIDIA..."
-          API_URL="https://api.github.com/orgs/NVIDIA/members/$ISSUE_AUTHOR"
-          ORG_NVIDIA_MEMBERSHIP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            $API_URL)
-
-          if [ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 ] || [ "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]; then
-            echo "is_maintainer=true" | tee -a $GITHUB_OUTPUT
+          if [[ "$ISSUE_AUTHOR" = "svcnemo-autobot" || "$IS_ASSOCIATED" = "true" ]]; then
+            IS_MAINTAINER=true
           else
-            echo "is_maintainer=false" | tee -a $GITHUB_OUTPUT
+            echo "Checking if $ISSUE_AUTHOR is a repo collaborator..."
+            API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
+            REPO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
+              --write-out "%{http_code}" --location \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $REPO_GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API_URL")
+
+            echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA-NeMo..."
+            API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$ISSUE_AUTHOR"
+            ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error \
+              --output /dev/null --write-out "%{http_code}" --location \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $NVIDIA_NEMO_GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API_URL")
+
+            echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA..."
+            API_URL="https://api.github.com/orgs/NVIDIA/members/$ISSUE_AUTHOR"
+            ORG_NVIDIA_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
+              --write-out "%{http_code}" --location \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $NVIDIA_GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API_URL")
+
+            if [[ "$REPO_MEMBERSHIP_RESPONSE" -eq 204 \
+              || "$ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE" -eq 204 \
+              || "$ORG_NVIDIA_MEMBERSHIP_RESPONSE" -eq 204 ]]; then
+              IS_MAINTAINER=true
+            else
+              IS_MAINTAINER=false
+            fi
           fi
 
-          echo "is_valid_event=$IS_VALID_EVENT" | tee -a $GITHUB_OUTPUT
-
-          echo "username=$USERNAME" | tee -a $GITHUB_OUTPUT
+          echo "is_maintainer=$IS_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
+          echo "is_valid_event=$IS_VALID_EVENT" | tee -a "$GITHUB_OUTPUT"
+          echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
 
       - name: Add community-request label for community users
+        env:
+          # Legacy Apps may only label pull requests; migrated Apps handle both issue types.
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
@@ -103,18 +162,20 @@ jobs:
           )
         run: |
           # Add the community-request label
-          gh issue edit $ISSUE_NUMBER --add-label "community-request"
+          gh issue edit "$ISSUE_NUMBER" --add-label "community-request"
 
       - name: Add community issue to community project
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          # The project lives in NVIDIA-NeMo even when the caller repository lives in NVIDIA.
+          GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'false'
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
         run: |
-          ISSUE_NODE_ID=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUMBER --jq .node_id)
+          ISSUE_NODE_ID=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER" --jq .node_id)
+          # shellcheck disable=SC2016
           PROJECT_NODE_ID=$(gh api graphql -f query='
             query($projectNumber: Int!) {
               organization(login: "NVIDIA-NeMo") {
@@ -127,6 +188,7 @@ jobs:
           echo "Project ID: $PROJECT_NODE_ID"
           echo "Adding issue $ISSUE_NUMBER to project $COMMUNITY_PROJECT_ID"
 
+          # shellcheck disable=SC2016
           RESPONSE=$(gh api graphql -f query='
               mutation($project:ID!, $issue:ID!) {
                   addProjectV2ItemById(input: {projectId: $project, contentId: $issue}) {
@@ -136,13 +198,15 @@ jobs:
                   }
               }' -f project="$PROJECT_NODE_ID" -f issue="$ISSUE_NODE_ID")
 
-          echo $RESPONSE
+          echo "$RESPONSE"
 
-          if echo "$RESPONSE" | grep -q "error"; then
+          if grep -q "error" <<< "$RESPONSE"; then
             exit 1
           fi
 
       - name: Remove community-request label for maintainers
+        env:
+          GITHUB_TOKEN: ${{ github.event.issue.pull_request && steps.repo-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         if: |
           (
             steps.pre-flight.outputs.is_maintainer == 'true'

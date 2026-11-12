@@ -1,0 +1,252 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Python port of _validate_codeowners_membership.yml (see the JS version in
+# NVIDIA-NeMo/FW-CI-templates#569 for the original). Only one step in the
+# original used actions/github-script -- everything else was already plain
+# bash (`gh api`/`jq`) or composite actions, so this port only touches that
+# one step.
+#
+# Every user/team referenced in the calling repo's .github/CODEOWNERS --
+# BOTH real (enforced) lines and `# suggest:` lines, teams expanded to their
+# full current membership -- must be a current NVIDIA-NeMo org member. Fails
+# (and alerts Slack) otherwise.
+#
+# Deliberately NOT triggered per-PR: intended to be scheduled by the caller
+# instead (see the example caller below). A departed member makes
+# _suggest_reviewers.yml's reviewer-request API call fail atomically for the
+# ENTIRE suggestion batch wherever they'd be suggested (single batch call,
+# see that workflow's comment on it) -- so this needs to be caught promptly
+# on its own cadence, independent of whichever PR happens to touch a
+# CODEOWNERS-covered path first, not as a per-PR check that only 1 in N PRs
+# would even exercise.
+#
+# Example caller:
+#
+# name: Validate CODEOWNERS Membership
+#
+# on:
+#   schedule:
+#     - cron: "0 */4 * * *"
+#   workflow_dispatch:
+#
+# jobs:
+#   validate-codeowners-membership:
+#     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_validate_codeowners_membership.yml@main
+#     secrets:
+#       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+#       SLACK_TEAM_CHANNEL_WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
+
+on:
+  workflow_call:
+    inputs:
+      workflow_ref:
+        description: "Ref of this repo (FW-CI-templates) to check out for shared scripts/actions"
+        required: false
+        default: main
+        type: string
+    secrets:
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: "Org-scoped PAT used to check org membership and expand team membership"
+        required: true
+      SLACK_TEAM_CHANNEL_WEBHOOK:
+        description: "Slack webhook to alert on if any referenced user/team member fails the membership check. Optional: skips the alert (job still fails) if absent."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  extract-codeowners-users:
+    runs-on: ubuntu-latest
+    outputs:
+      usernames: ${{ steps.expand.outputs.usernames }}
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          sparse-checkout: |
+            .github/CODEOWNERS
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      # Validates every owner token here, before it goes anywhere else. Both
+      # downstream consumers of `users`/`teams` interpolate them into shell
+      # commands rather than treating them as inert data:
+      #   - the "Expand teams to member usernames" step below embeds each team
+      #     into a DOUBLE-QUOTED "orgs/${org}/teams/${slug}/members" string,
+      #     where bash still performs $(...) command substitution, with
+      #     NVIDIA_MANAGEMENT_ORG_PAT sitting in that same step's env
+      #   - check-nvidia-sso/action.yml assigns `USERNAME="${{ inputs.username }}"`
+      #     via raw GitHub Actions expression substitution before bash ever
+      #     parses the line, so a token containing `"` or `` ` `` breaks out
+      # A real GitHub login/team-slug can never contain shell metacharacters,
+      # so rejecting anything that doesn't match closes both paths at once
+      # instead of patching each shell script individually.
+      - name: Parse CODEOWNERS users and teams (enforced + `# suggest:`)
+        id: parse
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import sys
+
+          sys.path.insert(0, "ci-templates/.github/scripts")
+          from codeowners_suggestions import parse_codeowners  # noqa: E402
+
+
+          def gh_output(name, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
+
+
+          codeowners_path = ".github/CODEOWNERS"
+          if os.path.exists(codeowners_path):
+              with open(codeowners_path, encoding="utf-8") as f:
+                  parsed = parse_codeowners(f.read())
+              enforced_rules = parsed["enforced_rules"]
+              suggest_rules = parsed["suggest_rules"]
+          else:
+              enforced_rules, suggest_rules = [], []
+
+          # Deliberately conservative: real GitHub usernames and team slugs are
+          # alphanumeric/hyphen (usernames can't start/end with a hyphen or
+          # repeat one; team slugs also allow underscore/dot). Anything outside
+          # that is either a typo or an attempted injection -- both should fail
+          # loudly here, not be smuggled into a shell command downstream.
+          LOGIN_RE = re.compile(r"^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$")
+          SLUG_RE = re.compile(r"^[A-Za-z\d][A-Za-z\d._-]{0,99}$")
+
+          users = set()
+          teams = set()
+          invalid = []
+          for rule in enforced_rules + suggest_rules:
+              pattern = rule["pattern"]
+              for owner in rule["owners"]:
+                  name = owner[1:] if owner.startswith("@") else owner
+                  if "/" in name:
+                      org, slug = name.split("/", 1)
+                      if not LOGIN_RE.match(org) or not SLUG_RE.match(slug):
+                          invalid.append(f'"{pattern} {owner}" (team "{name}" is not a valid org/slug)')
+                          continue
+                      teams.add(name)
+                  else:
+                      if not LOGIN_RE.match(name):
+                          invalid.append(f'"{pattern} {owner}" (user "{name}" is not a valid GitHub login)')
+                          continue
+                      users.add(name)
+
+          if invalid:
+              print("::error::.github/CODEOWNERS has owner(s) that aren't valid GitHub logins/teams:")
+              for msg in invalid:
+                  print(f"::error::  - {msg}")
+              raise SystemExit(1)
+
+          gh_output("users", json.dumps(sorted(users)))
+          gh_output("teams", json.dumps(sorted(teams)))
+
+      - name: Expand teams to member usernames
+        id: expand
+        if: steps.parse.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          USERS_JSON: ${{ steps.parse.outputs.users }}
+          TEAMS_JSON: ${{ steps.parse.outputs.teams }}
+        run: |
+          set -euo pipefail
+          all_users=$(echo "$USERS_JSON" | jq -c '.')
+
+          for team in $(echo "$TEAMS_JSON" | jq -r '.[]'); do
+            org="${team%%/*}"
+            slug="${team#*/}"
+            echo "Expanding team members for $org/$slug..."
+            members=$(gh api "orgs/${org}/teams/${slug}/members" --paginate --jq '[.[].login]')
+            all_users=$(echo "$all_users $members" | jq -sc 'add | unique')
+          done
+
+          echo "usernames=$all_users" | tee -a "$GITHUB_OUTPUT"
+
+  validate-membership:
+    needs: extract-codeowners-users
+    if: needs.extract-codeowners-users.outputs.usernames != '' && needs.extract-codeowners-users.outputs.usernames != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        username: ${{ fromJson(needs.extract-codeowners-users.outputs.usernames) }}
+    steps:
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Check NVIDIA-NeMo org membership
+        id: check-sso
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
+        with:
+          username: ${{ matrix.username }}
+          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+
+      - name: Fail if not an org member
+        if: steps.check-sso.outputs.is_org_member != 'true'
+        run: |
+          echo "::error::${{ matrix.username }} is referenced in .github/CODEOWNERS (directly, or via a team) but is not a current member of the NVIDIA-NeMo org."
+          exit 1
+
+  # This workflow isn't attached to any PR, so a red X here is easy for
+  # nobody to ever see -- unlike a per-PR check, there's no author who gets
+  # notified just by opening a PR. always() so this still runs when a prior
+  # job failed.
+  #
+  # `secrets` is not a valid context inside ANY `if:` condition (job- or
+  # step-level) -- GitHub Actions rejects it at parse time with
+  # "Unrecognized named-value: 'secrets'", failing the whole workflow before
+  # any job runs. The empty-webhook check is instead a step output below
+  # (computed in an env: block, where `secrets` access IS allowed), and the
+  # "Alert Slack" step gates on that output rather than the raw secret.
+  alert-on-failure:
+    needs: [extract-codeowners-users, validate-membership]
+    if: always() && (needs.extract-codeowners-users.result == 'failure' || needs.validate-membership.result == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Slack webhook configured
+        id: slack-webhook
+        env:
+          WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
+        run: echo "configured=$([ -n "$WEBHOOK" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          ref: ${{ inputs.workflow_ref }}
+          path: ci-templates
+
+      - name: Alert Slack
+        if: steps.slack-webhook.outputs.configured == 'true'
+        uses: ./ci-templates/.github/actions/send-slack-alert
+        with:
+          message: |
+            validate-codeowners-membership failed on ${{ github.repository }}: someone referenced in .github/CODEOWNERS (directly, or via a suggested team) is no longer a current NVIDIA-NeMo org member.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          webhook: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}

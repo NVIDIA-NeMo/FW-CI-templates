@@ -16,17 +16,54 @@ on:
   workflow_call:
     inputs:
       target-branches-pattern:
-        description: 'Regex pattern to match target branch names from PR labels'
+        description: 'Regex pattern to match target branch names from PR labels. Ignored if target-branch is set.'
         required: false
         default: 'r[0-9]+\.[0-9]+\.[0-9]+'
         type: string
+      target-branch:
+        description: 'If set, always cherry-pick into this single branch instead of fanning out via target-branches-pattern. Requires trigger-label.'
+        required: false
+        default: ''
+        type: string
+      trigger-label:
+        description: 'Label that opts a PR into cherry-picking when target-branch is set.'
+        required: false
+        default: ''
+        type: string
+      notify-mention:
+        description: 'Slack mention (e.g. a usergroup) to cc on the failure alert instead of SLACK_WEBHOOK_ADMIN. Leave empty to keep the default admin-subteam cc.'
+        required: false
+        default: ''
+        type: string
+      default-cicd-label:
+        description: 'Label added to every cherry-pick PR to trigger CI. Set to empty to rely solely on the carried-over CI:* label.'
+        required: false
+        default: 'Run CICD'
+        type: string
+      app-id:
+        description: 'GitHub App ID to mint a bot token via actions/create-github-app-token, instead of a long-lived PAT. Requires the BOT_KEY secret. Falls back to secrets.PAT when empty.'
+        required: false
+        default: ''
+        type: string
     secrets:
       PAT:
-        required: true
+        description: 'Personal access token. Required unless app-id + BOT_KEY are provided instead. Also used (if set) for PR creation and the /ok to test comment specifically, even when app-id is set -- copy-pr-bot only trusts a real NVIDIA SSO identity for those, not a GitHub App.'
+        required: false
+      BOT_KEY:
+        description: 'GitHub App private key, used with the app-id input to mint a short-lived bot token.'
+        required: false
       SLACK_WEBHOOK_ADMIN:
         required: true
       SLACK_WEBHOOK:
         required: true
+      SLACK_WEBHOOK_SECONDARY:
+        required: false
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: 'Token with read access to the github-audits SSO roster, used to map the PR author to an NVIDIA email. Needed together with NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN to ping the author on Slack.'
+        required: false
+      NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN:
+        description: 'Slack bot token (users:read, users:read.email) used to resolve the author email to a Slack user ID so the failure alert pings them. Pings the PR author and whoever merged it when they are in the SSO roster. Falls back to the plain @github-login for the author when unset, not in the roster, or the lookup fails; a merger who cannot be resolved is left out.'
+        required: false
 
 defaults:
   run:
@@ -35,75 +72,149 @@ defaults:
 jobs:
   main:
     runs-on: ubuntu-latest
-    environment:
-      name: main
+    env:
+      # Job-level so step `if:` conditions can see whether it is set.
+      SSO_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
     steps:
+      # Repo-scoped token, least-privilege: contents (push branches),
+      # pull-requests (open PR, request reviewer), issues (labels + the
+      # "/ok to test" comment go through the issues API). Matches the
+      # scoping pattern in _suggest_reviewers.yml.
+      - name: Generate GitHub App token
+        id: app-token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.BOT_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT }}
+          token: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
+
+      # Best-effort: only used to turn the PR author's GitHub login into an
+      # NVIDIA email prefix for the Slack mention. Never fails the job.
+      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+        if: env.SSO_TOKEN != ''
+        continue-on-error: true
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: NVIDIA-NeMo/FW-CI-templates
+          path: ci-templates
+          persist-credentials: false
+
+      - name: Download NVIDIA SSO roster
+        if: env.SSO_TOKEN != ''
+        continue-on-error: true
+        uses: ./ci-templates/.github/actions/check-nvidia-sso
+        with:
+          username: ${{ github.actor }}
+          github_token: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          sso_users_filename: users_sso.json
 
       - name: Cherry pick
         env:
-          GH_TOKEN: ${{ secrets.PAT }}
+          SSO_FILE: ${{ github.workspace }}/users_sso.json
+          SLACK_BOT_TOKEN: ${{ secrets.NEMO_FW_ALERT_MANAGER_SLACK_BOT_TOKEN }}
+          GH_TOKEN: ${{ inputs.app-id != '' && steps.app-token.outputs.token || secrets.PAT }}
+          # copy-pr-bot trusts a real NVIDIA SSO identity, not a GitHub
+          # App's bot identity -- confirmed this applies to BOTH who opens
+          # the PR (not just who posts "/ok to test"): a PR created by the
+          # App still got routed into external-contributor handling even
+          # with a correctly-trusted /ok to test comment on it (no
+          # pull-request/N branch was ever created). Push, labels, and
+          # reviewer-request can stay on the App token -- only PR creation
+          # and the /ok to test comment need PAT.
+          PAT: ${{ secrets.PAT }}
           SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_SECONDARY: ${{ secrets.SLACK_WEBHOOK_SECONDARY }}
+          NOTIFY_MENTION: ${{ inputs.notify-mention }}
           REPOSITORY: ${{ github.repository }}
           TARGET_BRANCHES_PATTERN: ${{ inputs.target-branches-pattern }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+          TRIGGER_LABEL: ${{ inputs.trigger-label }}
+          DEFAULT_CICD_LABEL: ${{ inputs.default-cicd-label }}
         run: |
           set -x
-          set +e
 
           git config --global user.email "nemo-bot@nvidia.com"
           git config --global user.name "NeMo Bot"
 
           SHA=$(git rev-list --no-merges -n 1 HEAD)
-          MESSAGE=$(git log -n 1 --pretty=format:%s $SHA)
-          PR_ID=$(echo $MESSAGE | awk -F'#' '{print $2}' | awk -F')' '{print $1}' )
-          USERNAME=$(git log -n 1 --pretty=format:%ae $SHA | awk -F'@' '{print $1}')
 
-          PR=$(curl -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/$REPOSITORY/pulls/$PR_ID)
-          PR_TITLE=$(echo -E $PR | jq '.title' | tr -d '"')
+          PR=$(
+            gh api --paginate \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/$REPOSITORY/commits/$SHA/pulls?per_page=100" |
+              jq -scer --arg sha "$SHA" '
+                [.[][] | select(.merged_at != null and .merge_commit_sha == $sha)] as $pull_requests
+                | if ($pull_requests | length) == 1 then
+                    $pull_requests[0]
+                  else
+                    error(
+                      "expected exactly one merged pull request for commit \($sha), found \($pull_requests | length)"
+                    )
+                  end
+              '
+          )
+          PR_ID=$(jq -er '.number' <<< "$PR")
+          PR_TITLE=$(jq -er '.title' <<< "$PR")
+          LABELS=$(jq -er '[.labels[].name] | join(",")' <<< "$PR")
+          ORIGINAL_LABELS_JSON=$(jq -c '[.labels[].name]' <<< "$PR")
+          AUTHOR=$(jq -er '.user.login' <<< "$PR")
 
-          LABELS=$(echo -E $PR | jq '.labels | [.[].name] | join(",")' | tr -d '"')
-          AUTHOR=$(echo -E $PR | jq '.user.login' | tr -d '"')
+          if [[ -n "$TARGET_BRANCH" ]]; then
+            if [[ -z "$TRIGGER_LABEL" ]]; then
+              echo "target-branch is set but trigger-label is empty; refusing to proceed" >&2
+              exit 1
+            fi
 
-          TARGET_BRANCHES=$(echo "$LABELS" | egrep -o "$TARGET_BRANCHES_PATTERN")
+            HAS_TRIGGER_LABEL=$(grep -qF ",$TRIGGER_LABEL," <<< ",$LABELS," && echo true || echo false)
 
-          if [[ $TARGET_BRANCHES == '' ]]; then
-            echo Nothing to cherry-pick
-            exit 0
+            if [[ "$HAS_TRIGGER_LABEL" != "true" ]]; then
+              echo "PR #$PR_ID does not have the '$TRIGGER_LABEL' label, nothing to cherry-pick"
+              exit 0
+            fi
+
+            TARGET_BRANCHES="$TARGET_BRANCH"
+          else
+            TARGET_BRANCHES=$(grep -Eo "$TARGET_BRANCHES_PATTERN" <<< "$LABELS" || true)
+
+            if [[ -z "$TARGET_BRANCHES" ]]; then
+              echo Nothing to cherry-pick
+              exit 0
+            fi
           fi
 
-          echo $TARGET_BRANCHES | while read -r RELEASE_BRANCH ; do
-            TARGET_BRANCH_EXISTS_OK=$([[ "$(git ls-remote --heads origin refs/heads/$RELEASE_BRANCH)" != "" ]] && echo true || echo false)
+          OVERALL_FAILURE=0
+
+          while read -r RELEASE_BRANCH; do
+            TARGET_BRANCH_EXISTS_OK=$([[ "$(git ls-remote --heads origin "refs/heads/$RELEASE_BRANCH")" != "" ]] && echo true || echo false)
 
             if [[ "$TARGET_BRANCH_EXISTS_OK" == "false" ]]; then
-              echo Release branch does not yet exist, will not  cherry-pick
+              echo Release branch does not yet exist, will not cherry-pick
               continue
             fi
 
-            (
-              git fetch origin $RELEASE_BRANCH:$RELEASE_BRANCH
-              git switch --force-create cherry-pick-$PR_ID-$RELEASE_BRANCH $RELEASE_BRANCH
-              git cherry-pick -s $SHA
-              git push -u origin --force cherry-pick-$PR_ID-$RELEASE_BRANCH
-              git checkout ${CI_DEFAULT_BRANCH:-main}
-            )
-
-            CHERRYPICK_SUCCESSFUL=$?
-
-            if [[ $CHERRYPICK_SUCCESSFUL -eq 0 ]]; then
+            if (
+              git fetch origin "$RELEASE_BRANCH:$RELEASE_BRANCH" &&
+                git switch --force-create "cherry-pick-$PR_ID-$RELEASE_BRANCH" "$RELEASE_BRANCH" &&
+                git cherry-pick -s "$SHA" &&
+                git push -u origin --force "cherry-pick-$PR_ID-$RELEASE_BRANCH" &&
+                git checkout "${CI_DEFAULT_BRANCH:-main}"
+            ); then
               PR_URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
               MESSAGE="Hi @$AUTHOR 👋,
 
-              we've cherry picked #$PR_ID into `$RELEASE_BRANCH` for you! 🚀
+              we've cherry picked #$PR_ID into \`$RELEASE_BRANCH\` for you! 🚀
 
               Please review and approve this cherry pick by your convenience!"
 
@@ -122,54 +233,138 @@ jobs:
                 }'
               )
 
-              NEW_PR=$(curl -L \
+              # Must be PAT, not GH_TOKEN -- who calls this endpoint becomes
+              # the PR's author, and copy-pr-bot needs that to be a real
+              # NVIDIA SSO identity, same as the /ok to test comment below.
+              TRUSTED_TOKEN="${PAT:-$GH_TOKEN}"
+
+              # --fail-with-body makes curl exit non-zero on a 4xx/5xx
+              # response (default curl behavior is to exit 0 and print the
+              # error body as if it succeeded). Combined with -e in
+              # `defaults.run.shell`, a failed GitHub API call now stops the
+              # job here instead of silently continuing with a blank/null
+              # NEW_PR_ID.
+              NEW_PR=$(curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
-                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Authorization: Bearer $TRUSTED_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/pulls \
                 -d "$PAYLOAD")
 
               NEW_PR_ID=$(echo -E $NEW_PR | jq '.number')
-              curl -L \
+
+              # The PR itself now exists -- reviewer/label/comment are
+              # best-effort polish, not the core outcome. A non-fatal API
+              # error here (e.g. 422 "Reviews may only be requested from
+              # collaborators" when $AUTHOR isn't a repo collaborator)
+              # should not abort the job and skip any remaining release
+              # branches in TARGET_BRANCHES, so these are soft-fail: log an
+              # ::error:: annotation and move on, same pattern as the Slack
+              # posts below.
+              curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/pulls/$NEW_PR_ID/requested_reviewers \
-                -d '{"reviewers":["'$AUTHOR'"]}'
+                -d '{"reviewers":["'$AUTHOR'"]}' \
+                || echo "::error::Failed to request $AUTHOR as reviewer on #$NEW_PR_ID"
 
-              curl -L \
+              # Carry over every label from the source PR (CI:*, area
+              # labels, etc.), so the cherry-pick PR starts in the same
+              # state as the one it came from instead of requiring someone
+              # to manually re-apply them. Excludes trigger-label and
+              # anything matching target-branches-pattern -- those control
+              # cherry-pick routing, and carrying them over would make the
+              # new PR itself eligible to be cherry-picked again the same
+              # way, which is never what's wanted here.
+              NEW_PR_LABELS_JSON=$(jq -cn \
+                --arg cicd "$DEFAULT_CICD_LABEL" \
+                --argjson original "$ORIGINAL_LABELS_JSON" \
+                --arg trigger "$TRIGGER_LABEL" \
+                --arg pattern "$TARGET_BRANCHES_PATTERN" \
+                '(["cherry-pick"]
+                  + (if $cicd != "" then [$cicd] else [] end)
+                  + ($original | map(select(
+                      . != "cherry-pick"
+                      and (if $trigger != "" then . != $trigger else true end)
+                      and (test($pattern) | not)
+                    )))
+                ) | unique')
+              curl -L --fail-with-body \
                 -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $GH_TOKEN" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 https://api.github.com/repos/$REPOSITORY/issues/$NEW_PR_ID/labels \
-                -d '{"labels":["Run CICD", "cherry-pick"]}'
+                -d "{\"labels\":$NEW_PR_LABELS_JSON}" \
+                || echo "::error::Failed to add labels to #$NEW_PR_ID"
 
               # Check if copy-pr-bot.yaml exists and add "/ok to test" comment if it does
               if [ -f ".github/copy-pr-bot.yaml" ]; then
                 # Get the latest commit SHA of the cherry-pick branch
                 LATEST_SHA=$(git rev-parse origin/cherry-pick-$PR_ID-$RELEASE_BRANCH)
-                
-                # Add comment via GitHub API
-                curl -L \
+
+                # Add comment via GitHub API (TRUSTED_TOKEN, same as the PR
+                # creation call above -- see that comment for why)
+                curl -L --fail-with-body \
                   -X POST \
                   -H "Accept: application/vnd.github+json" \
-                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Authorization: Bearer $TRUSTED_TOKEN" \
                   -H "X-GitHub-Api-Version: 2022-11-28" \
                   https://api.github.com/repos/$REPOSITORY/issues/$NEW_PR_ID/comments \
-                  -d "{\"body\":\"/ok to test $LATEST_SHA\"}"
+                  -d "{\"body\":\"/ok to test $LATEST_SHA\"}" \
+                  || echo "::error::Failed to post /ok to test comment on #$NEW_PR_ID"
               fi
 
             else
+              OVERALL_FAILURE=1
+              git cherry-pick --abort || true
+              git checkout "${CI_DEFAULT_BRANCH:-main}" || true
+
               URL="https://github.com/$REPOSITORY/pull/$PR_ID"
 
-              MESSAGE="Hey <@$USERNAME>: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
+              # Slack only pings on a Slack user ID (<@U...>), not a GitHub
+              # login. For a login listed in the SSO roster (NVIDIA members
+              # only), map login -> NVIDIA email -> Slack ID via
+              # users.lookupByEmail. Prints nothing when any step is missing.
+              slack_mention() {
+                local login="$1" email slack_id=""
+                if [[ ! -f "$SSO_FILE" || -z "$SLACK_BOT_TOKEN" ]]; then
+                  echo "::warning::Slack mention skipped: SSO roster or Slack bot token unavailable" >&2
+                  return 0
+                fi
+                email=$(jq -r --arg u "$login" '.[$u].nvidia_email // empty' "$SSO_FILE" || true)
+                [[ -n "$email" ]] || return 0
+                { set +x; } 2>/dev/null  # keep the token out of the xtrace
+                slack_id=$(curl -sS --max-time 10 -G https://slack.com/api/users.lookupByEmail \
+                  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                  --data-urlencode "email=$email" | jq -r '.user.id // empty' || true)
+                set -x
+                if [[ -n "$slack_id" ]]; then
+                  echo "<@$slack_id>"
+                fi
+              }
+
+              # Author is always named (plain @login if not pingable); whoever
+              # clicked merge is added only when they resolve to a roster
+              # member and are a different person.
+              MENTIONS=$(slack_mention "$AUTHOR")
+              MENTIONS="${MENTIONS:-@$AUTHOR}"
+              MERGED_BY=$(gh api "repos/$REPOSITORY/pulls/$PR_ID" -q '.merged_by.login // empty' || true)
+              if [[ -n "$MERGED_BY" && "$MERGED_BY" != "$AUTHOR" ]]; then
+                MERGER_MENTION=$(slack_mention "$MERGED_BY")
+                if [[ -n "$MERGER_MENTION" ]]; then
+                  MENTIONS="$MENTIONS $MERGER_MENTION"
+                fi
+              fi
+
+              MESSAGE="Hey $MENTIONS: Cherry-pick of <$URL|#$PR_ID> failed (3-way merge impossible).
 
               Please resolve manually and create a PR.
 
-              cc: $SLACK_WEBHOOK_ADMIN"
+              cc: ${NOTIFY_MENTION:-$SLACK_WEBHOOK_ADMIN}"
 
               MESSAGE=$(jq -cn --arg message "beep boop 🤖: $MESSAGE" '{
                 "blocks": [
@@ -183,11 +378,23 @@ jobs:
                 ]
               }')
 
-              curl -X POST -H "Content-type: application/json" --data "$MESSAGE" $SLACK_WEBHOOK
+              # --fail-with-body: non-2xx now surfaces as a curl error instead
+              # of silently "succeeding" with an error body. Each webhook is
+              # attempted independently so a bad SECONDARY doesn't suppress
+              # the primary alert.
+              curl -sS --fail-with-body -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK" \
+                || echo "::error::Failed to post cherry-pick failure alert to SLACK_WEBHOOK"
+
+              if [[ -n "$SLACK_WEBHOOK_SECONDARY" ]]; then
+                curl -sS --fail-with-body -X POST -H "Content-type: application/json" --data "$MESSAGE" "$SLACK_WEBHOOK_SECONDARY" \
+                  || echo "::error::Failed to post cherry-pick failure alert to SLACK_WEBHOOK_SECONDARY"
+              fi
 
             fi
 
-          done
+          done <<< "$TARGET_BRANCHES"
+
+          exit $OVERALL_FAILURE
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

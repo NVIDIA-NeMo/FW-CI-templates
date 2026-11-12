@@ -94,6 +94,11 @@ on:
         description: Options to pass to the container
         type: string
         default: " "
+      build-wheel-env:
+        required: false
+        description: JSON object of non-secret string environment variables to export for the wheel build
+        type: string
+        default: "{}"
       extra-no-build-isolation-packages:
         required: false
         description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
@@ -136,7 +141,7 @@ jobs:
       EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
@@ -161,10 +166,35 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         if: inputs.custom-container == ''
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
+
+      - name: Set build environment
+        if: inputs.build-wheel-env != '{}'
+        env:
+          BUILD_WHEEL_ENV: ${{ inputs.build-wheel-env }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          values = json.loads(os.environ["BUILD_WHEEL_ENV"])
+          if not isinstance(values, dict):
+              raise TypeError("build-wheel-env must be a JSON object")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as github_env:
+              for name, value in values.items():
+                  if not isinstance(name, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
+                      raise ValueError(f"invalid build environment variable name: {name!r}")
+                  if not isinstance(value, str):
+                      raise TypeError(f"build environment variable {name!r} must have a string value")
+                  if "\n" in value or "\r" in value:
+                      raise ValueError(f"build environment variable {name!r} must not contain newlines")
+                  github_env.write(f"{name}={value}\n")
+          PY
 
       - name: Build wheel
         id: build
@@ -186,7 +216,7 @@ jobs:
           # Install the package to import and check the version in a later step
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
-            curl -LsSf https://astral.sh/uv/0.7.2/install.sh | sh
+            curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="$HOME/.local/bin:$PATH"
             uv venv --system-site-packages .venv
             source .venv/bin/activate
@@ -245,7 +275,7 @@ jobs:
           echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: ${{ steps.build.outputs.DIST_DIR }}
@@ -262,13 +292,13 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/${{ github.run_id }}/
@@ -292,7 +322,7 @@ jobs:
           echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "${{ steps.python-version.outputs.version }}"
 
@@ -342,19 +372,19 @@ jobs:
       ROOTDIR: ${{ inputs.root-dir }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.ref }}
 
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -443,9 +473,10 @@ jobs:
     if: inputs.skip-test-wheel == false || !cancelled()
     environment:
       name: ${{ inputs.no-publish && 'public' || 'main' }}
+      deployment: false
     steps:
       - name: Download wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
           path: dist/
@@ -470,7 +501,9 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     if: failure() && inputs.suppress-failure-notify == false
-    environment: public
+    environment:
+      name: public
+      deployment: false
     needs: [publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -480,7 +513,7 @@ jobs:
       COMMIT_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: NVIDIA-NeMo/FW-CI-templates
           ref: v0.17.0
@@ -491,7 +524,7 @@ jobs:
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.
-            
+
             cc: ${{ env.SLACK_WEBHOOK_ADMIN }}
 
 

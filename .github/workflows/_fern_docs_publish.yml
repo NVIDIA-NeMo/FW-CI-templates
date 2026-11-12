@@ -1,0 +1,111 @@
+# Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes the Fern documentation site.
+#
+# Callers define their own trigger (push to main, tag, workflow_dispatch) and
+# concurrency group. This workflow only handles the publish step.
+#
+# Required configuration:
+# - GitHub OIDC trust for the caller and this pinned reusable workflow.
+# - An AWS role that can read the configured Fern secret.
+# - Caller permission: id-token: write.
+
+name: Publish Fern Docs
+
+on:
+  workflow_call:
+    inputs:
+      aws-role-to-assume:
+        description: AWS IAM role ARN used to read the Fern token
+        required: true
+        type: string
+      aws-region:
+        description: AWS region containing the Fern token secret
+        required: false
+        type: string
+        default: us-east-2
+      fern-secret-id:
+        description: AWS Secrets Manager name or ARN containing the Fern token
+        required: true
+        type: string
+      fern-directory:
+        description: Path to the fern directory relative to the repository root
+        required: false
+        type: string
+        default: fern
+      container-image:
+        description: |
+          Optional container image to run the job in, such as
+          ghcr.io/nvidia/docs-builder-ci:<semver>. Leave empty to run
+          directly on the runner, which installs Node.js and fern-api
+          before each run.
+        required: false
+        type: string
+        default: ''
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container: ${{ inputs.container-image != '' && inputs.container-image || null }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        if: ${{ inputs.container-image == '' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        if: ${{ inputs.container-image == '' }}
+        run: npm install -g fern-api
+
+      - name: Detect Fern libraries field
+        id: libraries
+        run: |
+          DOCS_YML="${{ inputs.fern-directory }}/docs.yml"
+          if [ -f "$DOCS_YML" ] && yq -e '.libraries' "$DOCS_YML" >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ inputs.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Read Fern token
+        uses: aws-actions/aws-secretsmanager-get-secrets@a9a7eb4e2f2871d30dc5b892576fde60a2ecc802 # v2
+        with:
+          secret-ids: |
+            FERN_TOKEN,${{ inputs.fern-secret-id }}
+
+      - name: Generate library reference MDX (autodocs)
+        if: steps.libraries.outputs.present == 'true'
+        run: |
+          cd "$(dirname "${{ inputs.fern-directory }}")"
+          fern docs md generate
+
+      - name: Publish Docs
+        run: |
+          cd "$(dirname "${{ inputs.fern-directory }}")"
+          fern generate --docs

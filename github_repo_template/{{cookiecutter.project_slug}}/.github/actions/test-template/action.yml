@@ -66,7 +66,7 @@ runs:
 
     - name: Azure Login
       if: {% raw %}${{ inputs.has-azure-credentials == 'true' }}{% endraw %}
-      uses: azure/login@v2
+      uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
       with:
         client-id: {% raw %}${{ inputs.azure-client-id }}{% endraw %}
         tenant-id: {% raw %}${{ inputs.azure-tenant-id }}{% endraw %}
@@ -138,7 +138,7 @@ runs:
         docker pull nemoci.azurecr.io/{% raw %}${{ inputs.image }}:${{ github.run_id }}{% endraw %}
 
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2
       with:
         path: {{cookiecutter.project_slug}}
 
@@ -200,7 +200,7 @@ runs:
         echo "$cmd" | tee "job.sh"
 
     - name: Run main script
-      uses: nick-fields/retry@v3
+      uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
       with:
         timeout_seconds: {% raw %}${{ steps.create.outputs.timeout_in_seconds }}{% endraw %}
         max_attempts: 3
@@ -241,7 +241,7 @@ runs:
         docker exec -t nemo_container_{% raw %}${{ github.run_id }}{% endraw %} coverage report -i
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       if: {% raw %}${{ steps.check.outputs.coverage_report != 'none' }}{% endraw %}
       with:
         name: {% raw %}${{ steps.check.outputs.coverage_report }}{% endraw %}

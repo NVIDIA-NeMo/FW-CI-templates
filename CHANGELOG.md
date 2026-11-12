@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.2](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.1...v1.16.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* preserve release notes across file transport failures ([#620](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/620)) ([1ea8987](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/1ea89871720f31b9cacfd40655ad5151edd8be6f))
+
 ## [1.16.1](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.0...v1.16.1) (2026-11-06)
 
 

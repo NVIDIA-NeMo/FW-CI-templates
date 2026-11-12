@@ -13,7 +13,9 @@
 # limitations under the License.
 name: 'Test Publish Docs Action'
 on:
-  pull_request:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
     paths:
       - '.github/actions/publish-docs/action.yml'
       - '.github/workflows/test-publish-docs.yml'

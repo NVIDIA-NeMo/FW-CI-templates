@@ -227,6 +227,13 @@ jobs:
 
           echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
 
+      - name: Prepare changelog file
+        id: changelog-file
+        if: inputs.gh-release-use-changelog-builder == true
+        run: |
+          CHANGELOG_FILE=$(mktemp "${RUNNER_TEMP}/release-changelog.XXXXXX")
+          echo "path=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
+
       - name: Build Changelog
         id: build-changelog
         if: inputs.gh-release-use-changelog-builder == true
@@ -243,6 +250,7 @@ jobs:
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
           includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
+          outputFile: ${{ steps.changelog-file.outputs.path }}
 
       - name: Create release
         id: version-number
@@ -250,7 +258,8 @@ jobs:
           SHA: ${{ inputs.release-ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
-          BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog }}
+          HAS_BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog != '' }}
+          BUILT_CHANGELOG_FILE: ${{ steps.changelog-file.outputs.path }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -260,16 +269,26 @@ jobs:
           IS_PRERELEASE=$([[ "$IS_RELEASE_CANDIDATE" == "true" || "$IS_ALPHA" == "true" ]] && echo "true" || echo "false")
           NAME="NVIDIA $PROJECT_NAME ${VERSION}"
 
-          if [[ -n "$BUILT_CHANGELOG" ]]; then
-            CHANGELOG="$BUILT_CHANGELOG"
+          # Keep large release notes out of both the environment and process arguments.
+          CHANGELOG_FILE="$BUILT_CHANGELOG_FILE"
+          if [[ -z "$CHANGELOG_FILE" ]]; then
+            CHANGELOG_FILE=$(mktemp)
+          fi
+          trap 'rm -f -- "$CHANGELOG_FILE"' EXIT
+          if [[ "$HAS_BUILT_CHANGELOG" == "true" ]]; then
+            if [[ ! -s "$CHANGELOG_FILE" ]]; then
+              echo "::error::The nonempty built changelog was not written to its file."
+              exit 1
+            fi
           elif [[ "$IS_RELEASE_CANDIDATE" == "true" ]]; then
             DATE=$(date +"%Y-%m-%d")
-            CHANGELOG="Prerelease: $NAME ($DATE)"
+            printf '%s' "Prerelease: $NAME ($DATE)" > "$CHANGELOG_FILE"
           elif [[ -f CHANGELOG.md ]]; then
             CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
             CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+            printf '%s' "$CHANGELOG" > "$CHANGELOG_FILE"
           else
-            CHANGELOG="Release: $NAME"
+            printf '%s' "Release: $NAME" > "$CHANGELOG_FILE"
           fi
 
           echo "is-release-candidate=$IS_RELEASE_CANDIDATE" | tee -a "$GITHUB_OUTPUT"
@@ -278,7 +297,7 @@ jobs:
                       --arg TAG_NAME "${TAG_PREFIX}v${VERSION}" \
                       --arg CI_COMMIT_BRANCH "$SHA" \
                       --arg NAME "$NAME" \
-                      --arg BODY "$CHANGELOG" \
+                      --rawfile BODY "$CHANGELOG_FILE" \
                       --argjson PRERELEASE "$IS_PRERELEASE" \
                       '{
                         "tag_name": $TAG_NAME,

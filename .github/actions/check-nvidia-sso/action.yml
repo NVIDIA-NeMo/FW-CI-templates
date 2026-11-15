@@ -80,7 +80,7 @@ runs:
         SSO_FILE="${{ inputs.sso_users_filename }}"
 
         # Check if username is a trusted bot
-        if [[ "$USERNAME" == "svcnvidia-nemo-ci" || "$USERNAME" == "svcnemo-autobot" ]]; then
+        if [[ "$USERNAME" == "svcnvidia-nemo-ci" || "$USERNAME" == "svcnemo-autobot" || "$USERNAME" == "nemo-automation-bot[bot]" ]]; then
           echo "$USERNAME is a trusted bot"
           echo "is_member=true" >> $GITHUB_OUTPUT
           echo "is_org_member=true" >> $GITHUB_OUTPUT

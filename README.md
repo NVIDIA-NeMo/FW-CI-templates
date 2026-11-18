@@ -83,6 +83,9 @@ actionlint .github/workflows/_code_freeze.yml .github/workflows/pre-flight.yml
 The shell integration tests require PyYAML 6.0.3. They use disposable local Git
 repositories and synthetic tokens to cover rejected partial App configuration,
 legacy authentication, dry-run branch pushes, and setuptools/hatch version bumps.
+Version metadata is loaded by file path from the checkout root, without importing
+the package or adding its directory to Python's import path. Regression tests cover
+standard-library module name collisions in flat, `src/`, and nested packages.
 
 ## CI failure notifications
 

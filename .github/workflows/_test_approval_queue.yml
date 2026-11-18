@@ -234,6 +234,8 @@ jobs:
               }
           )
 
+          MAX_RATE_LIMIT_WAIT = 60
+
           def make_request(endpoint, method="GET", data=None, max_retries=5):
               """Make a GitHub API request with retry on transient failures."""
               url = f"{API_BASE}/{endpoint.lstrip('/')}"
@@ -250,7 +252,15 @@ jobs:
                           response.status_code == 403
                           and response.headers.get("X-RateLimit-Remaining") == "0"
                       ):
-                          retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
+                          if "Retry-After" in response.headers:
+                              retry_after = int(response.headers["Retry-After"])
+                          elif "X-RateLimit-Reset" in response.headers:
+                              retry_after = max(int(response.headers["X-RateLimit-Reset"]) - int(time.time()), 0) + 1
+                          else:
+                              retry_after = 2 ** attempt
+                          if retry_after > MAX_RATE_LIMIT_WAIT:
+                              print(f"::error::GitHub API rate limit hit on {endpoint}; resets in {retry_after}s")
+                              sys.exit(1)
                           print(
                               f"Rate limited on {endpoint}, retrying in {retry_after}s "
                               f"(attempt {attempt + 1}/{max_retries})"

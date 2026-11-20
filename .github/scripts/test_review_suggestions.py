@@ -14,6 +14,7 @@ from gitlab_review_pools import (
     RULE_PREFIX,
     api,
     apply_changes,
+    event_mr,
     main,
     mr_changed_paths,
     plan_changes,
@@ -91,6 +92,55 @@ class SharedResolverTests(unittest.TestCase):
 
 class GitLabReviewPoolTests(unittest.TestCase):
     """Keep review pools optional, idempotent, and isolated from human policy."""
+
+    def test_webhook_only_selects_open_ready_mrs_in_the_expected_target(self):
+        """Reject wrong projects, branches, drafts, and approval feedback events."""
+        event = {
+            "object_kind": "merge_request",
+            "project": {"id": 12},
+            "object_attributes": {
+                "target_project_id": 12,
+                "target_branch": "internal",
+                "action": "update",
+                "state": "opened",
+                "iid": 34,
+                "draft": False,
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "payload.json"
+            path.write_text(json.dumps(event))
+            self.assertEqual(event_mr(path, "12", "internal"), 34)
+            self.assertIsNone(event_mr(path, "13", "internal"))
+            self.assertIsNone(event_mr(path, "12", "other"))
+            for key, value in [("action", "approved"), ("state", "closed"), ("draft", True), ("target_project_id", 99)]:
+                with self.subTest(key=key):
+                    altered = dict(event, object_attributes=dict(event["object_attributes"], **{key: value}))
+                    path.write_text(json.dumps(altered))
+                    self.assertIsNone(event_mr(path, "12", "internal"))
+
+    def test_ignored_webhook_does_not_read_credentials_or_make_api_calls(self):
+        """A non-MR trigger cannot accidentally reconcile arbitrary requests."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "payload.json"
+            path.write_text(json.dumps({"object_kind": "pipeline"}))
+            argv = [
+                "script",
+                "--gitlab-host",
+                "example.test",
+                "--project",
+                "12",
+                "--event-file",
+                str(path),
+                "--target-branch",
+                "internal",
+                "--github-repository",
+                "org/repo",
+                "--apply",
+            ]
+            with patch("sys.argv", argv), patch("gitlab_review_pools.api") as request, patch("builtins.print"):
+                main()
+            request.assert_not_called()
 
     def test_expands_live_teams_and_excludes_author_without_guessing_accounts(self):
         """Account mapping, active membership, and author exclusion are explicit."""

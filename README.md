@@ -76,6 +76,21 @@ set of optional pools; rerunning reconciles them. GitLab does not provide an
 atomic conditional update of MR approval rules, so concurrent pushes can require
 another reconciliation.
 
+For a project webhook that triggers a fixed protected branch, replace `--mr`
+with `--event-file "$TRIGGER_PAYLOAD"`. The adapter accepts only ready, open MRs
+in the configured target project and branch, on `open`, `reopen`, or `update`
+events. Approval notifications and unrelated events are skipped before any API
+or credential lookup. The MR is reread from the API so delayed webhook delivery
+uses the current diff rather than the event's previous commit.
+
+The webhook URL has the form
+`https://gitlab.example.com/api/v4/projects/123/ref/internal/trigger/pipeline?token=<trigger-token>`.
+Keep the URL and trigger token in GitLab's project settings, not in repository
+files. The consumer's CI rules must accept only trigger pipelines on its fixed
+protected branch, with the `review-pools` environment and a serial resource
+group. This pipeline executes trusted branch code and the pinned templates
+revision; it never checks out the MR source branch.
+
 For automation, invoke the adapter from trusted infrastructure on MR creation,
 updates, and transition out of draft, serializing runs per MR. Pin the tool checkout
 to a reviewed commit and keep credentials outside the MR checkout. For GitLab CI,

@@ -24,6 +24,38 @@ from codeowners_suggestions import suggested_owners
 RULE_PREFIX = "github-review-pool: "
 
 
+def event_mr(path: Path, project: str, target_branch: str) -> int | None:
+    """Select an MR from a GitLab webhook without executing payload content.
+
+    Args:
+        path: GitLab's TRIGGER_PAYLOAD file.
+        project: Expected numeric target project ID from trusted configuration.
+        target_branch: Expected protected target branch.
+
+    Returns:
+        The positive MR IID for supported events, or None for irrelevant events.
+    """
+    if path.stat().st_size > 1024 * 1024:
+        raise ValueError("Webhook payload exceeds one MiB")
+    event = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(event, dict) or event.get("object_kind") != "merge_request":
+        return None
+    attributes = event.get("object_attributes", {})
+    if (
+        str(event.get("project", {}).get("id")) != project
+        or str(attributes.get("target_project_id")) != project
+        or attributes.get("target_branch") != target_branch
+        or attributes.get("action") not in {"open", "reopen", "update"}
+        or attributes.get("state") != "opened"
+        or attributes.get("draft", attributes.get("work_in_progress", False))
+    ):
+        return None
+    iid = attributes.get("iid")
+    if type(iid) is not int or iid <= 0:
+        raise ValueError("Webhook payload has no valid MR IID")
+    return iid
+
+
 def api(
     provider: str,
     endpoint: str,
@@ -248,7 +280,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gitlab-host", required=True)
     parser.add_argument("--project", required=True, help="Numeric GitLab project ID")
-    parser.add_argument("--mr", required=True, type=int)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--mr", type=int)
+    selection.add_argument(
+        "--event-file", type=Path, help="GitLab TRIGGER_PAYLOAD file from a protected-branch pipeline"
+    )
     parser.add_argument("--target-branch", required=True)
     parser.add_argument("--github-repository", required=True)
     parser.add_argument("--github-ref", default="main")
@@ -265,6 +301,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Print a reviewable plan, optionally apply it, and verify convergence."""
     args = parse_args()
+    if args.event_file:
+        args.mr = event_mr(args.event_file, args.project, args.target_branch)
+        if args.mr is None:
+            print(json.dumps({"skipped": "Webhook does not request review-pool reconciliation"}))
+            return
     root = f"projects/{quote(args.project, safe='')}/merge_requests/{args.mr}"
     mr = api("glab", root + "/changes?access_raw_diffs=true", args.gitlab_host)
     if mr["target_branch"] != args.target_branch:

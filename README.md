@@ -2,6 +2,97 @@
 
 A repository to centrally manage workflows across the NeMo-FW library landscape.
 
+## Shared review suggestions
+
+`codeowners_suggestions.py` resolves advisory `# suggest:` entries from a trusted
+GitHub `.github/CODEOWNERS`. GitHub and GitLab use the same parser, micromatch
+engine, last-match precedence, and per-file suppression of enforced duplicates.
+The engine retains the GitHub workflow's `all_changed_files` behavior: renamed
+files use their new paths, and deleted files are excluded. An enforced owner is
+not automatically turned into a GitLab review suggestion.
+
+```mermaid
+flowchart LR
+    Rules[GitHub suggestion rules] --> Resolver[Shared resolver]
+    Diff[PR or MR changed paths] --> Resolver
+    Resolver --> GH[GitHub review requests]
+    Resolver --> GL[GitLab optional review pools]
+    Teams[Live GitHub team membership] --> GL
+    Identities[Audited SSO identity lookup] --> GL
+```
+
+The GitLab adapter creates named MR approval rules with `approvals_required: 0`.
+These rules expose review pools without requiring approvals or assigning every
+member as an individual reviewer. Team membership comes from GitHub on each run;
+no mirrored GitLab groups or second path map are needed.
+
+Identity resolution reuses `check-nvidia-sso/download_sso.py` and its audited
+GitHub-login to corporate-email roster. The adapter then uses GitLab's exact-email
+user search and verifies active Developer-or-higher project membership. On NVIDIA's
+GitLab, use `--gitlab-username-from-email`: GitLab accounts use the audited
+corporate email's account name, while private emails are not searchable. This
+mode queries the exact GitLab username and still validates project membership.
+It never derives an internal account name from the GitHub handle.
+
+Provide the read-only audit credential as `GH_SSO_MANAGMENT_PAT`. The spelling
+matches the existing credential. It is passed only to the downloader subprocess;
+normal GitHub API calls continue to use the `gh` credentials. The temporary roster
+is deleted when the download has been read.
+
+For environments with an existing verified account map, `--identity-map` accepts
+a JSON object instead of downloading the roster:
+
+```json
+{"github-login": "gitlab-username"}
+```
+
+Keep any explicit identity maps in trusted internal configuration. Missing mappings,
+inactive accounts, accounts below Developer access, and empty review pools stop
+the adapter before writes. The MR author is excluded. The adapter manages only
+optional rules named `github-review-pool: @organization/team` (or `@user`),
+reconciles membership, and removes stale pools with that prefix. It refuses to
+modify a matching rule if someone makes it required.
+
+Requirements: Python 3.12+, Node.js 20+, npm, and authenticated `gh` and `glab`.
+The GitHub identity needs repository-content and team-membership read access;
+the GitLab identity needs project-member read access and MR approval-rule write
+access for apply mode. There is no need for GitHub write access in this adapter.
+
+Run from a trusted checkout of FW-CI-templates:
+
+```sh
+npm ci --prefix .github/scripts/review-matcher --ignore-scripts --no-audit --no-fund
+python3 .github/scripts/gitlab_review_pools.py \
+  --gitlab-host "$GITLAB_HOST" --project "$GITLAB_PROJECT_ID" \
+  --mr "$MR_IID" --target-branch "$REVIEW_TARGET_BRANCH" \
+  --github-repository "$GITHUB_REPOSITORY" --github-ref main
+```
+
+This command only reads APIs and prints a plan with the MR head, immutable GitHub
+rules revision, proposed mutations, and mapping problems. Add `--apply` to write
+the optional pools. Apply rechecks the MR head and target before each mutation
+and verifies convergence afterward. API failures can leave a partially applied
+set of optional pools; rerunning reconciles them. GitLab does not provide an
+atomic conditional update of MR approval rules, so concurrent pushes can require
+another reconciliation.
+
+For automation, invoke the adapter from trusted infrastructure on MR creation,
+updates, and transition out of draft, serializing runs per MR. Pin the tool checkout
+to a reviewed commit and keep credentials outside the MR checkout. For GitLab CI,
+use a protected, masked, hidden audit variable scoped to the trusted job's
+environment; ordinary feature-branch MR jobs cannot consume a protected variable.
+Draft and closed MRs are skipped. The adapter is advisory; its failure
+must not become a required CI check. This repository does not install an MR event
+trigger or enable this adapter on consumer projects.
+
+Validate locally with:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_codeowners_suggestions.py'
+python3 -m unittest discover -s .github/scripts -p 'test_review_suggestions.py'
+actionlint .github/workflows/_suggest_reviewers.yml .github/workflows/pre-flight.yml
+```
+
 ## Guardwords checks
 
 The reusable `_guardwords_check.yml` workflow scans added diff lines and optionally

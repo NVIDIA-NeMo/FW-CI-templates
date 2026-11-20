@@ -19,6 +19,7 @@ import tempfile
 import unittest
 
 from codeowners_suggestions import (
+    changed_files,
     find_redundant_rules,
     parse_codeowners,
     pattern_covers,
@@ -199,6 +200,32 @@ class ReadFileAtRefTests(unittest.TestCase):
         self.commit_codeowners("# suggest: /a/ @base-owner\n")
 
         self.assertIsNone(read_file_at_ref("refs/remotes/origin/nope", ".github/CODEOWNERS"))
+
+    def test_changed_files_excludes_changes_added_only_on_base(self):
+        """A moving base branch must not introduce unrelated reviewer requests."""
+        self.commit_codeowners("# suggest: * @reviewer\n")
+        self.git("checkout", "-q", "-b", "feature")
+        with open("feature space.py", "w", encoding="utf-8") as source:
+            source.write("feature = True\n")
+        self.git("add", "feature space.py")
+        self.git("commit", "-q", "-m", "feature")
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.git("checkout", "-q", "main")
+        with open("base_only.py", "w", encoding="utf-8") as source:
+            source.write("base = True\n")
+        self.git("add", "base_only.py")
+        self.git("commit", "-q", "-m", "base change")
+        base = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(changed_files(base, head), ["feature space.py"])
+
+    def test_changed_files_excludes_deletions_like_github_action(self):
+        """Preserve the existing all_changed_files deletion behavior."""
+        self.commit_codeowners("# suggest: * @reviewer\n")
+        base = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.git("rm", ".github/CODEOWNERS")
+        self.git("commit", "-q", "-m", "delete")
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(changed_files(base, head), [])
 
 
 if __name__ == "__main__":

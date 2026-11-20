@@ -12,12 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared parsing/matching logic for the `# suggest:` convention layered on
-top of a repo's .github/CODEOWNERS file. Imported via sys.path insertion
-from the python-script steps in _suggest_reviewers.yml and
-_validate_codeowners_membership.yml, and unit tested directly in
-test_codeowners_suggestions.py -- kept out of the workflow YAML so there is
-one place to fix and one place to test.
+"""Resolve `# suggest:` review routing for the GitHub and GitLab adapters.
+
+The membership validator also imports the parser. Path matching uses pinned
+micromatch with the options used by step-security/changed-files.
 
 Convention: a normal CODEOWNERS line is enforced (GitHub reads it, branch
 protection can require it). A `# suggest: <pattern> @owner ...` line uses
@@ -29,8 +27,10 @@ without blocking merge.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+from pathlib import Path
 
 _SUGGEST_PREFIX = re.compile(r"^#\s*suggest:\s*(.+)$")
 
@@ -43,15 +43,15 @@ def read_file_at_ref(ref: str, path: str) -> str | None:
 
 
 def to_glob(pattern: str) -> list[str]:
-    """Converts one CODEOWNERS-style pattern into one or more minimatch-
-    compatible glob strings (the syntax step-security/changed-files'
-    `files_yaml:` input expects), preserving the same CODEOWNERS/.gitignore
+    """Convert one CODEOWNERS-style pattern into micromatch glob strings.
+
+    Preserve the existing CODEOWNERS/.gitignore
     semantics:
       - a leading "/" (or any "/" at all) anchors the pattern to the repo root
       - a trailing "/" is a directory pattern: matches that directory and
         everything under it
       - a pattern with no "/" anywhere matches at any depth (basename match)
-      - "**"/"*" keep their normal glob meaning; minimatch's own "**" already
+      - "**"/"*" keep their normal glob meaning; micromatch's own "**" already
         handles the zero-or-more-directories case correctly
     Returns a list because the "matches at any depth" case needs two
     alternatives (root-level and nested) rather than one pattern with
@@ -90,6 +90,78 @@ def resolve_last_match_per_file(rules_with_matches: list[dict]) -> dict[str, dic
     return winning_rule_by_file
 
 
+def match_rules(rules: list[dict], files: list[str]) -> list[dict]:
+    """Match rules with the pinned engine used by both provider adapters.
+
+    Args:
+        rules: Parsed ownership or suggestion rules in file order.
+        files: Repository-relative changed paths, supplied as data on stdin.
+
+    Returns:
+        Rules annotated with matching files, preserving their order.
+    """
+    matcher = Path(__file__).parent / "review-matcher" / "match.cjs"
+    payload = {"files": files, "patterns": [to_glob(rule["pattern"]) for rule in rules]}
+    result = subprocess.run(
+        ["node", str(matcher)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return [dict(rule, matched_files=matches) for rule, matches in zip(rules, json.loads(result.stdout), strict=True)]
+
+
+def suggested_owners(text: str, files: list[str]) -> list[str]:
+    """Resolve advisory owners, suppressing enforced duplicates per file.
+
+    Args:
+        text: Ownership rules from the trusted GitHub branch.
+        files: Changed paths, using the GitHub all_changed_files convention.
+
+    Returns:
+        Sorted unique suggested user or team mentions.
+    """
+    parsed = parse_codeowners(text)
+    enforced = resolve_last_match_per_file(match_rules(parsed["enforced_rules"], files))
+    suggested = resolve_last_match_per_file(match_rules(parsed["suggest_rules"], files))
+    return sorted(
+        {
+            owner
+            for path, rule in suggested.items()
+            for owner in rule["owners"]
+            if owner not in enforced.get(path, {}).get("owners", [])
+        }
+    )
+
+
+def changed_files(base_sha: str, head_sha: str) -> list[str]:
+    """Read changed paths from the merge base with GitHub's deletion semantics.
+
+    Args:
+        base_sha: Full base commit SHA, not a ref supplied by a PR.
+        head_sha: Full head commit SHA.
+
+    Returns:
+        Changed paths, excluding deletions as all_changed_files does today.
+    """
+    for sha in (base_sha, head_sha):
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("Expected a full commit SHA")
+    base = subprocess.run(
+        ["git", "merge-base", base_sha, head_sha],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", "-z", base, head_sha, "--"],
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout.decode("utf-8").rstrip("\0").split("\0") if result.stdout else []
+
+
 def parse_rule_line(line: str) -> dict:
     parts = line.strip().split()
     return {"pattern": parts[0], "owners": parts[1:]}
@@ -97,11 +169,11 @@ def parse_rule_line(line: str) -> dict:
 
 def parse_codeowners(text: str) -> dict:
     """Splits a raw CODEOWNERS file into its two rule kinds:
-      enforced_rules -- real, non-comment lines. GitHub reads these; branch
-                        protection can require them.
-      suggest_rules  -- `# suggest: <pattern> @owner ...` comment lines.
-                        Invisible to GitHub's own CODEOWNERS parser;
-                        advisory only.
+    enforced_rules -- real, non-comment lines. GitHub reads these; branch
+                      protection can require them.
+    suggest_rules  -- `# suggest: <pattern> @owner ...` comment lines.
+                      Invisible to GitHub's own CODEOWNERS parser;
+                      advisory only.
     """
     lines = [line.strip() for line in text.split("\n")]
 

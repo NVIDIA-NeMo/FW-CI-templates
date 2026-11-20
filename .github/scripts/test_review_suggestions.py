@@ -244,10 +244,35 @@ class GitLabReviewPoolTests(unittest.TestCase):
         pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [7], "group_ids": []}
         self.assertEqual(plan_changes([pool], existing), [{"method": "DELETE", "id": 4}])
         pool["user_ids"] = [9]
-        self.assertEqual(plan_changes([pool], existing)[0], {"method": "PUT", "id": 3, "body": pool})
+        self.assertEqual(
+            plan_changes([pool], existing)[0],
+            {"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}},
+        )
         existing[2]["approvals_required"] = 1
         with self.assertRaisesRegex(ValueError, "non-optional"):
             plan_changes([pool], existing)
+
+    def test_hidden_or_visible_groups_prevent_pool_convergence(self):
+        """Managed pools must contain only the desired explicit users."""
+        pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [7], "group_ids": []}
+        current = {
+            "id": 3,
+            "name": pool["name"],
+            "approvals_required": 0,
+            "rule_type": "regular",
+            "users": [{"id": 7}],
+            "groups": [],
+            "contains_hidden_groups": False,
+        }
+        expected = [{"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}}]
+        for groups, hidden in (([], True), ([{"id": 9}], False), ([{"id": 9}], True)):
+            with self.subTest(groups=groups, hidden=hidden):
+                actual = dict(current, groups=groups, contains_hidden_groups=hidden)
+                self.assertEqual(plan_changes([pool], [actual]), expected)
+                cleaned = dict(actual, groups=[], contains_hidden_groups=False)
+                self.assertEqual(plan_changes([pool], [cleaned]), [])
+        self.assertEqual(plan_changes([pool], [current]), [])
+        self.assertEqual(plan_changes([pool], []), [{"method": "POST", "body": pool}])
 
     def test_explicit_site_convention_uses_audited_account_not_github_handle(self):
         """Private-email accounts resolve only through the selected site convention."""

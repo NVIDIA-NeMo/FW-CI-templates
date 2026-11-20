@@ -245,8 +245,12 @@ def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
         current = managed.pop(pool["name"], None)
         if current is None:
             changes.append({"method": "POST", "body": pool})
-        elif sorted(user["id"] for user in current["users"]) != pool["user_ids"] or current["groups"]:
-            changes.append({"method": "PUT", "id": current["id"], "body": pool})
+        elif (
+            sorted(user["id"] for user in current["users"]) != pool["user_ids"]
+            or current["groups"]
+            or current.get("contains_hidden_groups", False)
+        ):
+            changes.append({"method": "PUT", "id": current["id"], "body": {**pool, "remove_hidden_groups": True}})
     changes.extend({"method": "DELETE", "id": rule["id"]} for rule in managed.values())
     return changes
 

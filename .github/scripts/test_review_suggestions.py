@@ -6,6 +6,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -209,15 +210,75 @@ class GitLabReviewPoolTests(unittest.TestCase):
             patch(
                 "gitlab_review_pools.api",
                 side_effect=[
-                    [{"username": "different_login"}],
+                    [{"id": 1, "username": "different_login"}],
+                    {"id": 1, "username": "different_login", "public_email": "ONE@nvidia.com"},
                     [{"username": "two"}, {"username": "ambiguous"}],
                 ],
             ) as request,
         ):
             identities = resolve_identities({"one", "two", "external", "missing"}, "example.test")
         self.assertEqual(identities, {"one": "different_login"})
-        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_count, 3)
         self.assertIn("one%40nvidia.com", request.call_args_list[0].args[1])
+
+    def test_generic_search_requires_exact_email_evidence(self):
+        """A matching display name or one search hit cannot establish identity."""
+        for fields, expected in (
+            ({"public_email": "other@nvidia.com"}, {}),
+            ({"public_email": None}, {}),
+            ({}, {}),
+            ({"email": "ALICE@nvidia.com"}, {"alice": "different_login"}),
+        ):
+            with (
+                self.subTest(fields=fields),
+                patch("gitlab_review_pools.sso_roster", return_value={"alice": {"nvidia_email": "alice@nvidia.com"}}),
+                patch(
+                    "gitlab_review_pools.api",
+                    side_effect=[
+                        [{"id": 10, "username": "different_login", "name": "alice@nvidia.com"}],
+                        {"id": 10, "username": "different_login", **fields},
+                    ],
+                ),
+            ):
+                self.assertEqual(resolve_identities({"alice"}, "example.test"), expected)
+
+    def test_unverified_search_hit_blocks_every_apply_mutation(self):
+        """Even an active project Developer cannot substitute a name for email."""
+        mr = {
+            "sha": "a",
+            "target_branch": "internal",
+            "state": "opened",
+            "draft": False,
+            "overflow": False,
+            "diff_refs": {"head_sha": "a"},
+            "author": {"id": 1},
+            "changes": [],
+        }
+        user = {"id": 10, "username": "other", "name": "alice@nvidia.com", "state": "active", "access_level": 30}
+        args = Namespace(
+            event_file=None,
+            mr=2,
+            project="1",
+            gitlab_host="example.test",
+            target_branch="internal",
+            github_repository="org/repo",
+            github_ref="main",
+            identity_map=None,
+            gitlab_username_from_email=False,
+            apply=True,
+        )
+        with (
+            patch("gitlab_review_pools.parse_args", return_value=args),
+            patch("gitlab_review_pools.api", side_effect=[mr, [user], [user], user, []]) as request,
+            patch("gitlab_review_pools.trusted_rules", return_value=("sha", "")),
+            patch("gitlab_review_pools.suggested_owners", return_value=["@org/a"]),
+            patch("gitlab_review_pools.github_members", return_value=["alice"]),
+            patch("gitlab_review_pools.sso_roster", return_value={"alice": {"nvidia_email": "alice@nvidia.com"}}),
+            patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(SystemExit, "no writes"):
+                main()
+        self.assertTrue(all(call.kwargs.get("method", "GET") == "GET" for call in request.call_args_list))
 
     def test_reconcile_preserves_manual_rules_and_replaces_only_managed_optional_pools(self):
         """Changing membership never edits general or code-owner approval rules."""

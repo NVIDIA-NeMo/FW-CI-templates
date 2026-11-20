@@ -186,7 +186,13 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
         if username_from_email:
             users = [user for user in users if user["username"].casefold() == username]
         if len(users) == 1:
-            identities[login] = users[0]["username"]
+            user = users[0]
+            if not username_from_email:
+                user = api("glab", f"users/{user['id']}", hostname)
+                emails = {str(user.get(field) or "").strip().casefold() for field in ("email", "public_email")}
+                if email not in emails:
+                    continue
+            identities[login] = user["username"]
     return identities
 
 

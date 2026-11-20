@@ -35,8 +35,11 @@ it checks effective approval state during planning and again before each create.
 Existing MR-local required rules and native CODEOWNERS remain intact.
 
 Identity resolution reuses `check-nvidia-sso/download_sso.py` and its audited
-GitHub-login to corporate-email roster. The adapter then uses GitLab's exact-email
-user search and verifies active Developer-or-higher project membership. On NVIDIA's
+GitHub-login to corporate-email roster. The adapter searches GitLab and requires
+a single candidate whose user details expose an exactly matching primary or
+public email, then verifies active Developer-or-higher project membership.
+A generic search hit alone is insufficient; if neither email is visible, use a
+verified identity map or the explicit site convention below. On NVIDIA's
 GitLab, use `--gitlab-username-from-email`: GitLab accounts use the audited
 corporate email's account name, while private emails are not searchable. This
 mode queries the exact GitLab username and still validates project membership.

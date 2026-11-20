@@ -14,6 +14,7 @@ from gitlab_review_pools import (
     RULE_PREFIX,
     api,
     apply_changes,
+    approval_inheritance_problems,
     event_mr,
     main,
     mr_changed_paths,
@@ -92,6 +93,44 @@ class SharedResolverTests(unittest.TestCase):
 
 class GitLabReviewPoolTests(unittest.TestCase):
     """Keep review pools optional, idempotent, and isolated from human policy."""
+
+    def test_inherited_required_rules_block_creating_optional_pools(self):
+        """Regular and any-approver project requirements must not disappear."""
+        for rule_type in ("regular", "any_approver"):
+            with self.subTest(rule_type=rule_type):
+                state = {
+                    "approval_rules_overwritten": False,
+                    "rules": [{"name": "Security", "rule_type": rule_type, "approvals_required": 2}],
+                }
+                self.assertEqual(
+                    approval_inheritance_problems(state),
+                    ["Creating review pools would override inherited required rule: Security"],
+                )
+                state["approval_rules_overwritten"] = True
+                self.assertEqual(approval_inheritance_problems(state), [])
+
+    def test_optional_defaults_and_native_codeowners_do_not_block_pools(self):
+        """The documented inheritance limit does not remove CODEOWNERS rules."""
+        state = {
+            "approval_rules_overwritten": False,
+            "rules": [
+                {"name": "Suggestions", "rule_type": "regular", "approvals_required": 0},
+                {"name": "CODEOWNERS", "rule_type": "code_owner", "approvals_required": 1},
+            ],
+        }
+        self.assertEqual(approval_inheritance_problems(state), [])
+
+    def test_new_required_project_rule_blocks_apply_before_first_pool(self):
+        """A required default added after planning prevents the pending write."""
+        snapshot = {"sha": "a", "target_branch": "internal", "state": "opened", "draft": False}
+        state = {
+            "approval_rules_overwritten": False,
+            "rules": [{"name": "Security", "rule_type": "regular", "approvals_required": 1}],
+        }
+        with patch("gitlab_review_pools.api", side_effect=[snapshot, state]) as request:
+            with self.assertRaisesRegex(RuntimeError, "inherited required rule"):
+                apply_changes("example.test", "projects/1/merge_requests/2", snapshot, [{"method": "POST", "body": {}}])
+        self.assertTrue(all(call.kwargs.get("method", "GET") == "GET" for call in request.call_args_list))
 
     def test_webhook_only_selects_open_ready_mrs_in_the_expected_target(self):
         """Reject wrong projects, branches, drafts, and approval feedback events."""

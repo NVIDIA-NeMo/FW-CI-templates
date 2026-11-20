@@ -26,6 +26,14 @@ These rules expose review pools without requiring approvals or assigning every
 member as an individual reviewer. Team membership comes from GitHub on each run;
 no mirrored GitLab groups or second path map are needed.
 
+GitLab switches to MR-local approval rules when the first pool is created.
+Future project-level regular or any-approver rules will not automatically apply
+to those MRs. Consumers must accept this limitation and migrate existing MRs when
+introducing or changing project approval requirements. The adapter refuses to
+create pools when that switch would discard an existing required project rule;
+it checks effective approval state during planning and again before each create.
+Existing MR-local required rules and native CODEOWNERS remain intact.
+
 Identity resolution reuses `check-nvidia-sso/download_sso.py` and its audited
 GitHub-login to corporate-email roster. The adapter then uses GitLab's exact-email
 user search and verifies active Developer-or-higher project membership. On NVIDIA's
@@ -94,8 +102,11 @@ revision; it never checks out the MR source branch.
 For automation, invoke the adapter from trusted infrastructure on MR creation,
 updates, and transition out of draft, serializing runs per MR. Pin the tool checkout
 to a reviewed commit and keep credentials outside the MR checkout. For GitLab CI,
-use a protected, masked, hidden audit variable scoped to the trusted job's
-environment; ordinary feature-branch MR jobs cannot consume a protected variable.
+use protected, masked, hidden variables scoped to the trusted job's environment.
+Protect that environment for the dedicated trigger owner as well: variable
+protection alone permits other protected branches to consume the credentials
+if their jobs declare the same environment. Ordinary feature-branch MR jobs
+cannot consume a protected variable.
 Draft and closed MRs are skipped. The adapter is advisory; its failure
 must not become a required CI check. This repository does not install an MR event
 trigger or enable this adapter on consumer projects.

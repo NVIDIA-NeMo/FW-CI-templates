@@ -251,6 +251,22 @@ def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
     return changes
 
 
+def approval_inheritance_problems(state: dict) -> list[str]:
+    """Block replacing inherited required project rules with optional MR pools.
+
+    GitLab uses MR-local regular rules once the first optional pool is created.
+    Existing MR-local rules remain intact, but future project defaults are not
+    automatically inherited. Consumers must explicitly accept that limitation.
+    """
+    if state["approval_rules_overwritten"]:
+        return []
+    return [
+        f"Creating review pools would override inherited required rule: {rule['name']}"
+        for rule in state["rules"]
+        if rule["rule_type"] in {"regular", "any_approver"} and rule["approvals_required"] > 0
+    ]
+
+
 def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> None:
     """Apply optional pool changes only while the MR snapshot remains current."""
     for change in changes:
@@ -262,6 +278,10 @@ def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> No
             False,
         ):
             raise RuntimeError("MR changed while resolving reviewers; rerun from a fresh snapshot")
+        if change["method"] == "POST":
+            problems = approval_inheritance_problems(api("glab", root + "/approval_state", hostname))
+            if problems:
+                raise RuntimeError("; ".join(problems))
         endpoint = f"{root}/approval_rules"
         if "id" in change:
             endpoint += f"/{change['id']}"
@@ -332,6 +352,8 @@ def main() -> None:
     pools, problems = resolve_pools(memberships, identities, members, mr["author"]["id"])
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(pools, existing)
+    if not problems and any(change["method"] == "POST" for change in changes):
+        problems.extend(approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host)))
     print(
         json.dumps(
             {
@@ -347,7 +369,7 @@ def main() -> None:
         )
     )
     if problems:
-        raise SystemExit("Identity resolution is incomplete; no writes performed")
+        raise SystemExit("Review-pool preconditions are not satisfied; no writes performed")
     if args.apply:
         apply_changes(args.gitlab_host, root, mr, changes)
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)

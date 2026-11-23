@@ -1,0 +1,8 @@
+{
+  "name": "review-suggestion-matcher",
+  "private": true,
+  "description": "The matching engine shared by GitHub and GitLab review suggestions",
+  "dependencies": {
+    "micromatch": "4.0.8"
+  }
+}

@@ -12,42 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Python port of _suggest_reviewers.yml (see the JS version in
-# NVIDIA-NeMo/FW-CI-templates#556 for the original). Same jobs, same steps,
-# same security properties -- only the inline-script language changed, since
-# there's no Python equivalent of actions/github-script that gives a
-# pre-authenticated API client for free. Every `shell: python` step below
-# therefore does two things by hand that actions/github-script did
-# automatically:
-#   1. Talks to the GitHub REST API itself, via urllib.request (stdlib only
-#      -- deliberately NOT the third-party `requests` package, to avoid a
-#      pip-install step and keep this exactly as zero-setup as the JS
-#      version was) with an explicit `Authorization: Bearer <token>` header.
-#      The token is whatever `env: GITHUB_TOKEN` is set to for that step --
-#      there's no separate `github-token:` input to override, which makes
-#      the "this one step uses an elevated token" pattern even more
-#      explicit than it was in the JS version.
-#   2. Writes step outputs itself, by appending to the $GITHUB_OUTPUT file
-#      (core.setOutput's underlying mechanism), and signals failure via
-#      `raise SystemExit(1)` after printing a `::error::` annotation
-#      (core.setFailed's underlying mechanism).
-#
-# Requests reviewers on a PR based on `# suggest:` comment lines in the
-# calling repo's .github/CODEOWNERS, read from the repo's default branch (not
-# the PR's own copy, so a PR can't change who is suggested for it and a PR that
-# predates a CODEOWNERS update still gets the current rules). Advisory only:
-# GitHub's own CODEOWNERS parser ignores comment lines, so a `# suggest:`
-# entry can never become a required reviewer no matter what branch protection
-# does — only the real, non-comment CODEOWNERS lines are enforced.
-#
-# Skips a suggested owner that's textually identical to an already-enforced
-# owner for the SAME FILE — see .github/scripts/codeowners_suggestions.py
-# for the "last match wins" resolution logic and its own unit tests. The
-# actual glob-matching (does file X match pattern Y) is delegated to
-# step-security/changed-files, already trusted elsewhere in this repo
-# (_cicd_preflight.yml, _copyright_check.yml) — this workflow only converts
-# CODEOWNERS patterns to the glob syntax it expects and resolves precedence
-# across whichever groups it reports as matched.
+# Resolve advisory reviewers using the shared codeowners_suggestions.py resolver.
+# The rules come from the default branch, never the PR head. Matching uses the
+# same micromatch version/options as the former changed-files action. GitLab
+# uses this resolver too; only the provider-specific request adapter differs.
+# Suggestions do not become required reviews. Enforced CODEOWNERS rules remain
+# GitHub-native, and duplicate suggestions are suppressed per changed file.
 #
 # Triggering: supports two caller shapes, resolved uniformly in the
 # `resolve-pr` job below.
@@ -223,10 +193,6 @@ jobs:
           WEBHOOK: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}
         run: echo "configured=$([ -n "$WEBHOOK" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-      # step-security/changed-files needs a real git diff, not just the
-      # CODEOWNERS file -- fetch-depth: 0 is a heavier checkout than this
-      # workflow used to need. Worth knowing on a very large repo; needed
-      # for the glob-matching handoff below.
       - name: Checkout calling repo
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -247,157 +213,33 @@ jobs:
           ref: ${{ inputs.workflow_ref }}
           path: ci-templates
 
-      # Turns every CODEOWNERS rule (enforced and `# suggest:` alike) into its
-      # own named glob group for the next step to test against the PR's actual
-      # changed files. Group names are synthetic (e0, e1, ... for enforced
-      # rules; s0, s1, ... for suggest rules, by array index) since files_yaml
-      # groups are keyed by string -- group_meta is the map back from each
-      # synthetic name to its real pattern + owners.
-      - name: Build glob groups from CODEOWNERS
-        id: build-groups
-        shell: python
+      - name: Install shared review matcher
+        run: npm ci --prefix ci-templates/.github/scripts/review-matcher --ignore-scripts --no-audit --no-fund
+
+      - name: Resolve suggested owners
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          import json
-          import os
-          import sys
-
-          sys.path.insert(0, "ci-templates/.github/scripts")
-          from codeowners_suggestions import parse_codeowners, read_file_at_ref, to_glob  # noqa: E402
-
-
-          def gh_output(name, value):
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write(f"{name}<<__EOF__\n{value}\n__EOF__\n")
-
-
-          codeowners_path = ".github/CODEOWNERS"
-          default_branch = os.environ["DEFAULT_BRANCH"]
-          codeowners_text = read_file_at_ref(f"refs/remotes/origin/{default_branch}", codeowners_path)
-          if codeowners_text is None:
-              print(f"{codeowners_path} not found on {default_branch}, skipping.")
-              gh_output("has_rules", "false")
-              raise SystemExit(0)
-
-          parsed = parse_codeowners(codeowners_text)
-          enforced_rules = parsed["enforced_rules"]
-          suggest_rules = parsed["suggest_rules"]
-
-          if not suggest_rules:
-              print("No `# suggest:` lines found in CODEOWNERS, skipping.")
-              gh_output("has_rules", "false")
-              raise SystemExit(0)
-
-          lines = []
-          group_meta = {}
-
-
-          def add_group(prefix, index, rule):
-              name = f"{prefix}{index}"
-              group_meta[name] = {"pattern": rule["pattern"], "owners": rule["owners"]}
-              lines.append(f"{name}:")
-              for glob in to_glob(rule["pattern"]):
-                  lines.append(f"  - {json.dumps(glob)}")
-
-
-          for i, rule in enumerate(enforced_rules):
-              add_group("e", i, rule)
-          for i, rule in enumerate(suggest_rules):
-              add_group("s", i, rule)
-
-          gh_output("has_rules", "true")
-          gh_output("files_yaml", "\n".join(lines))
-          gh_output("group_meta", json.dumps(group_meta))
-          gh_output("enforced_count", str(len(enforced_rules)))
-          gh_output("suggest_count", str(len(suggest_rules)))
-
-      # The PR's own changes are head vs the commit it forked from, not head vs
-      # the base branch's current tip. If the base branch moved on after the PR
-      # branched, diffing against the tip counts every file those newer base
-      # commits touched as a change in this PR (and suggests reviewers for them).
-      # If the merge-base can't be resolved this step fails rather than falling
-      # back to that diff. It stays non-blocking: suggest-reviewers is advisory
-      # and not a required check, so a failure here never gates merging.
-      - name: Resolve PR merge-base
-        id: merge-base
-        env:
           BASE_SHA: ${{ needs.resolve-pr.outputs.base_sha }}
           HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
         run: |
-          if ! merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA"); then
-            echo "::error::No merge-base for $BASE_SHA and $HEAD_SHA in this checkout; not suggesting reviewers from a base-tip diff."
-            exit 1
-          fi
-          echo "sha=$merge_base" >> "$GITHUB_OUTPUT"
+          python3 ci-templates/.github/scripts/resolve_review_suggestions.py \
+            --rules-ref "refs/remotes/origin/$DEFAULT_BRANCH" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output suggested-reviewers.json
 
-      # The actual "does file X match pattern Y" glob test, delegated entirely
-      # to this already-trusted-elsewhere-in-this-repo action instead of a
-      # hand-rolled regex engine. json: true so file lists come back as real
-      # JSON arrays (safe with filenames containing spaces) instead of a
-      # separator-joined string we'd have to split ourselves.
-      #
-      # write_output_files: true writes each group's result to
-      # .github/outputs/<name>_all_changed_files.json on disk, instead of
-      # (only) a GitHub Actions step output. This repo's CODEOWNERS has 50+
-      # `# suggest:` groups, and this action emits ~20 fields per group
-      # (all_changed_files, added_files, modified_files, ...) -- dumping all
-      # of that through `${{ toJSON(steps.changed-files.outputs) }}` into an
-      # env: var blew past the OS's process-environment size limit on a PR
-      # with a large diff ("Argument list too long" spawning python),
-      # confirmed live. Reading each group's own small file directly in the
-      # next step avoids building that giant env var at all.
-      - name: Detect which CODEOWNERS rules matched the changed files
-        if: steps.build-groups.outputs.has_rules == 'true'
-        id: changed-files
-        uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
-        with:
-          base_sha: ${{ steps.merge-base.outputs.sha }}
-          sha: ${{ needs.resolve-pr.outputs.head_sha }}
-          files_yaml: ${{ steps.build-groups.outputs.files_yaml }}
-          json: true
-          write_output_files: true
-
-      # Resolves suggested reviewers and requests individual-user ones directly
-      # (default GITHUB_TOKEN is sufficient for that). If a TEAM is among the
-      # suggestions, this step does NOT request it -- team-reviewer resolution
-      # needs a token tied to a real identity (a GitHub App -- no PAT fallback
-      # by design), which the default token isn't. Instead it hands off the
-      # resolved lists to the next step, which runs only when needed and uses
-      # that elevated token for its *entire* scope (see that step for why
-      # that's deliberate).
-      #
-      # Every value that can contain PR-controlled content (changed-file
-      # names from this PR's own diff) is passed in via `env:` and read from
-      # os.environ -- NEVER string-interpolated with `${{ }}` directly into the script body below.
-      # `${{ }}` substitution happens as raw text substitution BEFORE this
-      # script is parsed as Python; a value containing an unescaped quote
-      # could otherwise break out of a string literal and inject arbitrary
-      # code running with this step's token. A filename is attacker-controlled
-      # the moment a PR can add a file with an unusual name -- it isn't
-      # "trusted because it's repo content", since it's THIS PR's own content.
-      # CODEOWNERS text is read from the default branch, so a PR can't edit it.
       - name: Resolve suggested reviewers from CODEOWNERS `# suggest:` lines
-        if: steps.build-groups.outputs.has_rules == 'true'
         id: resolve
         shell: python
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GROUP_META_JSON: ${{ steps.build-groups.outputs.group_meta }}
-          ENFORCED_COUNT: ${{ steps.build-groups.outputs.enforced_count }}
-          SUGGEST_COUNT: ${{ steps.build-groups.outputs.suggest_count }}
           PR_AUTHOR: ${{ needs.resolve-pr.outputs.author }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
           PR_HTML_URL: ${{ needs.resolve-pr.outputs.html_url }}
         run: |
           import json
           import os
-          import sys
           import urllib.error
           import urllib.request
-
-          sys.path.insert(0, "ci-templates/.github/scripts")
-          from codeowners_suggestions import resolve_last_match_per_file  # noqa: E402
 
 
           def gh_output(name, value):
@@ -423,65 +265,13 @@ jobs:
                   raise RuntimeError(f"{method} {path} -> {e.code}: {error_body}") from e
 
 
-          # GROUP_META_JSON is our own single JSON.dumps() of a small object --
-          # no known corruption risk, but parsing defensively costs nothing.
-          def parse_until_not_string(value):
-              result = value
-              while isinstance(result, str):
-                  result = json.loads(result)
-              return result
-
-
-          group_meta = parse_until_not_string(os.environ["GROUP_META_JSON"])
-          enforced_count = int(os.environ["ENFORCED_COUNT"])
-          suggest_count = int(os.environ["SUGGEST_COUNT"])
+          with open("suggested-reviewers.json", encoding="utf-8") as suggestions:
+              suggested = json.load(suggestions)
           pr_number = int(os.environ["PR_NUMBER"])
           pr_author = os.environ["PR_AUTHOR"]
           pr_html_url = os.environ["PR_HTML_URL"]
           repo_owner, repo_name = os.environ["GITHUB_REPOSITORY"].split("/")
           token = os.environ["GITHUB_TOKEN"]
-
-
-          # Read each group's matched-file list directly from the file
-          # write_output_files: true wrote to disk, rather than passing the
-          # WHOLE steps.changed-files.outputs object through an env var --
-          # see the comment on that step for why (OS process-environment
-          # size limit, hit live on a large PR).
-          def read_matched_files(name):
-              path = f".github/outputs/{name}_all_changed_files.json"
-              if not os.path.exists(path):
-                  return []
-              with open(path, encoding="utf-8") as f:
-                  return json.load(f)
-
-
-          def build_rules_with_matches(prefix, count):
-              rules = []
-              for i in range(count):
-                  name = f"{prefix}{i}"
-                  meta = group_meta[name]
-                  rules.append(
-                      {"pattern": meta["pattern"], "owners": meta["owners"], "matched_files": read_matched_files(name)}
-                  )
-              return rules
-
-
-          suggest_winner_by_file = resolve_last_match_per_file(build_rules_with_matches("s", suggest_count))
-          enforced_winner_by_file = resolve_last_match_per_file(build_rules_with_matches("e", enforced_count))
-
-          # Case: a `# suggest:` owner is textually identical to an already-enforced
-          # owner for THE SAME FILE. GitHub already auto-requests the enforced owner
-          # from the real CODEOWNERS line for that file, so suggesting them again is
-          # a pure duplicate. This must be resolved per-file, not globally: an owner
-          # enforced on file A is not necessarily enforced on file B, so a global set
-          # difference would wrongly drop a legitimate suggestion on file B just
-          # because the same login/team happens to be enforced elsewhere in this PR.
-          suggested = set()
-          for filename, suggest_rule in suggest_winner_by_file.items():
-              enforced_owners_for_file = set(enforced_winner_by_file.get(filename, {}).get("owners", []))
-              for owner in suggest_rule["owners"]:
-                  if owner not in enforced_owners_for_file:
-                      suggested.add(owner)
 
           # GitHub logins/mentions are case-insensitive; compare lowercased so a
           # casing mismatch between CODEOWNERS and the PR author's login can't slip
@@ -680,8 +470,8 @@ jobs:
       # so an empty, "optional and unset" webhook would otherwise turn this
       # alert step itself into a second, unrelated failure.
       - name: Alert Slack on request failure
-        if: always() && (steps.merge-base.outcome == 'failure' || steps.resolve.outputs.should_alert_slack == 'true' || steps.request-team.outputs.should_alert_slack == 'true') && steps.slack-webhook.outputs.configured == 'true'
+        if: failure() && steps.slack-webhook.outputs.configured == 'true'
         uses: ./ci-templates/.github/actions/send-slack-alert
         with:
-          message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message || format('suggest-reviewers could not resolve the PR merge-base on {0} -- {1}/{2}/actions/runs/{3}', needs.resolve-pr.outputs.html_url, github.server_url, github.repository, github.run_id) }}
+          message: ${{ steps.resolve.outputs.failure_message || steps.request-team.outputs.failure_message || format('suggest-reviewers could not resolve or request reviewers on {0} -- {1}/{2}/actions/runs/{3}', needs.resolve-pr.outputs.html_url, github.server_url, github.repository, github.run_id) }}
           webhook: ${{ secrets.SLACK_TEAM_CHANNEL_WEBHOOK }}

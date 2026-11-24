@@ -2,6 +2,43 @@
 
 A repository to centrally manage workflows across the NeMo-FW library landscape.
 
+## Wheel builds and Trusted Publishing
+
+`_build_test_wheel.yml` builds, installs, and validates distributions without
+publishing. Its outputs are `version`, `pypi-name`, and `artifact-name`.
+The artifact retains the name `pip-wheel-<run-id>-<python-package>`.
+Build jobs request `contents: read`; the optional `GH_TOKEN` secret is only for
+builds that need private dependencies.
+
+`_build_test_publish_wheel.yml` retains its existing inputs, defaults, secrets,
+version/name outputs, environments, token authentication, and `no-publish`
+behavior. It delegates artifact production to `_build_test_wheel.yml` and only
+uploads after that workflow succeeds. The optional `repository-url` input
+defaults to `https://upload.pypi.org/legacy/`; callers can explicitly select
+`https://test.pypi.org/legacy/` with a TestPyPI token. `_release_library.yml`
+callers require no changes.
+
+For Trusted Publishing, the consuming repository will call the build-only
+workflow and download its artifact in a separate job in its top-level release
+workflow. That job will use `pypa/gh-action-pypi-publish` with `id-token: write`
+and a registered GitHub environment. Do not put the OIDC upload inside a
+reusable workflow. See the [PyPA action documentation](https://github.com/pypa/gh-action-pypi-publish#trusted-publishing).
+
+```mermaid
+flowchart LR
+    A[Existing token caller] --> B[Build/test/publish wrapper]
+    B --> C[Reusable build/test]
+    C --> D[Token upload]
+    E[Trusted Publishing caller] --> F[Reusable build/test]
+    F --> G[Caller downloads artifact]
+    G --> H[Caller uploads with OIDC]
+```
+
+The wheel smoke workflow builds a fixture through both entry points without
+publishing, then compares their outputs. `tests/test_wheel_workflows.py` checks
+the existing call contract and executes the legacy upload script with a local
+command recorder, including dry-run, missing-token, and TestPyPI cases.
+
 ## Shared review suggestions
 
 `codeowners_suggestions.py` resolves advisory `# suggest:` entries from a trusted

@@ -104,7 +104,14 @@ on:
         description: Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. "grpcio-tools protobuf")
         type: string
         default: ""
+      repository-url:
+        description: Package index upload endpoint
+        type: string
+        required: false
+        default: https://upload.pypi.org/legacy/
     secrets:
+      SLACK_WEBHOOK:
+        required: false
       TWINE_USERNAME:
         required: false
       TWINE_PASSWORD:
@@ -116,361 +123,45 @@ on:
     outputs:
       version:
         description: NeMo library version
-        value: ${{ jobs.build-wheel.outputs.expected-version }}
+        value: ${{ jobs.build-test-wheel.outputs.version }}
       pypi-name:
         description: NeMo library name on PyPi
-        value: ${{ jobs.build-wheel.outputs.name }}
+        value: ${{ jobs.build-test-wheel.outputs.pypi-name }}
+
+      artifact-name:
+        description: Artifact containing the built distributions
+        value: ${{ jobs.build-test-wheel.outputs.artifact-name }}
 
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
-  build-wheel:
-    runs-on: ${{ inputs.runner }}
-    container:
-      image: ${{ inputs.custom-container || '' }}
-      options: ${{ inputs.container-options }}
-    outputs:
-      expected-version: ${{ steps.build.outputs.version }}
-      name: ${{ steps.build.outputs.name }}
-    env:
-      PYPROJECT_NAME: ${{ inputs.python-package }}
-      PACKAGING: ${{ inputs.packaging }}
-      ROOTDIR: ${{ inputs.root-dir }}
-      EXTRA_NO_BUILD_ISOLATION_PACKAGES: ${{ inputs.extra-no-build-isolation-packages }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.ref }}
-          submodules: ${{ inputs.submodules }}
-
-      - name: Get Python version
-        id: python-version
-        run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
-
-          if [[ "$PACKAGING" == "uv" ]]; then
-            if [ -f ".python-version" ]; then
-              PYTHON_VERSION=$(cat .python-version)
-            else
-              echo "Error: .python-version file not found for uv packaging"
-              exit 1
-            fi
-          else
-            PYTHON_VERSION="${{ inputs.python-version }}"
-          fi
-          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        if: inputs.custom-container == ''
-        with:
-          python-version: "${{ steps.python-version.outputs.version }}"
-
-      - name: Set build environment
-        if: inputs.build-wheel-env != '{}'
-        env:
-          BUILD_WHEEL_ENV: ${{ inputs.build-wheel-env }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import re
-
-          values = json.loads(os.environ["BUILD_WHEEL_ENV"])
-          if not isinstance(values, dict):
-              raise TypeError("build-wheel-env must be a JSON object")
-
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as github_env:
-              for name, value in values.items():
-                  if not isinstance(name, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
-                      raise ValueError(f"invalid build environment variable name: {name!r}")
-                  if not isinstance(value, str):
-                      raise TypeError(f"build environment variable {name!r} must have a string value")
-                  if "\n" in value or "\r" in value:
-                      raise ValueError(f"build environment variable {name!r} must not contain newlines")
-                  github_env.write(f"{name}={value}\n")
-          PY
-
-      - name: Build wheel
-        id: build
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
-          NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
-          NO_VCS_VERSION: "1"
-        run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
-          ls -al
-
-          if [[ "$GH_TOKEN" != "" ]]; then
-            echo "machine github.com login x-access-token password $GH_TOKEN" > ~/.netrc
-            chmod 600 ~/.netrc
-          fi
-
-          # Install the package to import and check the version in a later step
-          if [[ "$PACKAGING" == "uv" ]]; then
-            # Install uv
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH="$HOME/.local/bin:$PATH"
-            uv venv --system-site-packages .venv
-            source .venv/bin/activate
-            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              uv pip install torch
-              uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
-              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
-                uv pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
-              fi
-            fi
-            uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
-          else
-            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              pip install torch
-              pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
-              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
-                pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
-              fi
-            fi
-            pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
-          fi
-
-          # Build the wheel
-          if [[ "$PACKAGING" == "uv" ]]; then
-            uv build --out-dir ./dist/ .
-          else
-            python3 -m pip install --upgrade build
-            python3 -m build --outdir ./dist/
-          fi
-
-          # Get the expected version and name of the package
-          cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
-
-          with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
-          with open("name.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__package_name__)
-          EOF
-          )
-
-          if [[ "$PACKAGING" == "uv" ]]; then
-            uv run --no-sync --active python -c "$cmd"
-          else
-            python -c "$cmd"
-          fi
-
-          EXPECTED_VERSION=$(cat version.txt)
-          NAME=$(cat name.txt | tr '_' '-')
-
-          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
-          echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
-
-          ls -al dist/
-
-          echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
-
-      - name: Upload wheel
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: ${{ steps.build.outputs.DIST_DIR }}
-          overwrite: true
-
-  test-wheel:
-    needs: build-wheel
-    runs-on: ubuntu-latest
-    if: inputs.skip-test-wheel == false
-    env:
-      PYPROJECT_NAME: ${{ inputs.python-package }}
-      EXPECTED_VERSION: ${{ needs.build-wheel.outputs.expected-version }}
-      PACKAGING: ${{ inputs.packaging }}
-      ROOTDIR: ${{ inputs.root-dir }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.ref }}
-
-      - name: Download wheel
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: dist/${{ github.run_id }}/
-
-      - name: Get Python version
-        id: python-version
-        run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
-
-          if [[ "$PACKAGING" == "uv" ]]; then
-            if [ -f ".python-version" ]; then
-              PYTHON_VERSION=$(cat .python-version)
-            else
-              echo "Error: .python-version file not found for uv packaging"
-              exit 1
-            fi
-          else
-            PYTHON_VERSION="${{ inputs.python-version }}"
-          fi
-          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Setup Python ${{ steps.python-version.outputs.version }}
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "${{ steps.python-version.outputs.version }}"
-
-      - name: Install wheel
-        run: |
-          if [[ "$PACKAGING" == "uv" ]]; then
-            # Install uv
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-
-            # Create and activate virtual environment
-            uv venv .venv
-            source .venv/bin/activate
-          fi
-
-          cd dist/${{ github.run_id }}/
-
-          ls -al
-
-          if [[ "$PACKAGING" == "uv" ]]; then
-            uv pip install *.whl
-          else
-            pip install *.whl
-          fi
-
-          cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
-
-          with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
-          EOF
-          )
-
-          python -c "$cmd"
-
-          INSTALLED_VERSION=$(cat version.txt)
-
-          if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
-            echo 'Wheel has an outdated version, mission abort immediately!'
-            exit 1
-          fi
-
-  validate-wheel:
-    needs: build-wheel
-    runs-on: ubuntu-latest
-    env:
-      PACKAGING: ${{ inputs.packaging }}
-      ROOTDIR: ${{ inputs.root-dir }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          path: ${{ github.run_id }}
-          ref: ${{ inputs.ref }}
-
-      - name: Download wheel
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: pip-wheel-${{ github.run_id }}-${{ inputs.python-package || 'none' }}
-          path: dist/
-
-      - name: Setup Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
-
-      - name: Install validators
-        run: |
-          python3 -m pip install --upgrade twine==6.0.1 check-wheel-contents check-manifest packaging pkginfo
-
-      - name: twine check
-        run: |
-          python3 -m twine check dist/*
-
-      - name: Check for direct URL dependencies
-        run: |
-          python3 - <<'PY'
-          """Fail if any built distribution declares a PEP 508 direct URL dependency.
-
-          PyPI rejects uploads whose metadata carries a ``Requires-Dist`` direct
-          reference (e.g. ``pkg @ git+https://...``). ``twine check`` does not catch
-          these, so the failure otherwise only surfaces at ``twine upload`` time.
-          """
-
-          import glob
-          import sys
-
-          from packaging.requirements import InvalidRequirement, Requirement
-          from pkginfo import SDist, Wheel
-
-
-          def direct_url_requirements(dist_path):
-              """Return the direct URL requirement strings declared by a distribution.
-
-              Args:
-                  dist_path: Path to a built wheel (``.whl``) or sdist (``.tar.gz``).
-
-              Returns:
-                  The ``Requires-Dist`` specifiers that carry a PEP 508 direct URL.
-              """
-              metadata = Wheel(dist_path) if dist_path.endswith(".whl") else SDist(dist_path)
-              offenders = []
-              for spec in metadata.requires_dist or []:
-                  try:
-                      requirement = Requirement(spec)
-                  except InvalidRequirement:
-                      continue
-                  if requirement.url:
-                      offenders.append(spec)
-              return offenders
-
-
-          def main():
-              """Scan ``dist/`` and exit non-zero if any direct URL dependency is found."""
-              distributions = sorted(glob.glob("dist/*.whl") + glob.glob("dist/*.tar.gz"))
-              found = False
-              for dist_path in distributions:
-                  for spec in direct_url_requirements(dist_path):
-                      found = True
-                      print(f"::error file={dist_path}::PyPI rejects direct URL dependencies: {spec}")
-              if found:
-                  print("Direct URL dependencies are not allowed on PyPI; replace them with a published release.")
-                  sys.exit(1)
-              print("No direct URL dependencies found.")
-
-
-          if __name__ == "__main__":
-              main()
-          PY
-
-      - name: check-wheel-contents
-        run: |
-          check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
-
-      - name: check-manifest
-        if: inputs.packaging == 'setuptools' && inputs.skip-check-manifest == false
-        run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
-          if [[ ! -f MANIFEST.in ]]; then
-            echo "::notice::No MANIFEST.in found; skipping check-manifest."
-            exit 0
-          fi
-          check-manifest -v
+  build-test-wheel:
+    uses: ./.github/workflows/_build_test_wheel.yml
+    with:
+      python-package: ${{ inputs.python-package }}
+      python-version: ${{ inputs.python-version }}
+      ref: ${{ inputs.ref }}
+      packaging: ${{ inputs.packaging }}
+      has-src-dir: ${{ inputs.has-src-dir }}
+      skip-test-wheel: ${{ inputs.skip-test-wheel }}
+      skip-check-manifest: ${{ inputs.skip-check-manifest }}
+      wheel-content-ignore: ${{ inputs.wheel-content-ignore }}
+      custom-container: ${{ inputs.custom-container }}
+      runner: ${{ inputs.runner }}
+      no-build-isolation: ${{ inputs.no-build-isolation }}
+      submodules: ${{ inputs.submodules }}
+      root-dir: ${{ inputs.root-dir }}
+      container-options: ${{ inputs.container-options }}
+      build-wheel-env: ${{ inputs.build-wheel-env }}
+      extra-no-build-isolation-packages: ${{ inputs.extra-no-build-isolation-packages }}
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
   publish-wheel:
-    needs: [test-wheel, validate-wheel]
+    needs: [build-test-wheel]
     runs-on: ubuntu-latest
-    if: inputs.skip-test-wheel == false || !cancelled()
     environment:
       name: ${{ inputs.no-publish && 'public' || 'main' }}
       deployment: false
@@ -485,6 +176,7 @@ jobs:
         env:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          TWINE_REPOSITORY_URL: ${{ inputs.repository-url }}
           DRY_RUN: ${{ inputs.no-publish }}
         run: |
           python3 -m pip install --upgrade twine==6.0.1
@@ -493,9 +185,9 @@ jobs:
           if [[ "$DRY_RUN" == "false" ]]; then
             [[ -z "$TWINE_USERNAME" ]] && { echo "::error::TWINE_USERNAME unset"; exit 1; }
             [[ -z "$TWINE_PASSWORD" ]] && { echo "::error::TWINE_PASSWORD unset"; exit 1; }
-            python3 -m twine upload --verbose --skip-existing -u "$TWINE_USERNAME" -p "$TWINE_PASSWORD" --repository pypi dist/*
+            python3 -m twine upload --verbose --skip-existing -u "$TWINE_USERNAME" -p "$TWINE_PASSWORD" --repository-url "$TWINE_REPOSITORY_URL" dist/*
           else
-            echo "[dry-run] would execute: python3 -m twine upload --verbose --skip-existing -u <user> -p <pass> --repository pypi dist/*"
+            echo "[dry-run] would execute: python3 -m twine upload --verbose --skip-existing -u <user> -p <pass> --repository-url $TWINE_REPOSITORY_URL dist/*"
           fi
 
   notify:
@@ -504,7 +196,7 @@ jobs:
     environment:
       name: public
       deployment: false
-    needs: [publish-wheel]
+    needs: [build-test-wheel, publish-wheel]
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
       SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"

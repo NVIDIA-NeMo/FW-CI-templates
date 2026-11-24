@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fw-ci-templates-smoke"
+version = "0.0.1"
+description = "Fixture for shared wheel workflow validation"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+py-modules = ["fw_ci_templates_smoke"]

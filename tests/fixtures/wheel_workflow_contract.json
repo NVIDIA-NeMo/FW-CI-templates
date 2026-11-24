@@ -1,0 +1,134 @@
+{
+  "inputs": {
+    "python-package": {
+      "type": "string",
+      "description": "Name of Python package"
+    },
+    "python-version": {
+      "type": "string",
+      "description": "Python version",
+      "default": "3.10",
+      "required": false
+    },
+    "ref": {
+      "required": false,
+      "description": "Ref (SHA or branch) to release",
+      "type": "string",
+      "default": "${{ github.sha }}"
+    },
+    "packaging": {
+      "required": false,
+      "description": "Packaging tool (supported: setuptools, uv)",
+      "type": "string",
+      "default": "setuptools"
+    },
+    "no-publish": {
+      "required": false,
+      "description": "Do not publish the wheel",
+      "type": "boolean",
+      "default": false
+    },
+    "suppress-failure-notify": {
+      "required": false,
+      "description": "Suppress the failure Slack notification (used for PR rehearsals where failures should not page).",
+      "type": "boolean",
+      "default": false
+    },
+    "has-src-dir": {
+      "required": false,
+      "description": "Whether the package has a src directory",
+      "type": "boolean",
+      "default": false
+    },
+    "skip-test-wheel": {
+      "required": false,
+      "description": "Skip the test wheel step",
+      "type": "boolean",
+      "default": false
+    },
+    "skip-check-manifest": {
+      "required": false,
+      "description": "Skip check-manifest validation. Use for repos that intentionally exclude dev tooling (`.claude/`, `docs/`, `docker/`, \u2026) from the sdist without maintaining a `[tool.check-manifest] ignore` block.",
+      "type": "boolean",
+      "default": false
+    },
+    "wheel-content-ignore": {
+      "required": false,
+      "description": "Comma-separated check-wheel-contents codes to ignore (e.g. \"W002,W004,W009\"). W002+W004 are common no-ops; add W009 for repos that ship multiple top-level packages in one wheel.",
+      "type": "string",
+      "default": "W002,W004"
+    },
+    "custom-container": {
+      "required": false,
+      "description": "Custom container to use for the build",
+      "type": "string",
+      "default": ""
+    },
+    "runner": {
+      "required": false,
+      "description": "Runner to use for the build",
+      "type": "string",
+      "default": "ubuntu-latest"
+    },
+    "no-build-isolation": {
+      "required": false,
+      "description": "Do not build the package in isolation",
+      "type": "boolean",
+      "default": false
+    },
+    "submodules": {
+      "required": false,
+      "description": "Whether to checkout submodules",
+      "type": "string",
+      "default": ""
+    },
+    "root-dir": {
+      "required": false,
+      "description": "Navigate into a sub-directory (mind the / at the end)",
+      "type": "string",
+      "default": "./"
+    },
+    "container-options": {
+      "required": false,
+      "description": "Options to pass to the container",
+      "type": "string",
+      "default": " "
+    },
+    "build-wheel-env": {
+      "required": false,
+      "description": "JSON object of non-secret string environment variables to export for the wheel build",
+      "type": "string",
+      "default": "{}"
+    },
+    "extra-no-build-isolation-packages": {
+      "required": false,
+      "description": "Space-separated list of extra packages to pre-install before building with --no-build-isolation (e.g. \"grpcio-tools protobuf\")",
+      "type": "string",
+      "default": ""
+    }
+  },
+  "secrets": {
+    "TWINE_USERNAME": {
+      "required": false
+    },
+    "TWINE_PASSWORD": {
+      "required": false
+    },
+    "SLACK_WEBHOOK_ADMIN": {
+      "required": false
+    },
+    "GH_TOKEN": {
+      "required": false
+    }
+  },
+  "outputs": {
+    "version": {
+      "description": "NeMo library version",
+      "value": "${{ jobs.build-wheel.outputs.expected-version }}"
+    },
+    "pypi-name": {
+      "description": "NeMo library name on PyPi",
+      "value": "${{ jobs.build-wheel.outputs.name }}"
+    }
+  }
+}

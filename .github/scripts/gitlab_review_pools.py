@@ -198,7 +198,7 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
 
 def resolve_pools(
     memberships: dict[str, list[str]], identities: dict[str, str], members: list[dict], author_id: int
-) -> tuple[list[dict], list[str]]:
+) -> tuple[list[dict], list[str], list[str]]:
     """Map live GitHub membership to eligible GitLab accounts without guessing.
 
     Args:
@@ -208,7 +208,7 @@ def resolve_pools(
         author_id: MR author to exclude from approval pools.
 
     Returns:
-        Optional rule payloads and identity/eligibility problems blocking writes.
+        Optional rule payloads, blocking problems, and skipped-member warnings.
     """
     identities = {login.casefold(): username.casefold() for login, username in identities.items()}
     eligible = {
@@ -216,7 +216,7 @@ def resolve_pools(
         for member in members
         if member.get("state") == "active" and member["access_level"] >= 30
     }
-    pools, problems = [], []
+    pools, problems, warnings = [], [], []
     for owner, logins in memberships.items():
         users = []
         for login in logins:
@@ -224,7 +224,7 @@ def resolve_pools(
             if username is None:
                 problems.append(f"{owner}: no GitLab identity for {login}")
             elif username not in eligible:
-                problems.append(f"{owner}: {login} maps to ineligible GitLab account {username}")
+                warnings.append(f"{owner}: skipping {login}, ineligible GitLab account {username}")
             elif eligible[username]["id"] != author_id:
                 users.append(eligible[username]["id"])
         if not users:
@@ -232,7 +232,7 @@ def resolve_pools(
         pools.append(
             {"name": RULE_PREFIX + owner, "approvals_required": 0, "user_ids": sorted(set(users)), "group_ids": []}
         )
-    return pools, sorted(set(problems))
+    return pools, sorted(set(problems)), sorted(set(warnings))
 
 
 def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
@@ -277,17 +277,68 @@ def approval_inheritance_problems(state: dict) -> list[str]:
     ]
 
 
+def require_current_mr(current: dict, snapshot: dict) -> None:
+    """Reject writes after the MR head, target, or readiness changes.
+
+    Args:
+        current: Fresh merge request state.
+        snapshot: Merge request used to resolve the pools.
+    """
+    if (current["sha"], current["target_branch"], current["state"], current.get("draft", False)) != (
+        snapshot["sha"],
+        snapshot["target_branch"],
+        "opened",
+        False,
+    ):
+        raise RuntimeError("MR changed while resolving reviewers; rerun from a fresh snapshot")
+
+
+def suggested_reviewer_ids(pools: list[dict], author_id: int) -> list[int]:
+    """Return distinct eligible pool members excluding the MR author.
+
+    Args:
+        pools: Resolved optional approval pools.
+        author_id: MR author to exclude.
+
+    Returns:
+        Sorted reviewer user IDs.
+    """
+    return sorted({user_id for pool in pools for user_id in pool["user_ids"] if user_id != author_id})
+
+
+def assign_reviewers_if_empty(hostname: str, root: str, snapshot: dict, pools: list[dict]) -> dict:
+    """Assign pool members only when both the snapshot and fresh MR have no reviewers.
+
+    Args:
+        hostname: GitLab API host.
+        root: Merge request API path.
+        snapshot: Merge request used to resolve the pools.
+        pools: Eligible optional approval pools.
+
+    Returns:
+        Assignment or skip details for the job log.
+    """
+    if snapshot.get("reviewers"):
+        return {"skipped": "MR already has reviewers"}
+    reviewer_ids = suggested_reviewer_ids(pools, snapshot["author"]["id"])
+    if not reviewer_ids:
+        return {"skipped": "No eligible reviewers"}
+    current = api("glab", root, hostname)
+    require_current_mr(current, snapshot)
+    if current.get("reviewers"):
+        return {"skipped": "Reviewers were assigned during reconciliation"}
+    api("glab", root, hostname, method="PUT", body={"reviewer_ids": reviewer_ids})
+    actual = api("glab", root, hostname)
+    if not set(reviewer_ids).issubset({user["id"] for user in actual["reviewers"]}):
+        raise RuntimeError("Reviewer assignment did not converge; inspect the MR")
+    return {"assigned_reviewer_ids": reviewer_ids}
+
+
 def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> None:
     """Apply optional pool changes only while the MR snapshot remains current."""
     for change in changes:
         current = api("glab", root, hostname)
-        if (current["sha"], current["target_branch"], current["state"], current.get("draft", False)) != (
-            mr["sha"],
-            mr["target_branch"],
-            "opened",
-            False,
-        ):
-            raise RuntimeError("MR changed while resolving reviewers; rerun from a fresh snapshot")
+        require_current_mr(current, mr)
         if change["method"] == "POST":
             problems = approval_inheritance_problems(api("glab", root + "/approval_state", hostname))
             if problems:
@@ -359,7 +410,7 @@ def main() -> None:
             username_from_email=args.gitlab_username_from_email,
         )
     )
-    pools, problems = resolve_pools(memberships, identities, members, mr["author"]["id"])
+    pools, problems, warnings = resolve_pools(memberships, identities, members, mr["author"]["id"])
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(pools, existing)
     if not problems and any(change["method"] == "POST" for change in changes):
@@ -373,6 +424,10 @@ def main() -> None:
                 "owners": owners,
                 "changes": changes,
                 "problems": problems,
+                "warnings": warnings,
+                "reviewer_ids_to_assign": []
+                if mr.get("reviewers")
+                else suggested_reviewer_ids(pools, mr["author"]["id"]),
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,
@@ -385,7 +440,8 @@ def main() -> None:
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
         if plan_changes(pools, actual):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
-        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(pools)}))
+        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, pools)
+        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(pools), "reviewers": assignment}))
 
 
 if __name__ == "__main__":

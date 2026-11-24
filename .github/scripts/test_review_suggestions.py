@@ -16,6 +16,7 @@ from gitlab_review_pools import (
     api,
     apply_changes,
     approval_inheritance_problems,
+    assign_reviewers_if_empty,
     event_mr,
     main,
     mr_changed_paths,
@@ -198,6 +199,83 @@ class GitLabReviewPoolTests(unittest.TestCase):
         self.assertEqual(pools[0]["approvals_required"], 0)
         self.assertEqual(problems, ["@org/team: no GitLab identity for missing"])
         self.assertEqual(warnings, [])
+
+    def test_empty_mr_gets_distinct_pool_reviewers_without_author(self):
+        """Assign the union of eligible pools and verify the persisted reviewers."""
+        mr = {"sha": "a", "target_branch": "internal", "state": "opened", "author": {"id": 1}, "reviewers": []}
+        pools = [{"user_ids": [1, 2, 3]}, {"user_ids": [2, 4]}]
+        actual = dict(mr, reviewers=[{"id": 2}, {"id": 3}, {"id": 4}])
+        with patch("gitlab_review_pools.api", side_effect=[mr, actual, actual]) as request:
+            result = assign_reviewers_if_empty("example.test", "projects/1/merge_requests/2", mr, pools)
+        self.assertEqual(result, {"assigned_reviewer_ids": [2, 3, 4]})
+        self.assertEqual(request.call_args_list[1].kwargs, {"method": "PUT", "body": {"reviewer_ids": [2, 3, 4]}})
+
+    def test_existing_reviewer_prevents_assignment(self):
+        """Do not add reviewers when the MR already has any reviewer."""
+        with patch("gitlab_review_pools.api") as request:
+            result = assign_reviewers_if_empty("example.test", "mr", {"reviewers": [{"id": 9}]}, [{"user_ids": [2]}])
+        request.assert_not_called()
+        self.assertIn("skipped", result)
+
+    def test_reviewer_added_during_resolution_prevents_assignment(self):
+        """A fresh read preserves a manual assignment made after the snapshot."""
+        mr = {"sha": "a", "target_branch": "internal", "state": "opened", "author": {"id": 1}, "reviewers": []}
+        current = dict(mr, reviewers=[{"id": 9}])
+        with patch("gitlab_review_pools.api", return_value=current) as request:
+            result = assign_reviewers_if_empty("example.test", "mr", mr, [{"user_ids": [2]}])
+        self.assertEqual(request.call_count, 1)
+        self.assertIn("skipped", result)
+
+    def test_stale_head_prevents_reviewer_assignment(self):
+        """Never assign reviewers from a stale diff."""
+        mr = {"sha": "a", "target_branch": "internal", "state": "opened", "author": {"id": 1}, "reviewers": []}
+        with (
+            patch("gitlab_review_pools.api", return_value=dict(mr, sha="b")) as request,
+            self.assertRaisesRegex(RuntimeError, "MR changed"),
+        ):
+            assign_reviewers_if_empty("example.test", "mr", mr, [{"user_ids": [2]}])
+        self.assertEqual(request.call_count, 1)
+
+    def test_existing_reviewers_do_not_skip_optional_pool_reconciliation(self):
+        """Pool updates still apply when reviewer assignment is skipped."""
+        mr = {
+            "sha": "a",
+            "target_branch": "internal",
+            "state": "opened",
+            "draft": False,
+            "author": {"id": 1},
+            "reviewers": [{"id": 9}],
+        }
+        args = Namespace(
+            event_file=None,
+            mr=2,
+            project="1",
+            gitlab_host="example.test",
+            target_branch="internal",
+            github_repository="org/repo",
+            github_ref="main",
+            identity_map=None,
+            gitlab_username_from_email=False,
+            apply=True,
+        )
+        pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [2], "group_ids": []}
+        with (
+            patch("gitlab_review_pools.parse_args", return_value=args),
+            patch("gitlab_review_pools.api", side_effect=[mr, [], [], {"approval_rules_overwritten": True}, []]),
+            patch("gitlab_review_pools.mr_changed_paths", return_value=["file"]),
+            patch("gitlab_review_pools.trusted_rules", return_value=("sha", "")),
+            patch("gitlab_review_pools.suggested_owners", return_value=["@org/a"]),
+            patch("gitlab_review_pools.github_members", return_value=["alice"]),
+            patch("gitlab_review_pools.resolve_identities", return_value={"alice": "alice"}),
+            patch("gitlab_review_pools.resolve_pools", return_value=([pool], [], [])),
+            patch("gitlab_review_pools.plan_changes", side_effect=[[{"method": "POST", "body": pool}], []]),
+            patch("gitlab_review_pools.apply_changes") as apply,
+            patch("builtins.print"),
+        ):
+            main()
+        apply.assert_called_once_with(
+            "example.test", "projects/1/merge_requests/2", mr, [{"method": "POST", "body": pool}]
+        )
 
     def test_ineligible_members_warn_without_blocking_eligible_reviewers(self):
         """Missing membership, low access, and inactive accounts do not block a pool."""

@@ -600,9 +600,9 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
     def member(user_id: int, username: str) -> dict:
         return {"id": user_id, "username": username, "state": "active", "access_level": 30}
 
-    def fake_gitlab(self, mr: dict, members: list[dict]):
+    def fake_gitlab(self, mr: dict, members: list[dict], rules: dict | None = None, *, overwritten: bool = True):
         """Stateful GitLab stand-in recording every write."""
-        rules, writes = {}, []
+        rules, writes = rules if rules is not None else {}, []
 
         def api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
             if method != "GET":
@@ -614,7 +614,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             if endpoint.endswith("/approval_rules?per_page=100"):
                 return list(rules.values())
             if endpoint.endswith("/approval_state"):
-                return {"approval_rules_overwritten": True, "rules": []}
+                required = [{"name": "Security", "rule_type": "regular", "approvals_required": 1}]
+                return {"approval_rules_overwritten": overwritten, "rules": [] if overwritten else required}
             if "/approval_rules/" in endpoint:
                 rule_id = int(endpoint.rsplit("/", 1)[-1])
                 if method == "DELETE":
@@ -623,7 +624,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                     rules[rule_id].update(body, users=[{"id": user} for user in body["user_ids"]])
                 return rules[rule_id]
             if endpoint.endswith("/approval_rules") and method == "POST":
-                rule_id = len(rules) + 1
+                rule_id = max(rules, default=0) + 1
                 rules[rule_id] = {
                     **body,
                     "id": rule_id,
@@ -640,15 +641,24 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
 
         return api, rules, writes
 
-    def run_main(self, identity_map: dict, members: list[dict], *extra: str) -> tuple[dict, list, str | None]:
+    def run_main(
+        self,
+        identity_map: dict,
+        members: list[dict],
+        *extra: str,
+        rules: dict | None = None,
+        overwritten: bool = True,
+        enforce: bool = True,
+    ) -> tuple[dict, list, str | None]:
+        """Run main() against the fake; return the printed plan, the writes, and the exit message."""
         mr = json.loads(json.dumps(self.MR))
-        api, rules, writes = self.fake_gitlab(mr, members)
+        api, self.rules, writes = self.fake_gitlab(mr, members, rules, overwritten=overwritten)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "identities.json"
             path.write_text(json.dumps(identity_map))
             argv = ["script", "--gitlab-host", "example.test", "--project", "1", "--mr", "2"]
             argv += ["--target-branch", "internal", "--github-repository", "org/repo", "--identity-map", str(path)]
-            argv += ["--require-codeowners", *extra]
+            argv += (["--require-codeowners"] if enforce else []) + list(extra)
             with (
                 patch("sys.argv", argv),
                 patch("gitlab_review_pools.api", side_effect=api),
@@ -771,66 +781,62 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
 
     def test_degraded_run_replaces_stale_required_pools_and_keeps_optional_pools(self):
         """The fallback supersedes exact required pools; optional pools are not managed in that run."""
-        mr = json.loads(json.dumps(self.MR))
-        api, rules, writes = self.fake_gitlab(mr, [self.member(10, "ann"), self.member(12, "mia")])
-        rules[1] = {
-            "id": 1,
-            "name": REQUIRED_PREFIX + "@org/old",
-            "approvals_required": 1,
-            "rule_type": "regular",
-            "users": [],
-            "groups": [],
+        stale = {
+            1: {"id": 1, "name": REQUIRED_PREFIX + "@org/old", "approvals_required": 1, "rule_type": "regular"},
+            2: {"id": 2, "name": RULE_PREFIX + "@org/old", "approvals_required": 0, "rule_type": "regular"},
         }
-        rules[2] = {
-            "id": 2,
-            "name": RULE_PREFIX + "@org/old",
-            "approvals_required": 0,
-            "rule_type": "regular",
-            "users": [],
-            "groups": [],
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "identities.json"
-            path.write_text(json.dumps({"ann": "ann", "mia": "mia"}))
-            argv = [
-                "script",
-                "--gitlab-host",
-                "example.test",
-                "--project",
-                "1",
-                "--mr",
-                "2",
-                "--target-branch",
-                "internal",
-            ]
-            argv += ["--github-repository", "org/repo", "--identity-map", str(path), "--require-codeowners"]
-            argv += ["--codeowners-fallback", "@org/maint", "--apply"]
-            with (
-                patch("sys.argv", argv),
-                patch("gitlab_review_pools.api", side_effect=api),
-                patch("gitlab_review_pools.trusted_rules", return_value=("sha", self.RULES)),
-                patch("gitlab_review_pools.github_members", side_effect=lambda owner: self.TEAMS[owner]),
-                patch("builtins.print"),
-            ):
-                with self.assertRaisesRegex(SystemExit, "fell back"):
-                    main()
+        for rule in stale.values():
+            rule.update(users=[], groups=[])
+        _, writes, failure = self.run_main(
+            {"ann": "ann", "mia": "mia"},
+            [self.member(10, "ann"), self.member(12, "mia")],
+            "--codeowners-fallback",
+            "@org/maint",
+            "--apply",
+            rules=stale,
+        )
+        self.assertIn("fell back", failure)
         self.assertEqual([(method, ident) for method, ident, _ in writes if method == "DELETE"], [("DELETE", "1")])
         self.assertEqual(
-            sorted(rule["name"] for rule in rules.values()),
+            sorted(rule["name"] for rule in self.rules.values()),
             [REQUIRED_PREFIX + "fallback @org/maint", RULE_PREFIX + "@org/old"],
         )
 
     def test_runs_without_the_flag_leave_required_pools_alone(self):
         """Optional-only runs must never delete another consumer's required rules."""
-        required = {
-            "id": 1,
-            "name": REQUIRED_PREFIX + "@org/a",
-            "approvals_required": 1,
-            "rule_type": "regular",
-            "users": [],
-            "groups": [],
-        }
-        self.assertEqual(plan_changes([], [required], prefixes=(RULE_PREFIX,)), [])
+        required = {1: {"id": 1, "name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "rule_type": "regular"}}
+        required[1].update(users=[], groups=[])
+        plan, writes, failure = self.run_main(
+            {"ann": "ann", "bob": "bob"},
+            [self.member(10, "ann"), self.member(11, "bob")],
+            "--apply",
+            rules=required,
+            enforce=False,
+        )
+        self.assertIsNone(failure)
+        self.assertEqual(plan["required_owners"], [])
+        self.assertNotIn("DELETE", [method for method, _, _ in writes])
+        self.assertIn(REQUIRED_PREFIX + "@org/a", [rule["name"] for rule in self.rules.values()])
+
+    def test_reviewers_come_from_suggested_pools_only(self):
+        """Required pools gate approval; they must not page every code owner as a reviewer."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+        ):
+            plan, _, _ = self.run_main(identities, members)
+        self.assertEqual(plan["reviewer_ids_to_assign"], [13], "only the # suggest: pool member")
+
+    def test_inherited_required_rule_is_reported_and_blocks_writes(self):
+        """An inheritance problem must appear in the printed plan, not only in the exit message."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        plan, writes, failure = self.run_main(identities, members, "--apply", overwritten=False)
+        self.assertEqual(plan["problems"], ["Creating review pools would override inherited required rule: Security"])
+        self.assertEqual(writes, [])
+        self.assertIn("no writes", failure)
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

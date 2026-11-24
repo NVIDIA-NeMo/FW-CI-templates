@@ -39,8 +39,8 @@ def rewritable(rule: dict) -> bool:
     """Whether the adapter may rewrite this rule.
 
     Managed regular rules are rewritable, except an optional pool a human made
-    required. Required code-owner pools stay rewritable so a weakened rule can
-    be restored.
+    required. Required code-owner pools stay rewritable whatever their current
+    approval count, so they can be reset to one approval.
     """
     prefix = managed_prefix(rule["name"])
     if prefix is None or rule.get("rule_type") != "regular":
@@ -478,18 +478,19 @@ def main() -> None:
     desired, degraded = pools + required, False
     if problems and fallback:
         # Fail closed: any identity problem keeps the MR gated by the fallback team until it is fixed.
-        fallback_pools, fallback_problems, _ = resolve_pools(
+        fallback_pools, fallback_problems, fallback_warnings = resolve_pools(
             fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
         )
-        if fallback_problems:
-            problems = sorted({*problems, *fallback_problems})
-        else:
+        problems = sorted({*problems, *fallback_problems})
+        warnings = sorted({*warnings, *fallback_warnings})
+        if not fallback_problems:
             desired, prefixes, degraded = fallback_pools, (REQUIRED_PREFIX,), True
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(desired, existing, prefixes=prefixes)
     blocking = [] if degraded else list(problems)
     if not blocking and any(change["method"] == "POST" for change in changes):
-        blocking.extend(approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host)))
+        blocking = approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host))
+        problems = sorted({*problems, *blocking})
     print(
         json.dumps(
             {
@@ -498,11 +499,11 @@ def main() -> None:
                 "github_rules_sha": sha,
                 "owners": owners,
                 "required_owners": groups,
-                "fallback_applied": degraded,
+                "fallback_applied": degraded and not blocking,
                 "changes": changes,
                 "problems": problems,
                 "warnings": warnings,
-                "reviewer_ids_to_assign": [] if mr.get("reviewers") else suggested_reviewer_ids(desired, author_id),
+                "reviewer_ids_to_assign": [] if mr.get("reviewers") else suggested_reviewer_ids(pools, author_id),
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,
@@ -515,7 +516,7 @@ def main() -> None:
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
         if plan_changes(desired, actual, prefixes=prefixes):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
-        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, desired)
+        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, pools)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(desired), "reviewers": assignment}))
     if degraded:
         raise SystemExit("Code-owner pools fell back to the configured team; fix the listed problems")

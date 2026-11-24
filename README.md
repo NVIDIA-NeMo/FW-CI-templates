@@ -120,14 +120,19 @@ the rule satisfies it. Rules under this prefix are reconciled like optional
 pools, and a rule someone weakened to zero approvals is restored.
 
 Enforcement must fail closed. Pass `--codeowners-fallback @org/team`: when any
-identity or eligibility problem prevents resolving the exact pools, the adapter
-replaces the required pools with a single `github-codeowners: fallback @org/team`
-rule, leaves optional pools untouched, and exits non-zero with the problems
-listed. The MR stays gated until the problems are fixed and a later run
-converges. Without a resolvable fallback nothing is written and the job fails.
+identity or eligibility problem, in a suggested or a required pool, prevents
+resolving the exact pools, the adapter replaces the required pools with a single
+`github-codeowners: fallback @org/team` rule, leaves optional pools untouched,
+and exits non-zero with the problems listed. The MR stays gated until the
+problems are fixed and a later run converges. Without a resolvable fallback
+nothing is written and the job fails. Runs without `--require-codeowners` never
+touch `github-codeowners:` rules.
 
-On the GitLab project, enable "Prevent editing approval rules in merge
-requests" so MR authors cannot remove the required rules, and run the job with
+Limitation: the rules are MR-local, so GitLab lets the MR author and project
+Maintainers edit them, and no webhook fires for such an edit; the adapter
+restores the rules on the next MR update. Do not enable "Prevent editing
+approval rules in merge requests": that setting also removes the adapter's own
+permission to create or update MR approval rules. Run the consumer job with
 `allow_failure: false`.
 
 Requirements: Python 3.12+, Node.js 20+, npm, and authenticated `gh` and `glab`.

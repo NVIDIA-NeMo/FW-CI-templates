@@ -35,6 +35,19 @@ def managed_prefix(name: str) -> str | None:
     return next((prefix for prefix in MANAGED_PREFIXES if name.startswith(prefix)), None)
 
 
+def rewritable(rule: dict) -> bool:
+    """Whether the adapter may rewrite this rule.
+
+    Managed regular rules are rewritable, except an optional pool a human made
+    required. Required code-owner pools stay rewritable so a weakened rule can
+    be restored.
+    """
+    prefix = managed_prefix(rule["name"])
+    if prefix is None or rule.get("rule_type") != "regular":
+        return False
+    return prefix == REQUIRED_PREFIX or rule["approvals_required"] == 0
+
+
 def event_mr(path: Path, project: str, target_branch: str) -> int | None:
     """Select an MR from a GitLab webhook without executing payload content.
 
@@ -258,18 +271,19 @@ def resolve_pools(
     return pools, sorted(set(problems)), sorted(set(warnings))
 
 
-def plan_changes(pools: list[dict], existing: list[dict], prefixes: tuple[str, ...] = MANAGED_PREFIXES) -> list[dict]:
-    """Reconcile only named managed pools under the given prefixes.
+def plan_changes(
+    pools: list[dict], existing: list[dict], *, prefixes: tuple[str, ...] = MANAGED_PREFIXES
+) -> list[dict]:
+    """Reconcile the managed pools under the given prefixes.
 
-    Optional pools that a human made required are left alone. Required
-    code-owner pools are restored to one approval if they were weakened.
+    An optional pool that a human made required stops the run. A required
+    code-owner pool that was weakened is restored to one approval.
     """
     managed = {}
     for rule in existing:
-        prefix = managed_prefix(rule["name"])
-        if prefix is None or prefix not in prefixes:
+        if managed_prefix(rule["name"]) not in prefixes:
             continue
-        if rule.get("rule_type") != "regular" or (prefix == RULE_PREFIX and rule["approvals_required"] != 0):
+        if not rewritable(rule):
             raise ValueError(f"Refusing to change non-optional rule {rule['name']}")
         if rule["name"] in managed:
             raise ValueError(f"Duplicate managed rule {rule['name']}")
@@ -375,13 +389,7 @@ def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> No
         endpoint = f"{root}/approval_rules"
         if "id" in change:
             endpoint += f"/{change['id']}"
-            rule = api("glab", endpoint, hostname)
-            prefix = managed_prefix(rule["name"])
-            if (
-                prefix is None
-                or rule.get("rule_type") != "regular"
-                or (prefix == RULE_PREFIX and rule["approvals_required"] != 0)
-            ):
+            if not rewritable(api("glab", endpoint, hostname)):
                 raise RuntimeError("Review pool became a non-managed or required rule; refusing write")
         api("glab", endpoint, hostname, method=change["method"], body=change.get("body"))
 
@@ -466,16 +474,19 @@ def main() -> None:
     )
     problems = sorted({*problems, *required_problems})
     warnings = sorted({*warnings, *required_warnings})
-    desired, prefixes, degraded = pools + required, MANAGED_PREFIXES, False
+    prefixes = MANAGED_PREFIXES if args.require_codeowners else (RULE_PREFIX,)
+    desired, degraded = pools + required, False
     if problems and fallback:
-        # Fail closed: keep the MR gated by the fallback team until the problems are fixed.
+        # Fail closed: any identity problem keeps the MR gated by the fallback team until it is fixed.
         fallback_pools, fallback_problems, _ = resolve_pools(
             fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
         )
-        if not fallback_problems:
+        if fallback_problems:
+            problems = sorted({*problems, *fallback_problems})
+        else:
             desired, prefixes, degraded = fallback_pools, (REQUIRED_PREFIX,), True
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-    changes = plan_changes(desired, existing, prefixes)
+    changes = plan_changes(desired, existing, prefixes=prefixes)
     blocking = [] if degraded else list(problems)
     if not blocking and any(change["method"] == "POST" for change in changes):
         blocking.extend(approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host)))
@@ -487,7 +498,7 @@ def main() -> None:
                 "github_rules_sha": sha,
                 "owners": owners,
                 "required_owners": groups,
-                "fallback": degraded,
+                "fallback_applied": degraded,
                 "changes": changes,
                 "problems": problems,
                 "warnings": warnings,
@@ -502,7 +513,7 @@ def main() -> None:
     if args.apply:
         apply_changes(args.gitlab_host, root, mr, changes)
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-        if plan_changes(desired, actual, prefixes):
+        if plan_changes(desired, actual, prefixes=prefixes):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, desired)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(desired), "reviewers": assignment}))

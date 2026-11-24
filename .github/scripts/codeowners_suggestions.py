@@ -145,11 +145,13 @@ def enforced_owner_groups(text: str, files: list[str]) -> list[list[str]]:
     Returns:
         Sorted distinct owner sets, one per winning enforced rule. GitHub
         accepts an approval from any owner of a file's last matching rule, so
-        each set maps to one approval rule with one required approval.
+        each set maps to one approval rule with one required approval. A rule
+        without owners un-owns its files and contributes no set.
     """
     parsed = parse_codeowners(text)
     enforced = resolve_last_match_per_file(match_rules(parsed["enforced_rules"], files))
-    return [list(group) for group in sorted({tuple(sorted(set(rule["owners"]))) for rule in enforced.values()})]
+    groups = {tuple(sorted(set(rule["owners"]))) for rule in enforced.values()} - {()}
+    return [list(group) for group in sorted(groups)]
 
 
 def changed_files(base_sha: str, head_sha: str) -> list[str]:

@@ -615,6 +615,13 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 return list(rules.values())
             if endpoint.endswith("/approval_state"):
                 return {"approval_rules_overwritten": True, "rules": []}
+            if "/approval_rules/" in endpoint:
+                rule_id = int(endpoint.rsplit("/", 1)[-1])
+                if method == "DELETE":
+                    return rules.pop(rule_id)
+                if method == "PUT":
+                    rules[rule_id].update(body, users=[{"id": user} for user in body["user_ids"]])
+                return rules[rule_id]
             if endpoint.endswith("/approval_rules") and method == "POST":
                 rule_id = len(rules) + 1
                 rules[rule_id] = {
@@ -633,7 +640,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
 
         return api, rules, writes
 
-    def run_main(self, identity_map: dict, members: list[dict], *extra: str) -> tuple[dict, list, list]:
+    def run_main(self, identity_map: dict, members: list[dict], *extra: str) -> tuple[dict, list, str | None]:
         mr = json.loads(json.dumps(self.MR))
         api, rules, writes = self.fake_gitlab(mr, members)
         with tempfile.TemporaryDirectory() as directory:
@@ -649,13 +656,13 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 patch("gitlab_review_pools.github_members", side_effect=lambda owner: self.TEAMS[owner]),
                 patch("builtins.print") as printed,
             ):
-                exit_code = None
+                failure = None
                 try:
                     main()
                 except SystemExit as error:
-                    exit_code = error
+                    failure = str(error)
         plan = json.loads(printed.call_args_list[0].args[0])
-        return plan, writes, [exit_code] if exit_code else []
+        return plan, writes, failure
 
     def test_enforced_owner_groups_follow_last_match_and_merge_identical_owner_sets(self):
         """One group per winning enforced rule; suggestions never become required."""
@@ -669,8 +676,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         """Enforced lines become one-approval rules; suggestions stay optional."""
         identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
         members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
-        plan, writes, exits = self.run_main(identities, members)
-        self.assertEqual(exits, [])
+        plan, writes, failure = self.run_main(identities, members)
+        self.assertIsNone(failure)
         self.assertEqual(plan["required_owners"], [["@org/arch"], ["@org/bio", "@org/maint"]])
         bodies = {change["body"]["name"]: change["body"] for change in plan["changes"]}
         self.assertEqual(
@@ -690,8 +697,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         """Fail closed: the MR stays gated by the fallback team until identities resolve."""
         identities = {"ann": "ann", "mia": "mia"}
         members = [self.member(10, "ann"), self.member(12, "mia")]
-        plan, writes, exits = self.run_main(identities, members, "--codeowners-fallback", "@org/maint", "--apply")
-        self.assertTrue(plan["fallback"])
+        plan, writes, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/maint", "--apply")
+        self.assertTrue(plan["fallback_applied"])
         self.assertEqual(plan["problems"], ["@org/bio @org/maint: no GitLab identity for bob"])
         posted = [body for method, _, body in writes if method == "POST"]
         self.assertEqual(
@@ -705,17 +712,17 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(len(exits), 1)
-        self.assertIn("fell back", str(exits[0]))
+        self.assertIn("fell back", failure)
 
-    def test_unresolvable_fallback_blocks_all_writes(self):
-        """Without an eligible fallback approver nothing is written and the job fails."""
-        plan, writes, exits = self.run_main(
+    def test_unresolvable_fallback_blocks_all_writes_and_explains_why(self):
+        """Without an eligible fallback approver nothing is written and both problems are listed."""
+        plan, writes, failure = self.run_main(
             {"ann": "ann"}, [self.member(10, "ann")], "--codeowners-fallback", "@org/maint", "--apply"
         )
-        self.assertFalse(plan["fallback"])
+        self.assertFalse(plan["fallback_applied"])
+        self.assertIn("fallback @org/maint: no GitLab identity for mia", plan["problems"])
         self.assertEqual(writes, [])
-        self.assertIn("no writes", str(exits[0]))
+        self.assertIn("no writes", failure)
 
     def test_weakened_required_rule_is_restored_and_optional_rules_stay_untouched(self):
         """Reconciliation restores one approval; prefixes limit what is managed."""
@@ -739,7 +746,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         ]
         required = {"name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "user_ids": [7], "group_ids": []}
         self.assertEqual(
-            plan_changes([required], existing, (REQUIRED_PREFIX,)),
+            plan_changes([required], existing, prefixes=(REQUIRED_PREFIX,)),
             [{"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}}],
         )
         self.assertEqual(
@@ -755,6 +762,75 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 "example.test", "projects/1/merge_requests/2", snapshot, [{"method": "PUT", "id": 2, "body": required}]
             )
         self.assertEqual(request.call_args_list[-1].kwargs["method"], "PUT")
+
+    def test_owner_less_enforced_line_requires_nothing(self):
+        """GitHub's un-own syntax (pattern without owners) must not force a fallback."""
+        rules = "\n".join(["* @org/arch", "/docs/generated/"])
+        self.assertEqual(enforced_owner_groups(rules, ["docs/generated/a.md"]), [])
+        self.assertEqual(enforced_owner_groups(rules, ["docs/generated/a.md", "x.py"]), [["@org/arch"]])
+
+    def test_degraded_run_replaces_stale_required_pools_and_keeps_optional_pools(self):
+        """The fallback supersedes exact required pools; optional pools are not managed in that run."""
+        mr = json.loads(json.dumps(self.MR))
+        api, rules, writes = self.fake_gitlab(mr, [self.member(10, "ann"), self.member(12, "mia")])
+        rules[1] = {
+            "id": 1,
+            "name": REQUIRED_PREFIX + "@org/old",
+            "approvals_required": 1,
+            "rule_type": "regular",
+            "users": [],
+            "groups": [],
+        }
+        rules[2] = {
+            "id": 2,
+            "name": RULE_PREFIX + "@org/old",
+            "approvals_required": 0,
+            "rule_type": "regular",
+            "users": [],
+            "groups": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "identities.json"
+            path.write_text(json.dumps({"ann": "ann", "mia": "mia"}))
+            argv = [
+                "script",
+                "--gitlab-host",
+                "example.test",
+                "--project",
+                "1",
+                "--mr",
+                "2",
+                "--target-branch",
+                "internal",
+            ]
+            argv += ["--github-repository", "org/repo", "--identity-map", str(path), "--require-codeowners"]
+            argv += ["--codeowners-fallback", "@org/maint", "--apply"]
+            with (
+                patch("sys.argv", argv),
+                patch("gitlab_review_pools.api", side_effect=api),
+                patch("gitlab_review_pools.trusted_rules", return_value=("sha", self.RULES)),
+                patch("gitlab_review_pools.github_members", side_effect=lambda owner: self.TEAMS[owner]),
+                patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(SystemExit, "fell back"):
+                    main()
+        self.assertEqual([(method, ident) for method, ident, _ in writes if method == "DELETE"], [("DELETE", "1")])
+        self.assertEqual(
+            sorted(rule["name"] for rule in rules.values()),
+            [REQUIRED_PREFIX + "fallback @org/maint", RULE_PREFIX + "@org/old"],
+        )
+
+    def test_runs_without_the_flag_leave_required_pools_alone(self):
+        """Optional-only runs must never delete another consumer's required rules."""
+        required = {
+            "id": 1,
+            "name": REQUIRED_PREFIX + "@org/a",
+            "approvals_required": 1,
+            "rule_type": "regular",
+            "users": [],
+            "groups": [],
+        }
+        self.assertEqual(plan_changes([], [required], prefixes=(RULE_PREFIX,)), [])
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

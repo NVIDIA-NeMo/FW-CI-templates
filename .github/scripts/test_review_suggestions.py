@@ -188,7 +188,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             {"id": 1, "username": "one", "access_level": 30, "state": "active"},
             {"id": 2, "username": "two", "access_level": 40, "state": "active"},
         ]
-        pools, problems = resolve_pools(
+        pools, problems, warnings = resolve_pools(
             {"@org/team": ["GH-ONE", "gh-two", "missing"]},
             {"gh-one": "one", "gh-two": "two"},
             members,
@@ -197,6 +197,40 @@ class GitLabReviewPoolTests(unittest.TestCase):
         self.assertEqual(pools[0]["user_ids"], [2])
         self.assertEqual(pools[0]["approvals_required"], 0)
         self.assertEqual(problems, ["@org/team: no GitLab identity for missing"])
+        self.assertEqual(warnings, [])
+
+    def test_ineligible_members_warn_without_blocking_eligible_reviewers(self):
+        """Missing membership, low access, and inactive accounts do not block a pool."""
+        members = [
+            {"id": 1, "username": "author", "access_level": 40, "state": "active"},
+            {"id": 2, "username": "reviewer", "access_level": 30, "state": "active"},
+            {"id": 3, "username": "reporter", "access_level": 20, "state": "active"},
+            {"id": 4, "username": "blocked", "access_level": 30, "state": "blocked"},
+        ]
+        logins = ["author", "reviewer", "reporter", "blocked", "nonmember"]
+        pools, problems, warnings = resolve_pools({"@org/team": logins}, {login: login for login in logins}, members, 1)
+        self.assertEqual(pools[0]["user_ids"], [2])
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            warnings,
+            [
+                "@org/team: skipping blocked, ineligible GitLab account blocked",
+                "@org/team: skipping nonmember, ineligible GitLab account nonmember",
+                "@org/team: skipping reporter, ineligible GitLab account reporter",
+            ],
+        )
+
+    def test_ineligible_members_cannot_leave_an_empty_pool(self):
+        """An author and a nonmember cannot satisfy a review pool."""
+        pools, problems, warnings = resolve_pools(
+            {"@org/team": ["author", "nonmember"]},
+            {"author": "author", "nonmember": "nonmember"},
+            [{"id": 1, "username": "author", "access_level": 40, "state": "active"}],
+            1,
+        )
+        self.assertEqual(pools[0]["user_ids"], [])
+        self.assertEqual(problems, ["@org/team: no eligible reviewers other than the MR author"])
+        self.assertEqual(warnings, ["@org/team: skipping nonmember, ineligible GitLab account nonmember"])
 
     def test_sso_identity_join_requires_corporate_email_and_unambiguous_gitlab_lookup(self):
         """Never infer a GitLab username from the GitHub handle or email prefix."""

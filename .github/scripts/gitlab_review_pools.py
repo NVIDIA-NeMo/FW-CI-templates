@@ -198,7 +198,7 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
 
 def resolve_pools(
     memberships: dict[str, list[str]], identities: dict[str, str], members: list[dict], author_id: int
-) -> tuple[list[dict], list[str]]:
+) -> tuple[list[dict], list[str], list[str]]:
     """Map live GitHub membership to eligible GitLab accounts without guessing.
 
     Args:
@@ -208,7 +208,7 @@ def resolve_pools(
         author_id: MR author to exclude from approval pools.
 
     Returns:
-        Optional rule payloads and identity/eligibility problems blocking writes.
+        Optional rule payloads, blocking problems, and skipped-member warnings.
     """
     identities = {login.casefold(): username.casefold() for login, username in identities.items()}
     eligible = {
@@ -216,7 +216,7 @@ def resolve_pools(
         for member in members
         if member.get("state") == "active" and member["access_level"] >= 30
     }
-    pools, problems = [], []
+    pools, problems, warnings = [], [], []
     for owner, logins in memberships.items():
         users = []
         for login in logins:
@@ -224,7 +224,7 @@ def resolve_pools(
             if username is None:
                 problems.append(f"{owner}: no GitLab identity for {login}")
             elif username not in eligible:
-                problems.append(f"{owner}: {login} maps to ineligible GitLab account {username}")
+                warnings.append(f"{owner}: skipping {login}, ineligible GitLab account {username}")
             elif eligible[username]["id"] != author_id:
                 users.append(eligible[username]["id"])
         if not users:
@@ -232,7 +232,7 @@ def resolve_pools(
         pools.append(
             {"name": RULE_PREFIX + owner, "approvals_required": 0, "user_ids": sorted(set(users)), "group_ids": []}
         )
-    return pools, sorted(set(problems))
+    return pools, sorted(set(problems)), sorted(set(warnings))
 
 
 def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
@@ -359,7 +359,7 @@ def main() -> None:
             username_from_email=args.gitlab_username_from_email,
         )
     )
-    pools, problems = resolve_pools(memberships, identities, members, mr["author"]["id"])
+    pools, problems, warnings = resolve_pools(memberships, identities, members, mr["author"]["id"])
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(pools, existing)
     if not problems and any(change["method"] == "POST" for change in changes):
@@ -373,6 +373,7 @@ def main() -> None:
                 "owners": owners,
                 "changes": changes,
                 "problems": problems,
+                "warnings": warnings,
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,

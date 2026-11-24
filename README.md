@@ -57,9 +57,10 @@ a JSON object instead of downloading the roster:
 {"github-login": "gitlab-username"}
 ```
 
-Keep any explicit identity maps in trusted internal configuration. Missing mappings,
-inactive accounts, accounts below Developer access, and empty review pools stop
-the adapter before writes. The MR author is excluded. The adapter manages only
+Keep any explicit identity maps in trusted internal configuration. Missing mappings
+and empty review pools stop the adapter before writes. Inactive accounts, missing
+project members, and accounts below Developer access are skipped with warnings
+in the JSON plan. Eligible members still populate each pool. The MR author is excluded. The adapter manages only
 optional rules named `github-review-pool: @organization/team` (or `@user`),
 reconciles membership, and removes stale pools with that prefix. It refuses to
 modify a matching rule if someone makes it required.

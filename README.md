@@ -46,7 +46,8 @@ GitHub `.github/CODEOWNERS`. GitHub and GitLab use the same parser, micromatch
 engine, last-match precedence, and per-file suppression of enforced duplicates.
 The engine retains the GitHub workflow's `all_changed_files` behavior: renamed
 files use their new paths, and deleted files are excluded. An enforced owner is
-not automatically turned into a GitLab review suggestion.
+not automatically turned into a GitLab review suggestion; with
+`--require-codeowners` it becomes a required GitLab approval instead (below).
 
 ```mermaid
 flowchart LR
@@ -54,6 +55,7 @@ flowchart LR
     Diff[PR or MR changed paths] --> Resolver
     Resolver --> GH[GitHub review requests]
     Resolver --> GL[GitLab optional review pools]
+    Resolver --> GLR[GitLab required code-owner pools]
     Teams[Live GitHub team membership] --> GL
     Identities[Audited SSO identity lookup] --> GL
 ```
@@ -106,6 +108,27 @@ in the JSON plan. Eligible members still populate each pool. The MR author is ex
 optional rules named `github-review-pool: @organization/team` (or `@user`),
 reconciles membership, and removes stale pools with that prefix. It refuses to
 modify a matching rule if someone makes it required.
+
+### Required code-owner pools
+
+`--require-codeowners` mirrors GitHub's required code-owner review. For every
+changed file the last matching enforced CODEOWNERS line wins, exactly as on
+GitHub; each distinct owner set becomes one MR approval rule named
+`github-codeowners: @org/team-a @org/team-b` with `approvals_required: 1` and
+the live members of those teams as approvers. One approval from any owner of
+the rule satisfies it. Rules under this prefix are reconciled like optional
+pools, and a rule someone weakened to zero approvals is restored.
+
+Enforcement must fail closed. Pass `--codeowners-fallback @org/team`: when any
+identity or eligibility problem prevents resolving the exact pools, the adapter
+replaces the required pools with a single `github-codeowners: fallback @org/team`
+rule, leaves optional pools untouched, and exits non-zero with the problems
+listed. The MR stays gated until the problems are fixed and a later run
+converges. Without a resolvable fallback nothing is written and the job fails.
+
+On the GitLab project, enable "Prevent editing approval rules in merge
+requests" so MR authors cannot remove the required rules, and run the job with
+`allow_failure: false`.
 
 Requirements: Python 3.12+, Node.js 20+, npm, and authenticated `gh` and `glab`.
 The GitHub identity needs repository-content and team-membership read access;

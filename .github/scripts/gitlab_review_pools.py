@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Attach optional GitLab review pools resolved from GitHub suggestion rules.
+"""Attach GitLab review pools resolved from GitHub CODEOWNERS.
 
-Authentication uses the installed gh and glab clients. Dry-run is the default;
-only --apply permits writes. The identity map contains account correspondences,
-never team rosters or file ownership rules.
+`# suggest:` entries become optional pools. With --require-codeowners, enforced
+entries become approval rules requiring one approval, mirroring GitHub's
+required code-owner review. Authentication uses the installed gh and glab
+clients. Dry-run is the default; only --apply permits writes. The identity map
+contains account correspondences, never team rosters or file ownership rules.
 """
 
 import argparse
 import base64
+import functools
 import json
 import os
 import re
@@ -19,9 +22,17 @@ import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
-from codeowners_suggestions import suggested_owners
+from codeowners_suggestions import enforced_owner_groups, suggested_owners
 
 RULE_PREFIX = "github-review-pool: "
+REQUIRED_PREFIX = "github-codeowners: "
+APPROVALS_BY_PREFIX = {RULE_PREFIX: 0, REQUIRED_PREFIX: 1}
+MANAGED_PREFIXES = tuple(APPROVALS_BY_PREFIX)
+
+
+def managed_prefix(name: str) -> str | None:
+    """Return the managed prefix of an approval rule name, if any."""
+    return next((prefix for prefix in MANAGED_PREFIXES if name.startswith(prefix)), None)
 
 
 def event_mr(path: Path, project: str, target_branch: str) -> int | None:
@@ -128,6 +139,7 @@ def mr_changed_paths(mr: dict) -> list[str]:
     return sorted({change["new_path"] for change in changes if not change["deleted_file"]})
 
 
+@functools.cache
 def github_members(owner: str) -> list[str]:
     """Expand a GitHub team live, or retain a directly suggested account."""
     name = owner.removeprefix("@")
@@ -197,18 +209,24 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
 
 
 def resolve_pools(
-    memberships: dict[str, list[str]], identities: dict[str, str], members: list[dict], author_id: int
+    memberships: dict[str, list[str]],
+    identities: dict[str, str],
+    members: list[dict],
+    author_id: int,
+    *,
+    prefix: str = RULE_PREFIX,
 ) -> tuple[list[dict], list[str], list[str]]:
     """Map live GitHub membership to eligible GitLab accounts without guessing.
 
     Args:
-        memberships: Suggested mentions and their current GitHub members.
+        memberships: Rule names (mentions or owner sets) and their current GitHub members.
         identities: Explicit GitHub-login to GitLab-username mapping.
         members: Effective GitLab project members.
         author_id: MR author to exclude from approval pools.
+        prefix: Managed rule prefix; it determines the required approval count.
 
     Returns:
-        Optional rule payloads, blocking problems, and skipped-member warnings.
+        Rule payloads, blocking problems, and skipped-member warnings.
     """
     identities = {login.casefold(): username.casefold() for login, username in identities.items()}
     eligible = {
@@ -230,18 +248,28 @@ def resolve_pools(
         if not users:
             problems.append(f"{owner}: no eligible reviewers other than the MR author")
         pools.append(
-            {"name": RULE_PREFIX + owner, "approvals_required": 0, "user_ids": sorted(set(users)), "group_ids": []}
+            {
+                "name": prefix + owner,
+                "approvals_required": APPROVALS_BY_PREFIX[prefix],
+                "user_ids": sorted(set(users)),
+                "group_ids": [],
+            }
         )
     return pools, sorted(set(problems)), sorted(set(warnings))
 
 
-def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
-    """Reconcile only named optional pools; reject collisions with required rules."""
+def plan_changes(pools: list[dict], existing: list[dict], prefixes: tuple[str, ...] = MANAGED_PREFIXES) -> list[dict]:
+    """Reconcile only named managed pools under the given prefixes.
+
+    Optional pools that a human made required are left alone. Required
+    code-owner pools are restored to one approval if they were weakened.
+    """
     managed = {}
     for rule in existing:
-        if not rule["name"].startswith(RULE_PREFIX):
+        prefix = managed_prefix(rule["name"])
+        if prefix is None or prefix not in prefixes:
             continue
-        if rule.get("rule_type") != "regular" or rule["approvals_required"] != 0:
+        if rule.get("rule_type") != "regular" or (prefix == RULE_PREFIX and rule["approvals_required"] != 0):
             raise ValueError(f"Refusing to change non-optional rule {rule['name']}")
         if rule["name"] in managed:
             raise ValueError(f"Duplicate managed rule {rule['name']}")
@@ -253,6 +281,7 @@ def plan_changes(pools: list[dict], existing: list[dict]) -> list[dict]:
             changes.append({"method": "POST", "body": pool})
         elif (
             sorted(user["id"] for user in current["users"]) != pool["user_ids"]
+            or current["approvals_required"] != pool["approvals_required"]
             or current["groups"]
             or current.get("contains_hidden_groups", False)
         ):
@@ -347,10 +376,11 @@ def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> No
         if "id" in change:
             endpoint += f"/{change['id']}"
             rule = api("glab", endpoint, hostname)
+            prefix = managed_prefix(rule["name"])
             if (
-                rule["approvals_required"] != 0
+                prefix is None
                 or rule.get("rule_type") != "regular"
-                or not rule["name"].startswith(RULE_PREFIX)
+                or (prefix == RULE_PREFIX and rule["approvals_required"] != 0)
             ):
                 raise RuntimeError("Review pool became a non-managed or required rule; refusing write")
         api("glab", endpoint, hostname, method=change["method"], body=change.get("body"))
@@ -375,8 +405,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Site convention: GitLab usernames equal audited NVIDIA email account names",
     )
+    parser.add_argument(
+        "--require-codeowners",
+        action="store_true",
+        help="Also mirror enforced CODEOWNERS entries as approval rules requiring one approval",
+    )
+    parser.add_argument(
+        "--codeowners-fallback",
+        metavar="@org/team",
+        help="With --require-codeowners: keep the MR gated by this team while resolution has problems",
+    )
     parser.add_argument("--apply", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.codeowners_fallback and not args.require_codeowners:
+        parser.error("--codeowners-fallback requires --require-codeowners")
+    return args
 
 
 def main() -> None:
@@ -397,24 +440,45 @@ def main() -> None:
     paths = mr_changed_paths(mr)
     sha, text = trusted_rules(args.github_repository, args.github_ref)
     owners = suggested_owners(text, paths)
+    groups = enforced_owner_groups(text, paths) if args.require_codeowners else []
     members = api(
         "glab", f"projects/{quote(args.project, safe='')}/members/all?per_page=100", args.gitlab_host, paginate=True
     )
     memberships = {owner: github_members(owner) for owner in owners}
+    required_memberships = {
+        " ".join(group): sorted({login for owner in group for login in github_members(owner)}) for group in groups
+    }
+    fallback = args.codeowners_fallback
+    fallback_memberships = {f"fallback {fallback}": github_members(fallback)} if fallback else {}
     identities = (
         json.loads(args.identity_map.read_text(encoding="utf-8"))
         if args.identity_map
         else resolve_identities(
-            {login for logins in memberships.values() for login in logins},
+            set().union(*memberships.values(), *required_memberships.values(), *fallback_memberships.values()),
             args.gitlab_host,
             username_from_email=args.gitlab_username_from_email,
         )
     )
-    pools, problems, warnings = resolve_pools(memberships, identities, members, mr["author"]["id"])
+    author_id = mr["author"]["id"]
+    pools, problems, warnings = resolve_pools(memberships, identities, members, author_id)
+    required, required_problems, required_warnings = resolve_pools(
+        required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
+    )
+    problems = sorted({*problems, *required_problems})
+    warnings = sorted({*warnings, *required_warnings})
+    desired, prefixes, degraded = pools + required, MANAGED_PREFIXES, False
+    if problems and fallback:
+        # Fail closed: keep the MR gated by the fallback team until the problems are fixed.
+        fallback_pools, fallback_problems, _ = resolve_pools(
+            fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
+        )
+        if not fallback_problems:
+            desired, prefixes, degraded = fallback_pools, (REQUIRED_PREFIX,), True
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-    changes = plan_changes(pools, existing)
-    if not problems and any(change["method"] == "POST" for change in changes):
-        problems.extend(approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host)))
+    changes = plan_changes(desired, existing, prefixes)
+    blocking = [] if degraded else list(problems)
+    if not blocking and any(change["method"] == "POST" for change in changes):
+        blocking.extend(approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host)))
     print(
         json.dumps(
             {
@@ -422,26 +486,28 @@ def main() -> None:
                 "head_sha": mr["sha"],
                 "github_rules_sha": sha,
                 "owners": owners,
+                "required_owners": groups,
+                "fallback": degraded,
                 "changes": changes,
                 "problems": problems,
                 "warnings": warnings,
-                "reviewer_ids_to_assign": []
-                if mr.get("reviewers")
-                else suggested_reviewer_ids(pools, mr["author"]["id"]),
+                "reviewer_ids_to_assign": [] if mr.get("reviewers") else suggested_reviewer_ids(desired, author_id),
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,
         )
     )
-    if problems:
+    if blocking:
         raise SystemExit("Review-pool preconditions are not satisfied; no writes performed")
     if args.apply:
         apply_changes(args.gitlab_host, root, mr, changes)
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-        if plan_changes(pools, actual):
+        if plan_changes(desired, actual, prefixes):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
-        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, pools)
-        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(pools), "reviewers": assignment}))
+        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, desired)
+        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(desired), "reviewers": assignment}))
+    if degraded:
+        raise SystemExit("Code-owner pools fell back to the configured team; fix the listed problems")
 
 
 if __name__ == "__main__":

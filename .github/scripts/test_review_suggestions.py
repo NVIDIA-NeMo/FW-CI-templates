@@ -10,8 +10,9 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from codeowners_suggestions import match_rules, suggested_owners
+from codeowners_suggestions import enforced_owner_groups, match_rules, suggested_owners
 from gitlab_review_pools import (
+    REQUIRED_PREFIX,
     RULE_PREFIX,
     api,
     apply_changes,
@@ -20,6 +21,7 @@ from gitlab_review_pools import (
     event_mr,
     main,
     mr_changed_paths,
+    parse_args,
     plan_changes,
     resolve_identities,
     resolve_pools,
@@ -256,6 +258,8 @@ class GitLabReviewPoolTests(unittest.TestCase):
             github_ref="main",
             identity_map=None,
             gitlab_username_from_email=False,
+            require_codeowners=False,
+            codeowners_fallback=None,
             apply=True,
         )
         pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [2], "group_ids": []}
@@ -377,6 +381,8 @@ class GitLabReviewPoolTests(unittest.TestCase):
             github_ref="main",
             identity_map=None,
             gitlab_username_from_email=False,
+            require_codeowners=False,
+            codeowners_fallback=None,
             apply=True,
         )
         with (
@@ -571,6 +577,191 @@ class GitLabReviewPoolTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "no writes"):
                     main()
             self.assertTrue(all(call.kwargs.get("method", "GET") == "GET" for call in request.call_args_list))
+
+
+class RequiredCodeOwnerPoolTests(unittest.TestCase):
+    """Mirror GitHub's required code-owner review as one-approval GitLab rules."""
+
+    MR = {
+        "sha": "a",
+        "target_branch": "internal",
+        "state": "opened",
+        "draft": False,
+        "overflow": False,
+        "diff_refs": {"head_sha": "a"},
+        "author": {"id": 1},
+        "reviewers": [],
+        "changes": [{"new_path": "bio/b.py", "deleted_file": False}, {"new_path": "README.md", "deleted_file": False}],
+    }
+    RULES = "\n".join(["* @org/arch", "/bio/ @org/bio @org/maint", "# suggest: /bio/ @org/bio"])
+    TEAMS = {"@org/arch": ["ann"], "@org/bio": ["bob"], "@org/maint": ["mia"]}
+
+    @staticmethod
+    def member(user_id: int, username: str) -> dict:
+        return {"id": user_id, "username": username, "state": "active", "access_level": 30}
+
+    def fake_gitlab(self, mr: dict, members: list[dict]):
+        """Stateful GitLab stand-in recording every write."""
+        rules, writes = {}, []
+
+        def api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+            if method != "GET":
+                writes.append((method, endpoint.rsplit("/", 1)[-1], body))
+            if endpoint.endswith("/changes?access_raw_diffs=true"):
+                return mr
+            if "/members/all" in endpoint:
+                return members
+            if endpoint.endswith("/approval_rules?per_page=100"):
+                return list(rules.values())
+            if endpoint.endswith("/approval_state"):
+                return {"approval_rules_overwritten": True, "rules": []}
+            if endpoint.endswith("/approval_rules") and method == "POST":
+                rule_id = len(rules) + 1
+                rules[rule_id] = {
+                    **body,
+                    "id": rule_id,
+                    "rule_type": "regular",
+                    "users": [{"id": user} for user in body["user_ids"]],
+                    "groups": [],
+                }
+                return rules[rule_id]
+            if endpoint.endswith("/merge_requests/2"):
+                if method == "PUT":
+                    mr["reviewers"] = [{"id": user} for user in body["reviewer_ids"]]
+                return mr
+            raise AssertionError(f"unexpected {method} {endpoint}")
+
+        return api, rules, writes
+
+    def run_main(self, identity_map: dict, members: list[dict], *extra: str) -> tuple[dict, list, list]:
+        mr = json.loads(json.dumps(self.MR))
+        api, rules, writes = self.fake_gitlab(mr, members)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "identities.json"
+            path.write_text(json.dumps(identity_map))
+            argv = ["script", "--gitlab-host", "example.test", "--project", "1", "--mr", "2"]
+            argv += ["--target-branch", "internal", "--github-repository", "org/repo", "--identity-map", str(path)]
+            argv += ["--require-codeowners", *extra]
+            with (
+                patch("sys.argv", argv),
+                patch("gitlab_review_pools.api", side_effect=api),
+                patch("gitlab_review_pools.trusted_rules", return_value=("sha", self.RULES)),
+                patch("gitlab_review_pools.github_members", side_effect=lambda owner: self.TEAMS[owner]),
+                patch("builtins.print") as printed,
+            ):
+                exit_code = None
+                try:
+                    main()
+                except SystemExit as error:
+                    exit_code = error
+        plan = json.loads(printed.call_args_list[0].args[0])
+        return plan, writes, [exit_code] if exit_code else []
+
+    def test_enforced_owner_groups_follow_last_match_and_merge_identical_owner_sets(self):
+        """One group per winning enforced rule; suggestions never become required."""
+        self.assertEqual(
+            enforced_owner_groups(self.RULES, ["bio/b.py", "README.md", "docs/x.md", "bio/c/d.py"]),
+            [["@org/arch"], ["@org/bio", "@org/maint"]],
+        )
+        self.assertEqual(enforced_owner_groups("# suggest: * @org/x", ["a.py"]), [])
+
+    def test_required_pools_need_one_approval_from_any_owner_of_the_rule(self):
+        """Enforced lines become one-approval rules; suggestions stay optional."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        plan, writes, exits = self.run_main(identities, members)
+        self.assertEqual(exits, [])
+        self.assertEqual(plan["required_owners"], [["@org/arch"], ["@org/bio", "@org/maint"]])
+        bodies = {change["body"]["name"]: change["body"] for change in plan["changes"]}
+        self.assertEqual(
+            bodies[REQUIRED_PREFIX + "@org/bio @org/maint"],
+            {
+                "name": REQUIRED_PREFIX + "@org/bio @org/maint",
+                "approvals_required": 1,
+                "user_ids": [11, 12],
+                "group_ids": [],
+            },
+        )
+        self.assertEqual(bodies[REQUIRED_PREFIX + "@org/arch"]["approvals_required"], 1)
+        self.assertNotIn(RULE_PREFIX + "@org/bio", bodies, "suggestion duplicates an enforced owner")
+        self.assertEqual(writes, [], "dry run never writes")
+
+    def test_unresolved_identity_falls_back_to_configured_team_and_fails_the_job(self):
+        """Fail closed: the MR stays gated by the fallback team until identities resolve."""
+        identities = {"ann": "ann", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(12, "mia")]
+        plan, writes, exits = self.run_main(identities, members, "--codeowners-fallback", "@org/maint", "--apply")
+        self.assertTrue(plan["fallback"])
+        self.assertEqual(plan["problems"], ["@org/bio @org/maint: no GitLab identity for bob"])
+        posted = [body for method, _, body in writes if method == "POST"]
+        self.assertEqual(
+            posted,
+            [
+                {
+                    "name": REQUIRED_PREFIX + "fallback @org/maint",
+                    "approvals_required": 1,
+                    "user_ids": [12],
+                    "group_ids": [],
+                }
+            ],
+        )
+        self.assertEqual(len(exits), 1)
+        self.assertIn("fell back", str(exits[0]))
+
+    def test_unresolvable_fallback_blocks_all_writes(self):
+        """Without an eligible fallback approver nothing is written and the job fails."""
+        plan, writes, exits = self.run_main(
+            {"ann": "ann"}, [self.member(10, "ann")], "--codeowners-fallback", "@org/maint", "--apply"
+        )
+        self.assertFalse(plan["fallback"])
+        self.assertEqual(writes, [])
+        self.assertIn("no writes", str(exits[0]))
+
+    def test_weakened_required_rule_is_restored_and_optional_rules_stay_untouched(self):
+        """Reconciliation restores one approval; prefixes limit what is managed."""
+        existing = [
+            {
+                "id": 1,
+                "name": RULE_PREFIX + "@org/a",
+                "approvals_required": 0,
+                "rule_type": "regular",
+                "users": [{"id": 7}],
+                "groups": [],
+            },
+            {
+                "id": 2,
+                "name": REQUIRED_PREFIX + "@org/a",
+                "approvals_required": 0,
+                "rule_type": "regular",
+                "users": [{"id": 7}],
+                "groups": [],
+            },
+        ]
+        required = {"name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "user_ids": [7], "group_ids": []}
+        self.assertEqual(
+            plan_changes([required], existing, (REQUIRED_PREFIX,)),
+            [{"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}}],
+        )
+        self.assertEqual(
+            plan_changes([required], existing),
+            [
+                {"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}},
+                {"method": "DELETE", "id": 1},
+            ],
+        )
+        snapshot = {"sha": "a", "target_branch": "internal", "state": "opened", "draft": False}
+        with patch("gitlab_review_pools.api", side_effect=[snapshot, existing[1], None]) as request:
+            apply_changes(
+                "example.test", "projects/1/merge_requests/2", snapshot, [{"method": "PUT", "id": 2, "body": required}]
+            )
+        self.assertEqual(request.call_args_list[-1].kwargs["method"], "PUT")
+
+    def test_fallback_requires_the_enforcement_flag(self):
+        argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]
+        argv += ["--github-repository", "o/r", "--codeowners-fallback", "@org/maint"]
+        with patch("sys.argv", argv), patch("sys.stderr"):
+            with self.assertRaises(SystemExit):
+                parse_args()
 
 
 if __name__ == "__main__":

@@ -436,13 +436,6 @@ jobs:
       LIBRARY_NAME: ${{ inputs.library-name }}
       S3_TARGET_PATH: ${{ inputs.docs-target-path }}
     steps:
-      - name: Checkout FW-CI-templates
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.94.1
-          path: FW-CI-templates
-
       - name: Generate request name
         id: request-name
         shell: bash
@@ -451,7 +444,7 @@ jobs:
           printf 'value<<%s\n%s-publish-docs-%s\n%s\n' "$delimiter" "${S3_TARGET_PATH//\//-}" "$GITHUB_RUN_ID" "$delimiter" >> "$GITHUB_OUTPUT"
 
       - name: Publish documentation
-        uses: ./FW-CI-templates/.github/actions/publish-docs
+        uses: $/.github/actions/publish-docs
         with:
           dry-run: ${{ inputs.dry-run || inputs.validate-only }}
           artifacts-name: docs-html
@@ -539,17 +532,9 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Checkout
-        if: env.IS_VALIDATE_ONLY == 'false' && steps.webhook.outputs.configured == 'true'
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
-
       - name: Send Slack alert
         if: env.IS_VALIDATE_ONLY == 'false' && steps.webhook.outputs.configured == 'true'
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        uses: $/.github/actions/send-slack-alert
         with:
           message: ${{ steps.msg.outputs.message }}
           webhook: ${{ secrets.SLACK_WEBHOOK }}

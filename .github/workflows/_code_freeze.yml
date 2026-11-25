@@ -399,15 +399,8 @@ jobs:
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
       SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
-
       - name: Send Slack alert
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        uses: $/.github/actions/send-slack-alert
         with:
           message: >
             ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉

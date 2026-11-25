@@ -44,7 +44,7 @@ on:
         default: false
       app-id:
         required: false
-        description: GitHub App ID used for branch pushes, labels, and version-bump PRs
+        description: GitHub App ID used for branch pushes and version-bump PRs
         type: string
         default: ""
       environment-name:
@@ -112,7 +112,6 @@ jobs:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
           permission-contents: write
-          permission-pull-requests: write
           # Protected release-branch creation uses the installation's admin access.
           permission-administration: write
 
@@ -166,21 +165,6 @@ jobs:
           if [[ "$DRY_RUN" != "true" ]]; then
             git push -u origin "${RELEASE_BRANCH}" --force
           fi
-
-      - name: Create cherry-pick label
-        if: ${{ inputs.dry-run != true }}
-        env:
-          GH_TOKEN: ${{ steps.github-token.outputs.token }}
-          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
-        run: |
-          DESCRIPTION="Auto-cherrypick to release branch. Apply before merge; cherrypick happens after merge."
-          gh label create "${RELEASE_BRANCH}" \
-            --repo ${{ github.repository }} \
-            --description "${DESCRIPTION}" \
-            --color "0075ca" 2>&1 \
-          || gh label edit "${RELEASE_BRANCH}" \
-            --repo ${{ github.repository }} \
-            --description "${DESCRIPTION}" 2>&1
 
   bump-next-version:
     runs-on: ubuntu-latest
@@ -310,7 +294,7 @@ jobs:
           message: >
             ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉
 
-            PSA: For automated cherry picks, please assign the label `${{ env.RELEASE_BRANCH }}` to your PR _before_ merging to `main`. A bot will attempt a cherry pick into the release branch. If it fails due to a merge-conflict, you will need to take action. Our team ${{ env.SLACK_WEBHOOK_ADMIN }} will reach out to you.
+            PSA: To backport a PR into `${{ env.RELEASE_BRANCH }}`, comment `/cherrypick to=${{ env.RELEASE_BRANCH }}` on it, before or after it merges. Autobot opens the backport PR once the source PR is merged and reports progress in the `Autobot cherrypick (${{ env.RELEASE_BRANCH }})` check. If it fails, the check says why, and our team ${{ env.SLACK_WEBHOOK_ADMIN }} can help.
 
 
           webhook: ${{ env.SLACK_WEBHOOK }}

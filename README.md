@@ -220,9 +220,9 @@ The caller supplies its own App identity: `NVIDIA/Megatron-LM` uses App `3610216
 (`nemo-automation-bot`). The shared workflow does not choose an App by owner.
 
 Each write job mints a separate token scoped to the calling repository, with
-`contents:write` and `pull_requests:write`. GitHub's label API accepts the latter
-permission, so the App does not need `issues:write`. Release-branch creation also
-requests `administration:write` for the existing protected-branch admin access.
+`contents:write`. The version-bump job also requests `pull_requests:write` for its
+PR. Release-branch creation also requests `administration:write` for the existing
+protected-branch admin access.
 Both Apps already grant these permissions. Validate branch protection before a
 release; App authentication does not change the repository's protection rules.
 

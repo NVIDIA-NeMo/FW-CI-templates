@@ -337,6 +337,30 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
 
+      - name: Pin protected release tag
+        if: inputs.release-environment != '' && !inputs.validate-only && !inputs.dry-run
+        working-directory: ${{ github.run_id }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
+          RELEASE_SHA: ${{ inputs.release-ref }}
+        run: |
+          tag_ref="refs/tags/${TAG_PREFIX}v${VERSION}"
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git check-ref-format "$tag_ref"; then
+            echo "::error::Protected publication requires a full release SHA and a valid tag."
+            exit 1
+          fi
+          remote_git=(git -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential')
+          if "${remote_git[@]}" push origin "$RELEASE_SHA:$tag_ref"; then
+            exit 0
+          fi
+          "${remote_git[@]}" fetch --no-tags origin "$tag_ref"
+          existing_sha=$(git rev-parse --verify 'FETCH_HEAD^{commit}')
+          if [[ "$existing_sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::$tag_ref already points to $existing_sha. Expected $RELEASE_SHA."
+            exit 1
+          fi
+
       - name: Publish GitHub release
         if: ${{ !inputs.validate-only && !inputs.dry-run }}
         env:

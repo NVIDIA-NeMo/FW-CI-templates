@@ -6,7 +6,9 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import yaml
@@ -218,3 +220,120 @@ gh() {
                     check=True,
                 )
                 self.assertEqual(result.stdout, expected)
+
+
+class ProtectedReleaseTagTests(unittest.TestCase):
+    """Exercise the release tag publication step against a disposable Git remote."""
+
+    def setUp(self):
+        """Create two release commits and read the exact GitHub Actions shell."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.checkout = Path(temp.name)
+        self.remote = self.checkout / "remote.git"
+        self.git("init", "--bare", str(self.remote))
+        self.git("init", "--initial-branch=main")
+        self.git("config", "user.name", "Release Test")
+        self.git("config", "user.email", "release@example.com")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "tag.gpgsign", "false")
+        self.git("commit", "--allow-empty", "-m", "first")
+        self.first = self.git("rev-parse", "HEAD")
+        self.git("commit", "--allow-empty", "-m", "second")
+        self.second = self.git("rev-parse", "HEAD")
+        self.git("remote", "add", "origin", str(self.remote))
+        self.git("push", "origin", "main")
+        steps = yaml.safe_load((WORKFLOWS / "_release_finalize.yml").read_text())[
+            "jobs"
+        ]["create-gh-release"]["steps"]
+        self.step = next(
+            s for s in steps if s.get("name") == "Pin protected release tag"
+        )
+        publish = next(s for s in steps if s.get("name") == "Publish GitHub release")
+        self.assertLess(steps.index(self.step), steps.index(publish))
+
+    def git(self, *args):
+        """Run a Git fixture command and return its stripped output."""
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def pin(self, version, sha):
+        """Run the release step with local Git transport."""
+        return subprocess.run(
+            ["bash", "-eo", "pipefail", "-c", self.step["run"]],
+            cwd=self.checkout,
+            env=dict(os.environ, TAG_PREFIX="pkg-", VERSION=version, RELEASE_SHA=sha),
+            capture_output=True,
+            text=True,
+        )
+
+    def test_only_protected_publication_pins_a_tag(self):
+        """Skip pinning for every rehearsal and legacy production release."""
+        for environment in ("gym-release", ""):
+            for validate in (True, False):
+                for dry in (True, False):
+                    context = {
+                        "inputs.release-environment": environment,
+                        "inputs.validate-only": validate,
+                        "inputs.dry-run": dry,
+                    }
+                    self.assertEqual(
+                        expression(self.step["if"], context),
+                        bool(environment) and not (validate or dry),
+                    )
+
+    def test_new_and_existing_tags(self):
+        """Preserve existing tag objects and accept their peeled commit only on a match."""
+        for name, annotated in (("light", False), ("annotated", True)):
+            version = f"1.0.0-{name}"
+            tag = f"pkg-v{version}"
+            ref = f"refs/tags/{tag}"
+            if annotated:
+                self.git("tag", "-a", tag, self.first, "-m", "Signed-off release")
+                self.git("push", "origin", ref)
+            else:
+                created = self.pin(version, self.first)
+                self.assertEqual(created.returncode, 0, created.stderr)
+            tag_oid = self.git("--git-dir", str(self.remote), "rev-parse", ref)
+            for sha, accepted in ((self.first, True), (self.second, False)):
+                with self.subTest(tag=tag, sha=sha):
+                    run = self.pin(version, sha)
+                    self.assertEqual(run.returncode == 0, accepted, run.stderr)
+                    self.assertEqual(
+                        self.git("--git-dir", str(self.remote), "rev-parse", ref),
+                        tag_oid,
+                    )
+            self.assertEqual(
+                self.git(
+                    "--git-dir", str(self.remote), "rev-parse", f"{ref}^{{commit}}"
+                ),
+                self.first,
+            )
+
+    def test_racing_different_cutoffs(self):
+        """Only the publisher whose SHA owns the tag can proceed."""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            runs = {
+                sha: pool.submit(self.pin, "race", sha)
+                for sha in (self.first, self.second)
+            }
+            accepted = [
+                sha for sha, run in runs.items() if run.result().returncode == 0
+            ]
+        tip = self.git(
+            "--git-dir", str(self.remote), "rev-parse", "refs/tags/pkg-vrace"
+        )
+        self.assertEqual(accepted, [tip])
+
+    def test_malformed_ref_and_transport_failure_block_publication(self):
+        """Reject invalid inputs and fail closed when Git cannot create or fetch the tag."""
+        for version, sha in (("1.0.0", "main"), ("invalid..tag", self.first)):
+            self.assertNotEqual(self.pin(version, sha).returncode, 0)
+        self.git("remote", "set-url", "origin", str(self.checkout / "missing.git"))
+        self.assertNotEqual(self.pin("1.0.0", self.first).returncode, 0)
+        self.assertEqual(self.git("--git-dir", str(self.remote), "tag", "--list"), "")

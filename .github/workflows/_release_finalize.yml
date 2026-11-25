@@ -363,12 +363,44 @@ jobs:
 
       - name: Publish GitHub release
         if: ${{ !inputs.validate-only && !inputs.dry-run }}
+        shell: bash
         env:
           GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
           ROOT_DIR: ${{ inputs.root-dir }}
         run: |
-          cd "$GITHUB_WORKSPACE/$GITHUB_RUN_ID/$ROOT_DIR"
-          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input payload.txt --jq '.html_url'
+          checkout="$GITHUB_WORKSPACE/$GITHUB_RUN_ID"
+          cd "$checkout/$ROOT_DIR"
+          api="repos/$GITHUB_REPOSITORY"
+          response=$(mktemp)
+          trap 'rm -f -- "$response"' EXIT
+
+          if gh api --method POST "$api/releases" --input payload.txt > "$response"; then
+            jq -er '.html_url' "$response"
+            exit 0
+          fi
+          if ! jq -e '(.status == null or (.status | tostring) == "422")
+            and (.errors | type == "array" and length > 0 and all(.[];
+              .resource == "Release" and .field == "tag_name" and .code == "already_exists"))' \
+            "$response" > /dev/null; then
+            echo "::error::GitHub release creation failed."
+            exit 1
+          fi
+
+          tag=$(jq -er '.tag_name | @uri' payload.txt)
+          gh api "$api/releases/tags/$tag" > "$response"
+          if ! jq -e --slurpfile expected payload.txt '
+            .tag_name == $expected[0].tag_name and .draft == $expected[0].draft
+            and .prerelease == $expected[0].prerelease' "$response" > /dev/null; then
+            echo "::error::The existing GitHub release does not match the requested tag or publication state."
+            exit 1
+          fi
+          expected_sha=$(git -C "$checkout" rev-parse --verify 'HEAD^{commit}')
+          tag_sha=$(gh api "$api/commits/refs%2Ftags%2F$tag" --jq '.sha')
+          if [[ "$tag_sha" != "$expected_sha" ]]; then
+            echo "::error::The existing release tag resolves to $tag_sha. Expected $expected_sha."
+            exit 1
+          fi
+          jq -er '.html_url' "$response"
 
   build-docs:
     needs: [create-gh-release]

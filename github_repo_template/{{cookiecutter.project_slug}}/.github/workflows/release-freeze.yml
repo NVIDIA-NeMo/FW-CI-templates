@@ -34,7 +34,7 @@ on:
         default: true
 jobs:
   code-freeze:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@d9478337209a7bc86479d77bcdadd638318b183d # github app authentication
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_code_freeze.yml@fb3b45eed8585aafae60297464a004eb209fc95a # code freeze: /cherrypick PSA
     with:
       app-id: {% raw %}${{ vars.BOT_ID }}{% endraw %}
       environment-name: public

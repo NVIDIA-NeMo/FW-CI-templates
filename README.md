@@ -59,12 +59,9 @@ flowchart LR
 ```
 
 The GitLab adapter creates named MR approval rules with `approvals_required: 0`.
-These rules expose review pools without requiring approvals. If an MR has no
-reviewers, the adapter also assigns its eligible pool members as reviewers. If
-reviewers are already assigned, their list stays unchanged while the optional
-pools are still reconciled. The adapter rechecks the reviewer list immediately
-before assignment. GitLab does not expose an atomic assign-only-if-empty operation,
-so a manual assignment in the remaining read/write window can race with this update.
+These rules expose review pools without requiring approvals or assigning every
+member as an individual reviewer. The CI-Events `gym-review-router` owns GitLab
+reviewer assignment, so this adapter never writes the MR Reviewers field.
 Team membership comes from GitHub on each run;
 no mirrored GitLab groups or second path map are needed.
 
@@ -124,7 +121,7 @@ python3 .github/scripts/gitlab_review_pools.py \
 
 This command only reads APIs and prints a plan with the MR head, immutable GitHub
 rules revision, proposed mutations, and mapping problems. Add `--apply` to write
-the optional pools and assign reviewers to unassigned MRs. Apply rechecks the MR head and target before each mutation
+the optional pools. Apply rechecks the MR head and target before each mutation
 and verifies convergence afterward. API failures can leave a partially applied
 set of optional pools; rerunning reconciles them. GitLab does not provide an
 atomic conditional update of MR approval rules, so concurrent pushes can require

@@ -63,7 +63,7 @@ flowchart LR
     Identities --> GLR
 ```
 
-The GitLab adapter creates named MR approval rules with `approvals_required: 0`.
+For suggestions, the GitLab adapter creates named MR approval rules with `approvals_required: 0`.
 These rules expose review pools without requiring approvals. If an MR has no
 reviewers, the adapter also assigns its eligible pool members as reviewers. If
 reviewers are already assigned, their list stays unchanged while the optional

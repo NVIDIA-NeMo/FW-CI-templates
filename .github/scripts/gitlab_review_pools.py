@@ -165,7 +165,11 @@ def mr_changed_paths(mr: dict, *, include_deleted: bool = False) -> list[str]:
 
 @functools.cache
 def github_members(owner: str) -> list[str]:
-    """Expand a GitHub team live, or retain a directly suggested account."""
+    """Expand a GitHub team live, or retain a directly suggested account.
+
+    Cached for the process lifetime: one run reads each team once even when it
+    appears as a suggested owner, a required owner and the fallback.
+    """
     name = owner.removeprefix("@")
     if "/" not in name:
         return [name]
@@ -291,6 +295,45 @@ def resolve_pools(
     return pools, sorted(set(problems)), sorted(set(warnings))
 
 
+def plan_sides(
+    optional: tuple[list[dict], list[str]],
+    required: tuple[list[dict], list[str]],
+    fallback: tuple[list[dict], list[str]] | None,
+    *,
+    enforce: bool,
+) -> tuple[list[dict], tuple[str, ...], list[str], bool]:
+    """Decide what one run reconciles, so a problem on one side never weakens the other.
+
+    Args:
+        optional: Suggested pools and their problems.
+        required: Code-owner pools and their problems.
+        fallback: The fallback pool and its problems, when configured and needed.
+        enforce: Whether required pools are managed in this run.
+
+    Returns:
+        Desired pools, the prefixes to reconcile, blocking problems, and whether
+        the required side fell back.
+
+    The optional side is advisory: any problem skips optional reconciliation for
+    this run. The required side fails closed: its problems block every write,
+    unless a fallback without problems of its own replaces the exact pools.
+    """
+    optional_pools, optional_problems = optional
+    required_pools, required_problems = required
+    degraded = bool(required_problems and fallback and not fallback[1])
+    if degraded:
+        required_pools = fallback[0]
+    active = {RULE_PREFIX: not optional_problems, REQUIRED_PREFIX: enforce}
+    prefixes = tuple(prefix for prefix, on in active.items() if on)
+    desired = (optional_pools if RULE_PREFIX in prefixes else []) + (
+        required_pools if REQUIRED_PREFIX in prefixes else []
+    )
+    blocking = [] if degraded else list(required_problems)
+    if not prefixes:
+        blocking = sorted({*optional_problems, *required_problems})
+    return desired, prefixes, blocking, degraded
+
+
 def plan_changes(
     pools: list[dict], existing: list[dict], *, prefixes: tuple[str, ...] = MANAGED_PREFIXES
 ) -> list[dict]:
@@ -304,7 +347,7 @@ def plan_changes(
         if managed_prefix(rule["name"]) not in prefixes:
             continue
         if not rewritable(rule):
-            raise ValueError(f"Refusing to change non-optional rule {rule['name']}")
+            raise ValueError(f"Refusing to change rule {rule['name']}: not a regular rule, or made required by hand")
         if rule["name"] in managed:
             raise ValueError(f"Duplicate managed rule {rule['name']}")
         managed[rule["name"]] = rule
@@ -476,7 +519,7 @@ def main() -> None:
     )
     lookups: dict[str, list[str]] = {"optional": [], "required": [], "fallback": []}
 
-    def roster(owner: str, side: str) -> list[str]:
+    def expand(owner: str, side: str) -> list[str]:
         """Expand one owner; a failed lookup becomes a problem on its side instead of a crash."""
         try:
             return github_members(owner)
@@ -484,12 +527,12 @@ def main() -> None:
             lookups[side].append(f"{owner}: {error}")
             return []
 
-    memberships = {owner: roster(owner, "optional") for owner in owners}
+    memberships = {owner: expand(owner, "optional") for owner in owners}
     required_memberships = {
-        " ".join(group): sorted({login for owner in group for login in roster(owner, "required")}) for group in groups
+        " ".join(group): sorted({login for owner in group for login in expand(owner, "required")}) for group in groups
     }
     fallback = args.codeowners_fallback
-    fallback_memberships = {f"fallback {fallback}": roster(fallback, "fallback")} if fallback else {}
+    fallback_memberships = {f"fallback {fallback}": expand(fallback, "fallback")} if fallback else {}
     identities, identity_problems = (
         (json.loads(args.identity_map.read_text(encoding="utf-8")), [])
         if args.identity_map
@@ -508,27 +551,20 @@ def main() -> None:
     required_problems = sorted({*required_problems, *lookups["required"]})
     problems = sorted({*optional_problems, *required_problems, *lookups["fallback"], *identity_problems})
     warnings = sorted({*warnings, *required_warnings})
-    # Required side: the exact pools, or the fallback rule when they cannot be resolved (fail closed).
-    degraded, blocking = False, list(required_problems)
+    fallback_side = None
     if required_problems and fallback:
         fallback_pools, fallback_problems, fallback_warnings = resolve_pools(
             fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
         )
-        fallback_problems = sorted({*fallback_problems, *lookups["fallback"]})
-        problems = sorted({*problems, *fallback_problems})
+        fallback_side = (fallback_pools, sorted({*fallback_problems, *lookups["fallback"]}))
+        problems = sorted({*problems, *fallback_side[1]})
         warnings = sorted({*warnings, *fallback_warnings})
-        if not fallback_problems:
-            required, degraded, blocking = fallback_pools, True, []
-    # Optional side: a problem in an advisory pool skips optional reconciliation and reviewer
-    # assignment for this run; it never weakens or replaces the required gate.
-    sides = {RULE_PREFIX: (pools, not optional_problems), REQUIRED_PREFIX: (required, args.require_codeowners)}
-    prefixes = tuple(prefix for prefix, (_, active) in sides.items() if active)
-    desired = [pool for prefix in prefixes for pool in sides[prefix][0]]
+    desired, prefixes, blocking, degraded = plan_sides(
+        (pools, optional_problems), (required, required_problems), fallback_side, enforce=args.require_codeowners
+    )
     reviewer_pools = pools if RULE_PREFIX in prefixes else []
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(desired, existing, prefixes=prefixes)
-    if not prefixes:
-        blocking = list(problems)
     if not blocking and any(change["method"] == "POST" for change in changes):
         blocking = approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host))
         problems = sorted({*problems, *blocking})

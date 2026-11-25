@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from codeowners_suggestions import enforced_owner_groups, match_rules, suggested_owners
 from gitlab_review_pools import (
+    MANAGED_PREFIXES,
     REQUIRED_PREFIX,
     RULE_PREFIX,
     api,
@@ -23,6 +24,7 @@ from gitlab_review_pools import (
     mr_changed_paths,
     parse_args,
     plan_changes,
+    plan_sides,
     resolve_identities,
     resolve_pools,
 )
@@ -430,7 +432,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             {"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}, "name": pool["name"]},
         )
         existing[2]["approvals_required"] = 1
-        with self.assertRaisesRegex(ValueError, "non-optional"):
+        with self.assertRaisesRegex(ValueError, "made required by hand"):
             plan_changes([pool], existing)
 
     def test_hidden_or_visible_groups_prevent_pool_convergence(self):
@@ -855,7 +857,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             sorted(rule["name"] for rule in self.rules.values()),
             [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint", RULE_PREFIX + "@org/old"],
         )
-        self.assertNotIn("PUT", [method for method, ident, _ in writes if ident == "2"], "no reviewer assignment")
+        self.assertEqual([body for method, _, body in writes if "reviewer_ids" in body], [], "no reviewer assignment")
         self.assertIn("reconciled with problems", failure)
 
     def test_unreadable_fallback_team_is_listed_but_does_not_abort_a_healthy_run(self):
@@ -1037,6 +1039,71 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         with patch("gitlab_review_pools.subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 120)):
             with self.assertRaisesRegex(RuntimeError, "gh GET orgs/org/teams/bio/members timed out"):
                 api("gh", "orgs/org/teams/bio/members?per_page=100")
+
+    def test_required_problem_without_fallback_blocks_all_writes(self):
+        """Fail closed: with no fallback configured, a required-pool problem writes nothing."""
+        plan, writes, failure = self.run_main({"ann": "ann", "mia": "mia"}, [self.member(10, "ann")], "--apply")
+        self.assertFalse(plan["fallback_applied"])
+        self.assertIn("@org/bio @org/maint: no GitLab identity for bob", plan["problems"])
+        self.assertEqual(writes, [])
+        self.assertIn("no writes", failure)
+
+    def test_plan_sides_isolates_each_side(self):
+        """The optional side is advisory and the required side fails closed, independently."""
+        opt, req, fb = (
+            [{"name": RULE_PREFIX + "a"}],
+            [{"name": REQUIRED_PREFIX + "b"}],
+            [{"name": REQUIRED_PREFIX + "fallback"}],
+        )
+        cases = {
+            "healthy": (((opt, []), (req, []), None), (opt + req, MANAGED_PREFIXES, [], False)),
+            "optional problem": (((opt, ["x"]), (req, []), None), (req, (REQUIRED_PREFIX,), [], False)),
+            "required problem, no fallback": (
+                ((opt, []), (req, ["y"]), None),
+                (opt + req, MANAGED_PREFIXES, ["y"], False),
+            ),
+            "required problem, fallback ok": (
+                ((opt, []), (req, ["y"]), (fb, [])),
+                (opt + fb, MANAGED_PREFIXES, [], True),
+            ),
+            "required problem, fallback broken": (
+                ((opt, []), (req, ["y"]), (fb, ["z"])),
+                (opt + req, MANAGED_PREFIXES, ["y"], False),
+            ),
+            "both sides broken, fallback ok": (
+                ((opt, ["x"]), (req, ["y"]), (fb, [])),
+                (fb, (REQUIRED_PREFIX,), [], True),
+            ),
+        }
+        for name, (inputs, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(plan_sides(*inputs, enforce=True), expected)
+        self.assertEqual(plan_sides((opt, ["x"]), ([], []), None, enforce=False), ([], (), ["x"], False))
+        self.assertEqual(plan_sides((opt, []), ([], []), None, enforce=False), (opt, (RULE_PREFIX,), [], False))
+
+    def test_required_rules_with_other_types_or_counts(self):
+        """A hand-made non-regular rule under the prefix stops the run; two approvals are reset to one."""
+        required = {"name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "user_ids": [7], "group_ids": []}
+        foreign = {"id": 1, "name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "rule_type": "any_approver"}
+        with self.assertRaisesRegex(ValueError, "not a regular rule"):
+            plan_changes([required], [foreign])
+        strict = {**foreign, "rule_type": "regular", "approvals_required": 2, "users": [{"id": 7}], "groups": []}
+        self.assertEqual([change["method"] for change in plan_changes([required], [strict])], ["PUT"])
+
+    def test_changed_paths_cover_renames_and_deletions(self):
+        """Renamed files use their new path; deletions count only for required review."""
+        mr = {
+            "sha": "a",
+            "overflow": False,
+            "diff_refs": {"head_sha": "a"},
+            "changes": [
+                {"old_path": "old.py", "new_path": "new.py", "deleted_file": False},
+                {"old_path": "gone.py", "new_path": "gone.py", "deleted_file": True},
+                {"old_path": "added.py", "new_path": "added.py", "deleted_file": False},
+            ],
+        }
+        self.assertEqual(mr_changed_paths(mr), ["added.py", "new.py"])
+        self.assertEqual(mr_changed_paths(mr, include_deleted=True), ["added.py", "gone.py", "new.py"])
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

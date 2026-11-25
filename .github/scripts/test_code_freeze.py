@@ -166,19 +166,25 @@ class CodeFreezeTests(unittest.TestCase):
             self.assertNotIn("owner", minted["with"])
             self.assertNotIn("repositories", minted["with"])
             self.assertEqual(minted["with"]["permission-contents"], "write")
-            self.assertEqual(minted["with"]["permission-pull-requests"], "write")
+            self.assertEqual(minted["with"].get("permission-pull-requests"),
+                             "write" if job == "bump-next-version" else None)
             self.assertNotIn("permission-issues", minted["with"])
             self.assertEqual(step(job, "Checkout repository")["with"]["token"], token)
             self.assertNotIn("token", WORKFLOW["jobs"][job].get("outputs", {}))
-        label = step("create-release-branch", "Create cherry-pick label")
-        self.assertEqual(label["env"]["GH_TOKEN"], token)
-        self.assertEqual(label["if"], "${{ inputs.dry-run != true }}")
         checkout = step("bump-next-version", "Checkout repository")
         self.assertEqual(checkout["with"]["persist-credentials"], "false")
         pull = step("bump-next-version", "Create Version Bump PR")
         self.assertEqual(pull["if"], "${{ inputs.dry-run != true }}")
         self.assertEqual(pull["with"]["token"],
                          "${{ inputs.app-id != '' && steps.github-token.outputs.token || github.token }}")
+
+    def test_backports_use_cherrypick_command_instead_of_labels(self):
+        for item in WORKFLOW["jobs"]["create-release-branch"]["steps"]:
+            self.assertNotEqual(item["name"], "Create cherry-pick label")
+            self.assertNotIn("gh label", item.get("run", ""))
+        message = step("notify", "Send Slack alert")["with"]["message"]
+        self.assertIn("/cherrypick to=${{ env.RELEASE_BRANCH }}", message)
+        self.assertNotIn("assign the label", message)
 
 
 if __name__ == "__main__":

@@ -44,10 +44,11 @@ command recorder, including dry-run, missing-token, and TestPyPI cases.
 `codeowners_suggestions.py` resolves advisory `# suggest:` entries from a trusted
 GitHub `.github/CODEOWNERS`. GitHub and GitLab use the same parser, micromatch
 engine, last-match precedence, and per-file suppression of enforced duplicates.
-The engine retains the GitHub workflow's `all_changed_files` behavior: renamed
-files use their new paths, and deleted files are excluded. An enforced owner is
-not automatically turned into a GitLab review suggestion; with
-`--require-codeowners` it becomes a required GitLab approval instead (below).
+The engine retains the GitHub workflow's `all_changed_files` behavior for
+suggestions: renamed files use their new paths, and deleted files are excluded.
+An enforced owner is not automatically turned into a GitLab review suggestion;
+with `--require-codeowners` it becomes a required GitLab approval instead
+(below), and deleted files count for that required review as they do on GitHub.
 
 ```mermaid
 flowchart LR
@@ -57,7 +58,9 @@ flowchart LR
     Resolver --> GL[GitLab optional review pools]
     Resolver --> GLR[GitLab required code-owner pools]
     Teams[Live GitHub team membership] --> GL
+    Teams --> GLR
     Identities[Audited SSO identity lookup] --> GL
+    Identities --> GLR
 ```
 
 The GitLab adapter creates named MR approval rules with `approvals_required: 0`.
@@ -119,13 +122,15 @@ the live members of those teams as approvers. One approval from any owner of
 the rule satisfies it. Rules under this prefix are reconciled like optional
 pools, and a rule someone weakened to zero approvals is restored.
 
-Enforcement must fail closed. Pass `--codeowners-fallback @org/team`: when any
-identity or eligibility problem, in a suggested or a required pool, prevents
-resolving the exact pools, the adapter replaces the required pools with a single
-`github-codeowners: fallback @org/team` rule, leaves optional pools untouched,
-and exits non-zero with the problems listed. The MR stays gated until the
-problems are fixed and a later run converges. Without a resolvable fallback
-nothing is written and the job fails. Runs without `--require-codeowners` never
+Enforcement must fail closed. Pass `--codeowners-fallback @org/team`: when an
+identity, eligibility or lookup problem in a required pool prevents resolving
+the exact pools, the adapter replaces the required pools with a single
+`github-codeowners: fallback @org/team` rule and exits non-zero with the
+problems listed. The MR stays gated until the problems are fixed and a later
+run converges. Without a resolvable fallback nothing is written and the job
+fails. A problem in an advisory `# suggest:` pool never touches the required
+gate: that run skips optional reconciliation and reviewer assignment, writes the
+exact required pools, and exits non-zero. Runs without `--require-codeowners` never
 touch `github-codeowners:` rules. Patterns follow gitignore syntax: braces are
 literal and `*/` skips root files. A changed path containing a line terminator
 stops the run before any write, because glob engines cannot match it reliably.

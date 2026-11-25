@@ -254,9 +254,11 @@ def pattern_covers(covering_pattern: str, covered_pattern: str) -> bool:
         return True
     if b["type"] == "wildcard":
         return False
+    nested = b["value"].startswith(a["value"] + "/")
     if a["type"] == "file":
-        return b["type"] == "file" and a["value"] == b["value"]
-    return b["value"] == a["value"] or b["value"].startswith(a["value"] + "/")
+        # "/src" names a file or a directory, so it also owns everything under it.
+        return b["value"] == a["value"] or nested
+    return (b["type"] == "dir" and b["value"] == a["value"]) or nested
 
 
 def _same_owners(a: list[str], b: list[str]) -> bool:

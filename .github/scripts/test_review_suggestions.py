@@ -502,7 +502,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
                 },
             ],
         ) as request:
-            with self.assertRaisesRegex(RuntimeError, "required rule"):
+            with self.assertRaisesRegex(RuntimeError, "edited by hand"):
                 apply_changes(
                     "example.test",
                     "projects/1/merge_requests/2",
@@ -760,8 +760,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         self.assertEqual(writes, [])
         self.assertIn("no writes", failure)
 
-    def test_weakened_required_rule_is_restored_and_optional_rules_stay_untouched(self):
-        """Reconciliation restores one approval; prefixes limit what is managed."""
+    def test_weakened_required_rule_is_restored_and_prefixes_limit_the_scope(self):
+        """Reconciliation restores one approval; only rules under the given prefixes are managed."""
         existing = [
             {
                 "id": 1,
@@ -813,8 +813,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         self.assertEqual(enforced_owner_groups(rules, ["docs/generated/a.md"]), [])
         self.assertEqual(enforced_owner_groups(rules, ["docs/generated/a.md", "x.py"]), [["@org/arch"]])
 
-    def test_degraded_run_replaces_stale_required_pools_and_keeps_optional_pools(self):
-        """The fallback supersedes exact required pools; optional pools are not managed in that run."""
+    def test_degraded_run_replaces_stale_required_pools_and_reconciles_optional_pools(self):
+        """The fallback supersedes exact required pools; healthy optional pools reconcile as usual."""
         stale = {
             1: {"id": 1, "name": REQUIRED_PREFIX + "@org/old", "approvals_required": 1, "rule_type": "regular"},
             2: {"id": 2, "name": RULE_PREFIX + "@org/old", "approvals_required": 0, "rule_type": "regular"},
@@ -830,11 +830,67 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             rules=stale,
         )
         self.assertIn("fell back", failure)
-        self.assertEqual([(method, ident) for method, ident, _ in writes if method == "DELETE"], [("DELETE", "1")])
+        self.assertEqual(
+            sorted(ident for method, ident, _ in writes if method == "DELETE"), ["1", "2"], "both stale pools go"
+        )
+        self.assertEqual([rule["name"] for rule in self.rules.values()], [REQUIRED_PREFIX + "fallback @org/maint"])
+
+    def test_suggest_only_problem_never_weakens_the_required_gate(self):
+        """An advisory pool problem skips optional writes and reviewers; exact required pools still land."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        stale = {1: {"id": 1, "name": RULE_PREFIX + "@org/old", "approvals_required": 0, "rule_type": "regular"}}
+        stale[1].update(users=[], groups=[])
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+        ):
+            plan, writes, failure = self.run_main(
+                identities, members, "--codeowners-fallback", "@org/maint", "--apply", rules=stale
+            )
+        self.assertIn("@org/docs: no GitLab identity for dan", plan["problems"])
+        self.assertFalse(plan["fallback_applied"])
+        self.assertEqual(plan["reviewer_ids_to_assign"], [])
         self.assertEqual(
             sorted(rule["name"] for rule in self.rules.values()),
-            [REQUIRED_PREFIX + "fallback @org/maint", RULE_PREFIX + "@org/old"],
+            [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint", RULE_PREFIX + "@org/old"],
         )
+        self.assertNotIn("PUT", [method for method, ident, _ in writes if ident == "2"], "no reviewer assignment")
+        self.assertIn("reconciled with problems", failure)
+
+    def test_unreadable_fallback_team_is_listed_but_does_not_abort_a_healthy_run(self):
+        """The fallback is only needed when required pools fail; otherwise its lookup error is reported."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+
+        def teams(owner):
+            if owner == "@org/ops":
+                raise RuntimeError("gh GET orgs/org/teams/ops/members timed out")
+            return self.TEAMS[owner]
+
+        with patch.object(self, "lookup_team", teams):
+            plan, writes, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/ops", "--apply")
+        self.assertEqual(plan["problems"], ["@org/ops: gh GET orgs/org/teams/ops/members timed out"])
+        self.assertEqual(
+            sorted(body["name"] for method, _, body in writes if method == "POST"),
+            [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint"],
+        )
+        self.assertIn("reconciled with problems", failure)
+
+    def test_degraded_run_still_respects_inherited_required_rules(self):
+        """Creating the fallback rule is blocked by the same inheritance guard as any other POST."""
+        plan, writes, failure = self.run_main(
+            {"ann": "ann", "mia": "mia"},
+            [self.member(10, "ann"), self.member(12, "mia")],
+            "--codeowners-fallback",
+            "@org/maint",
+            "--apply",
+            overwritten=False,
+        )
+        self.assertFalse(plan["fallback_applied"])
+        self.assertIn("Creating review pools would override inherited required rule: Security", plan["problems"])
+        self.assertEqual(writes, [])
+        self.assertIn("no writes", failure)
 
     def test_runs_without_the_flag_leave_required_pools_alone(self):
         """Optional-only runs must never delete another consumer's required rules."""

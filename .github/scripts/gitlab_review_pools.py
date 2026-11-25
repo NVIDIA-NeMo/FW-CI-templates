@@ -412,7 +412,7 @@ def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> No
             endpoint += f"/{change['id']}"
             rule = api("glab", endpoint, hostname)
             if rule["name"] != change["name"] or not rewritable(rule):
-                raise RuntimeError("Review pool became a non-managed or required rule; refusing write")
+                raise RuntimeError("Review pool was renamed or edited by hand since planning; refusing write")
         api("glab", endpoint, hostname, method=change["method"], body=change.get("body"))
 
 
@@ -474,22 +474,22 @@ def main() -> None:
     members = api(
         "glab", f"projects/{quote(args.project, safe='')}/members/all?per_page=100", args.gitlab_host, paginate=True
     )
-    lookup_problems = []
+    lookups: dict[str, list[str]] = {"optional": [], "required": [], "fallback": []}
 
-    def roster(owner: str) -> list[str]:
-        """Expand one owner; a failed lookup becomes a problem so the fallback can take over."""
+    def roster(owner: str, side: str) -> list[str]:
+        """Expand one owner; a failed lookup becomes a problem on its side instead of a crash."""
         try:
             return github_members(owner)
         except RuntimeError as error:
-            lookup_problems.append(f"{owner}: {error}")
+            lookups[side].append(f"{owner}: {error}")
             return []
 
-    memberships = {owner: roster(owner) for owner in owners}
+    memberships = {owner: roster(owner, "optional") for owner in owners}
     required_memberships = {
-        " ".join(group): sorted({login for owner in group for login in roster(owner)}) for group in groups
+        " ".join(group): sorted({login for owner in group for login in roster(owner, "required")}) for group in groups
     }
     fallback = args.codeowners_fallback
-    fallback_memberships = {f"fallback {fallback}": github_members(fallback)} if fallback else {}
+    fallback_memberships = {f"fallback {fallback}": roster(fallback, "fallback")} if fallback else {}
     identities, identity_problems = (
         (json.loads(args.identity_map.read_text(encoding="utf-8")), [])
         if args.identity_map
@@ -500,26 +500,35 @@ def main() -> None:
         )
     )
     author_id = mr["author"]["id"]
-    pools, problems, warnings = resolve_pools(memberships, identities, members, author_id)
+    pools, optional_problems, warnings = resolve_pools(memberships, identities, members, author_id)
     required, required_problems, required_warnings = resolve_pools(
         required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
     )
-    problems = sorted({*problems, *required_problems, *lookup_problems, *identity_problems})
+    optional_problems = sorted({*optional_problems, *lookups["optional"]})
+    required_problems = sorted({*required_problems, *lookups["required"]})
+    problems = sorted({*optional_problems, *required_problems, *lookups["fallback"], *identity_problems})
     warnings = sorted({*warnings, *required_warnings})
-    prefixes = MANAGED_PREFIXES if args.require_codeowners else (RULE_PREFIX,)
-    desired, degraded = pools + required, False
-    if problems and fallback:
-        # Fail closed: any identity problem keeps the MR gated by the fallback team until it is fixed.
+    # Required side: the exact pools, or the fallback rule when they cannot be resolved (fail closed).
+    degraded, blocking = False, list(required_problems)
+    if required_problems and fallback:
         fallback_pools, fallback_problems, fallback_warnings = resolve_pools(
             fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
         )
+        fallback_problems = sorted({*fallback_problems, *lookups["fallback"]})
         problems = sorted({*problems, *fallback_problems})
         warnings = sorted({*warnings, *fallback_warnings})
         if not fallback_problems:
-            desired, prefixes, degraded = fallback_pools, (REQUIRED_PREFIX,), True
+            required, degraded, blocking = fallback_pools, True, []
+    # Optional side: a problem in an advisory pool skips optional reconciliation and reviewer
+    # assignment for this run; it never weakens or replaces the required gate.
+    sides = {RULE_PREFIX: (pools, not optional_problems), REQUIRED_PREFIX: (required, args.require_codeowners)}
+    prefixes = tuple(prefix for prefix, (_, active) in sides.items() if active)
+    desired = [pool for prefix in prefixes for pool in sides[prefix][0]]
+    reviewer_pools = pools if RULE_PREFIX in prefixes else []
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes = plan_changes(desired, existing, prefixes=prefixes)
-    blocking = [] if degraded else list(problems)
+    if not prefixes:
+        blocking = list(problems)
     if not blocking and any(change["method"] == "POST" for change in changes):
         blocking = approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host))
         problems = sorted({*problems, *blocking})
@@ -535,7 +544,9 @@ def main() -> None:
                 "changes": changes,
                 "problems": problems,
                 "warnings": warnings,
-                "reviewer_ids_to_assign": [] if mr.get("reviewers") else suggested_reviewer_ids(pools, author_id),
+                "reviewer_ids_to_assign": []
+                if mr.get("reviewers")
+                else suggested_reviewer_ids(reviewer_pools, author_id),
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,
@@ -548,10 +559,12 @@ def main() -> None:
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
         if plan_changes(desired, actual, prefixes=prefixes):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
-        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, pools)
+        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(desired), "reviewers": assignment}))
     if degraded:
         raise SystemExit("Code-owner pools fell back to the configured team; fix the listed problems")
+    if problems:
+        raise SystemExit("Review pools were reconciled with problems; fix the listed problems")
 
 
 if __name__ == "__main__":

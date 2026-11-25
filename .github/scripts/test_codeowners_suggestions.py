@@ -129,6 +129,11 @@ class PatternCoversTests(unittest.TestCase):
         self.assertTrue(pattern_covers("/docker/", "/docker/scripts/"))
         self.assertFalse(pattern_covers("/docker/", "/docker_extra/"))
 
+    def test_path_without_trailing_slash_covers_its_descendants(self):
+        self.assertTrue(pattern_covers("/src", "/src/a.py"))
+        self.assertTrue(pattern_covers("/src", "/src/"))
+        self.assertFalse(pattern_covers("/src/", "/src"), "the directory form does not own a file named src")
+
     def test_star_covers_everything_nothing_covers_star_but_itself(self):
         self.assertTrue(pattern_covers("*", "/docker/"))
         self.assertFalse(pattern_covers("/docker/", "*"))

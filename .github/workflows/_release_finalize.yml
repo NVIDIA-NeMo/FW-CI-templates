@@ -144,11 +144,19 @@ on:
         default: "./"
       app-id:
         type: string
-        required: true
+        required: false
         description: GitHub App ID for minting the bot token used by create-gh-release.
+      release-environment:
+        type: string
+        required: false
+        description: Environment with RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY for production. Rehearsals use the caller's read-only job token.
     secrets:
       BOT_KEY:
-        required: true
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
       SLACK_WEBHOOK_ADMIN:
         required: false
       AWS_ASSUME_ROLE_ARN:
@@ -168,14 +176,11 @@ on:
       S3_BUCKET_NAME:
         required: false
 
-permissions:
-  contents: write
-
 jobs:
   create-gh-release:
     runs-on: ubuntu-latest
     environment:
-      name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
+      name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || inputs.release-environment || 'main' }}
       deployment: false
     if: |
       inputs.create-gh-release == true
@@ -188,7 +193,9 @@ jobs:
       VERSION: ${{ inputs.release-version }}
       TAG_PREFIX: ${{ inputs.gh-release-tag-prefix || '' }}
     steps:
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      - name: Create caller-supplied App token
+        if: inputs.release-environment == ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
@@ -199,18 +206,21 @@ jobs:
         with:
           path: ${{ github.run_id }}
           ref: ${{ inputs.release-ref }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
       - name: Determine fromTag for changelog
         id: determine-from-tag
         if: inputs.gh-release-use-changelog-builder == true
+        env:
+          INPUT_FROM_TAG: ${{ inputs.gh-release-from-tag }}
         run: |
           cd ${{ github.run_id }}
 
-          if [[ -n "${{ inputs.gh-release-from-tag }}" ]]; then
-            FROM_TAG="${{ inputs.gh-release-from-tag }}"
+          if [[ -n "$INPUT_FROM_TAG" ]]; then
+            FROM_TAG="$INPUT_FROM_TAG"
             echo "Using provided fromTag: $FROM_TAG"
           else
             if [[ -n "$TAG_PREFIX" ]]; then
@@ -239,7 +249,7 @@ jobs:
         if: inputs.gh-release-use-changelog-builder == true
         uses: mikepenz/release-changelog-builder-action@6faf020194b7c8853f9e55c4fd92e40b02122a04 # v6.1.0
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         with:
           configuration: ${{ github.run_id }}/${{ inputs.gh-release-changelog-config }}
           owner: ${{ github.repository_owner }}
@@ -256,8 +266,6 @@ jobs:
         id: version-number
         env:
           SHA: ${{ inputs.release-ref }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
           HAS_BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog != '' }}
           BUILT_CHANGELOG_FILE: ${{ steps.changelog-file.outputs.path }}
         run: |
@@ -310,24 +318,39 @@ jobs:
                   )
           echo -E "$PAYLOAD" > payload.txt
 
-          CMD=$(echo -E 'curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer '"$GH_TOKEN"'" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/'"$REPOSITORY"'/releases \
-            -d @payload.txt
-          ')
-
-          if [[ "$IS_INERT" == "true" ]]; then
-            echo -E "$CMD"
-          else
-            eval "$CMD"
+      - name: Require protected release dispatch
+        if: inputs.release-environment != '' && !inputs.validate-only && !inputs.dry-run
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::Dispatch production releases from the default branch."
+            exit 1
           fi
+
+      - name: Create protected release token
+        if: inputs.release-environment != '' && !inputs.validate-only && !inputs.dry-run
+        id: release-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Publish GitHub release
+        if: ${{ !inputs.validate-only && !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
+          ROOT_DIR: ${{ inputs.root-dir }}
+        run: |
+          cd "$GITHUB_WORKSPACE/$GITHUB_RUN_ID/$ROOT_DIR"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input payload.txt --jq '.html_url'
 
   build-docs:
     needs: [create-gh-release]
     uses: ./.github/workflows/_build_docs.yml
+    permissions:
+      contents: read
     if: |
       (
         success() || !failure()
@@ -347,6 +370,8 @@ jobs:
   publish-docs:
     needs: [create-gh-release, build-docs]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     environment:
       name: ${{ (inputs.validate-only || inputs.dry-run) && 'public' || 'main' }}
       deployment: false
@@ -402,6 +427,8 @@ jobs:
   notify:
     needs: [create-gh-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: |
       (
         success() || !failure()

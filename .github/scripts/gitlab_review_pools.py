@@ -293,47 +293,6 @@ def require_current_mr(current: dict, snapshot: dict) -> None:
         raise RuntimeError("MR changed while resolving reviewers; rerun from a fresh snapshot")
 
 
-def suggested_reviewer_ids(pools: list[dict], author_id: int) -> list[int]:
-    """Return distinct eligible pool members excluding the MR author.
-
-    Args:
-        pools: Resolved optional approval pools.
-        author_id: MR author to exclude.
-
-    Returns:
-        Sorted reviewer user IDs.
-    """
-    return sorted({user_id for pool in pools for user_id in pool["user_ids"] if user_id != author_id})
-
-
-def assign_reviewers_if_empty(hostname: str, root: str, snapshot: dict, pools: list[dict]) -> dict:
-    """Assign pool members only when both the snapshot and fresh MR have no reviewers.
-
-    Args:
-        hostname: GitLab API host.
-        root: Merge request API path.
-        snapshot: Merge request used to resolve the pools.
-        pools: Eligible optional approval pools.
-
-    Returns:
-        Assignment or skip details for the job log.
-    """
-    if snapshot.get("reviewers"):
-        return {"skipped": "MR already has reviewers"}
-    reviewer_ids = suggested_reviewer_ids(pools, snapshot["author"]["id"])
-    if not reviewer_ids:
-        return {"skipped": "No eligible reviewers"}
-    current = api("glab", root, hostname)
-    require_current_mr(current, snapshot)
-    if current.get("reviewers"):
-        return {"skipped": "Reviewers were assigned during reconciliation"}
-    api("glab", root, hostname, method="PUT", body={"reviewer_ids": reviewer_ids})
-    actual = api("glab", root, hostname)
-    if not set(reviewer_ids).issubset({user["id"] for user in actual["reviewers"]}):
-        raise RuntimeError("Reviewer assignment did not converge; inspect the MR")
-    return {"assigned_reviewer_ids": reviewer_ids}
-
-
 def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> None:
     """Apply optional pool changes only while the MR snapshot remains current."""
     for change in changes:
@@ -425,9 +384,6 @@ def main() -> None:
                 "changes": changes,
                 "problems": problems,
                 "warnings": warnings,
-                "reviewer_ids_to_assign": []
-                if mr.get("reviewers")
-                else suggested_reviewer_ids(pools, mr["author"]["id"]),
                 "mode": "apply" if args.apply else "dry-run",
             },
             indent=2,
@@ -440,8 +396,7 @@ def main() -> None:
         actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
         if plan_changes(pools, actual):
             raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
-        assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, pools)
-        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(pools), "reviewers": assignment}))
+        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(pools)}))
 
 
 if __name__ == "__main__":

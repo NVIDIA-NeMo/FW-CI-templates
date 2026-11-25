@@ -22,6 +22,7 @@ from codeowners_suggestions import (
     changed_files,
     find_redundant_rules,
     parse_codeowners,
+    parse_rule_line,
     pattern_covers,
     read_file_at_ref,
     resolve_last_match_per_file,
@@ -35,8 +36,12 @@ from codeowners_suggestions import (
 
 
 class ToGlobTests(unittest.TestCase):
-    def test_anchored_file_pattern_exact_path_no_wildcarding(self):
-        self.assertEqual(to_glob("/nemo_gym/skills.py"), ["nemo_gym/skills.py"])
+    def test_anchored_path_matches_itself_and_its_descendants(self):
+        self.assertEqual(to_glob("/nemo_gym/skills.py"), ["nemo_gym/skills.py", "nemo_gym/skills.py/**"])
+        self.assertEqual(to_glob("/src"), ["src", "src/**"])
+
+    def test_single_star_directory_pattern_stays_one_level_deep_as_github_documents(self):
+        self.assertEqual(to_glob("docs/*"), ["docs/*"])
 
     def test_anchored_directory_pattern_single_dir_star_star_glob(self):
         self.assertEqual(to_glob("/nemo_gym/sandbox/"), ["nemo_gym/sandbox/**"])
@@ -44,11 +49,13 @@ class ToGlobTests(unittest.TestCase):
     def test_unanchored_directory_pattern_matches_any_depth_via_two_globs(self):
         self.assertEqual(to_glob("docker/"), ["docker/**", "**/docker/**"])
 
-    def test_unanchored_bare_filename_matches_any_depth_via_two_globs_no_dir_suffix(self):
-        self.assertEqual(to_glob("package.json"), ["package.json", "**/package.json"])
+    def test_unanchored_bare_name_matches_any_depth_as_file_or_directory(self):
+        self.assertEqual(
+            to_glob("package.json"), ["package.json", "package.json/**", "**/package.json", "**/package.json/**"]
+        )
 
     def test_patterns_already_containing_star_star_pass_through_unchanged(self):
-        self.assertEqual(to_glob("/a/**/b.py"), ["a/**/b.py"])
+        self.assertEqual(to_glob("/a/**/b.py"), ["a/**/b.py", "a/**/b.py/**"])
         self.assertEqual(to_glob("**/docs/"), ["**/docs/**"])
         self.assertEqual(to_glob("docs/**"), ["docs/**"])
 
@@ -75,6 +82,12 @@ class ParseCodeownersTests(unittest.TestCase):
             result["suggest_rules"],
             [{"pattern": "docker/", "owners": ["@anwithk"]}],
         )
+
+    def test_inline_comments_are_not_owners(self):
+        self.assertEqual(
+            parse_rule_line("/src/ @org/sec # sensitive files"), {"pattern": "/src/", "owners": ["@org/sec"]}
+        )
+        self.assertEqual(parse_rule_line("/docs/gen # unowned"), {"pattern": "/docs/gen", "owners": []})
 
 
 class ResolveLastMatchPerFileTests(unittest.TestCase):

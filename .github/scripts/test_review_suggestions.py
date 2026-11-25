@@ -421,11 +421,13 @@ class GitLabReviewPoolTests(unittest.TestCase):
             },
         ]
         pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [7], "group_ids": []}
-        self.assertEqual(plan_changes([pool], existing), [{"method": "DELETE", "id": 4}])
+        self.assertEqual(
+            plan_changes([pool], existing), [{"method": "DELETE", "id": 4, "name": RULE_PREFIX + "@org/old"}]
+        )
         pool["user_ids"] = [9]
         self.assertEqual(
             plan_changes([pool], existing)[0],
-            {"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}},
+            {"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}, "name": pool["name"]},
         )
         existing[2]["approvals_required"] = 1
         with self.assertRaisesRegex(ValueError, "non-optional"):
@@ -443,7 +445,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             "groups": [],
             "contains_hidden_groups": False,
         }
-        expected = [{"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}}]
+        expected = [{"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}, "name": pool["name"]}]
         for groups, hidden in (([], True), ([{"id": 9}], False), ([{"id": 9}], True)):
             with self.subTest(groups=groups, hidden=hidden):
                 actual = dict(current, groups=groups, contains_hidden_groups=hidden)
@@ -501,8 +503,27 @@ class GitLabReviewPoolTests(unittest.TestCase):
             ],
         ) as request:
             with self.assertRaisesRegex(RuntimeError, "required rule"):
-                apply_changes("example.test", "projects/1/merge_requests/2", snapshot, [{"method": "DELETE", "id": 3}])
+                apply_changes(
+                    "example.test",
+                    "projects/1/merge_requests/2",
+                    snapshot,
+                    [{"method": "DELETE", "id": 3, "name": RULE_PREFIX + "@org/a"}],
+                )
         self.assertEqual(request.call_count, 2)
+
+    def test_renamed_rule_stops_write_even_when_rewritable(self):
+        """A rule renamed into another managed namespace since planning is never touched."""
+        snapshot = {"sha": "a", "target_branch": "internal", "state": "opened", "draft": False}
+        renamed = {"name": REQUIRED_PREFIX + "@org/critical", "approvals_required": 1, "rule_type": "regular"}
+        with patch("gitlab_review_pools.api", side_effect=[snapshot, renamed]) as request:
+            with self.assertRaisesRegex(RuntimeError, "refusing write"):
+                apply_changes(
+                    "example.test",
+                    "projects/1/merge_requests/2",
+                    snapshot,
+                    [{"method": "DELETE", "id": 3, "name": RULE_PREFIX + "@org/stale"}],
+                )
+        self.assertTrue(all(call.kwargs.get("method", "GET") == "GET" for call in request.call_args_list))
 
     def test_complete_diff_and_rename_destination_match_github_contract(self):
         """Exclude deleted paths and use renamed destinations, as GitHub does."""
@@ -600,6 +621,10 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
     def member(user_id: int, username: str) -> dict:
         return {"id": user_id, "username": username, "state": "active", "access_level": 30}
 
+    def lookup_team(self, owner: str) -> list[str]:
+        """Stand-in for github_members; tests override it to inject failures."""
+        return self.TEAMS[owner]
+
     def fake_gitlab(self, mr: dict, members: list[dict], rules: dict | None = None, *, overwritten: bool = True):
         """Stateful GitLab stand-in recording every write."""
         rules, writes = rules if rules is not None else {}, []
@@ -663,7 +688,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 patch("sys.argv", argv),
                 patch("gitlab_review_pools.api", side_effect=api),
                 patch("gitlab_review_pools.trusted_rules", return_value=("sha", self.RULES)),
-                patch("gitlab_review_pools.github_members", side_effect=lambda owner: self.TEAMS[owner]),
+                patch("gitlab_review_pools.github_members", side_effect=self.lookup_team),
                 patch("builtins.print") as printed,
             ):
                 failure = None
@@ -757,19 +782,27 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         required = {"name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "user_ids": [7], "group_ids": []}
         self.assertEqual(
             plan_changes([required], existing, prefixes=(REQUIRED_PREFIX,)),
-            [{"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}}],
+            [{"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}, "name": required["name"]}],
         )
         self.assertEqual(
             plan_changes([required], existing),
             [
-                {"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}},
-                {"method": "DELETE", "id": 1},
+                {
+                    "method": "PUT",
+                    "id": 2,
+                    "body": {**required, "remove_hidden_groups": True},
+                    "name": required["name"],
+                },
+                {"method": "DELETE", "id": 1, "name": RULE_PREFIX + "@org/a"},
             ],
         )
         snapshot = {"sha": "a", "target_branch": "internal", "state": "opened", "draft": False}
         with patch("gitlab_review_pools.api", side_effect=[snapshot, existing[1], None]) as request:
             apply_changes(
-                "example.test", "projects/1/merge_requests/2", snapshot, [{"method": "PUT", "id": 2, "body": required}]
+                "example.test",
+                "projects/1/merge_requests/2",
+                snapshot,
+                [{"method": "PUT", "id": 2, "body": required, "name": required["name"]}],
             )
         self.assertEqual(request.call_args_list[-1].kwargs["method"], "PUT")
 
@@ -837,6 +870,43 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         self.assertEqual(plan["problems"], ["Creating review pools would override inherited required rule: Security"])
         self.assertEqual(writes, [])
         self.assertIn("no writes", failure)
+
+    def test_deleting_an_owned_file_still_requires_its_owner(self):
+        """Deletions count for required review even though suggestions ignore them."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        mr = json.loads(json.dumps(self.MR))
+        mr["changes"] = [{"old_path": "bio/gone.py", "new_path": "bio/gone.py", "deleted_file": True}]
+        with patch.object(self, "MR", mr):
+            plan, _, failure = self.run_main(identities, members)
+        self.assertIsNone(failure)
+        self.assertEqual(plan["required_owners"], [["@org/bio", "@org/maint"]])
+        self.assertEqual(plan["owners"], [], "suggestions keep the all_changed_files convention")
+
+    def test_directory_without_trailing_slash_and_inline_comment_resolve_like_github(self):
+        """`/bio @org/bio # note` owns bio/** and the comment never becomes an owner."""
+        rules = "\n".join(["* @org/arch", "/bio @org/bio @org/maint # sensitive", "/docs/gen # unowned"])
+        files = ["bio/deep/b.py", "docs/gen/x.md", "README.md"]
+        self.assertEqual(enforced_owner_groups(rules, files), [["@org/arch"], ["@org/bio", "@org/maint"]])
+
+    def test_failed_team_lookup_falls_back_instead_of_crashing(self):
+        """A deleted or unreadable team is a problem the fallback handles, not an unhandled error."""
+        identities = {"ann": "ann", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(12, "mia")]
+
+        def teams(owner):
+            if owner == "@org/bio":
+                raise RuntimeError("gh GET orgs/org/teams/bio/members failed (exit 1)")
+            return self.TEAMS[owner]
+
+        with patch.object(self, "lookup_team", teams):
+            plan, writes, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/maint", "--apply")
+        self.assertIn("@org/bio: gh GET orgs/org/teams/bio/members failed (exit 1)", plan["problems"])
+        self.assertTrue(plan["fallback_applied"])
+        self.assertEqual(
+            [body["name"] for method, _, body in writes if method == "POST"], [REQUIRED_PREFIX + "fallback @org/maint"]
+        )
+        self.assertIn("fell back", failure)
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

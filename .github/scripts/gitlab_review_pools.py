@@ -142,14 +142,21 @@ def trusted_rules(repository: str, ref: str) -> tuple[str, str]:
     return sha, base64.b64decode(file["content"]).decode("utf-8")
 
 
-def mr_changed_paths(mr: dict) -> list[str]:
-    """Require a complete MR diff and preserve GitHub all_changed_files behavior."""
+def mr_changed_paths(mr: dict, *, include_deleted: bool = False) -> list[str]:
+    """Require a complete MR diff and preserve GitHub all_changed_files behavior.
+
+    Args:
+        mr: Merge request with its changes.
+        include_deleted: Also return deleted paths; required code-owner review
+            covers deletions, while suggestions follow all_changed_files.
+    """
     if mr.get("overflow") is not False or not mr.get("diff_refs", {}).get("head_sha"):
         raise ValueError("MR diff is incomplete or still being prepared")
     if mr["diff_refs"]["head_sha"] != mr.get("sha"):
         raise ValueError("MR diff does not match its current head")
     changes = mr["changes"]
-    return sorted({change["new_path"] for change in changes if not change["deleted_file"]})
+    deleted = {change["old_path"] for change in changes if change["deleted_file"]} if include_deleted else set()
+    return sorted({change["new_path"] for change in changes if not change["deleted_file"]} | deleted)
 
 
 @functools.cache
@@ -299,8 +306,9 @@ def plan_changes(
             or current["groups"]
             or current.get("contains_hidden_groups", False)
         ):
-            changes.append({"method": "PUT", "id": current["id"], "body": {**pool, "remove_hidden_groups": True}})
-    changes.extend({"method": "DELETE", "id": rule["id"]} for rule in managed.values())
+            change = {"method": "PUT", "id": current["id"], "body": {**pool, "remove_hidden_groups": True}}
+            changes.append({**change, "name": pool["name"]})
+    changes.extend({"method": "DELETE", "id": rule["id"], "name": rule["name"]} for rule in managed.values())
     return changes
 
 
@@ -389,7 +397,8 @@ def apply_changes(hostname: str, root: str, mr: dict, changes: list[dict]) -> No
         endpoint = f"{root}/approval_rules"
         if "id" in change:
             endpoint += f"/{change['id']}"
-            if not rewritable(api("glab", endpoint, hostname)):
+            rule = api("glab", endpoint, hostname)
+            if rule["name"] != change["name"] or not rewritable(rule):
                 raise RuntimeError("Review pool became a non-managed or required rule; refusing write")
         api("glab", endpoint, hostname, method=change["method"], body=change.get("body"))
 
@@ -448,13 +457,23 @@ def main() -> None:
     paths = mr_changed_paths(mr)
     sha, text = trusted_rules(args.github_repository, args.github_ref)
     owners = suggested_owners(text, paths)
-    groups = enforced_owner_groups(text, paths) if args.require_codeowners else []
+    groups = enforced_owner_groups(text, mr_changed_paths(mr, include_deleted=True)) if args.require_codeowners else []
     members = api(
         "glab", f"projects/{quote(args.project, safe='')}/members/all?per_page=100", args.gitlab_host, paginate=True
     )
-    memberships = {owner: github_members(owner) for owner in owners}
+    lookup_problems = []
+
+    def roster(owner: str) -> list[str]:
+        """Expand one owner; a failed lookup becomes a problem so the fallback can take over."""
+        try:
+            return github_members(owner)
+        except RuntimeError as error:
+            lookup_problems.append(f"{owner}: {error}")
+            return []
+
+    memberships = {owner: roster(owner) for owner in owners}
     required_memberships = {
-        " ".join(group): sorted({login for owner in group for login in github_members(owner)}) for group in groups
+        " ".join(group): sorted({login for owner in group for login in roster(owner)}) for group in groups
     }
     fallback = args.codeowners_fallback
     fallback_memberships = {f"fallback {fallback}": github_members(fallback)} if fallback else {}
@@ -472,7 +491,7 @@ def main() -> None:
     required, required_problems, required_warnings = resolve_pools(
         required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
     )
-    problems = sorted({*problems, *required_problems})
+    problems = sorted({*problems, *required_problems, *lookup_problems})
     warnings = sorted({*warnings, *required_warnings})
     prefixes = MANAGED_PREFIXES if args.require_codeowners else (RULE_PREFIX,)
     desired, degraded = pools + required, False

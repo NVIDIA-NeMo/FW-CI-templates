@@ -50,12 +50,14 @@ def to_glob(pattern: str) -> list[str]:
       - a leading "/" (or any "/" at all) anchors the pattern to the repo root
       - a trailing "/" is a directory pattern: matches that directory and
         everything under it
+      - a pattern without a trailing "/" names a file or a directory, so it
+        also matches everything under it ("/src" owns "src/a.py"); only the
+        explicit "dir/*" form stays one level deep, as GitHub documents
       - a pattern with no "/" anywhere matches at any depth (basename match)
       - "**"/"*" keep their normal glob meaning; micromatch's own "**" already
         handles the zero-or-more-directories case correctly
-    Returns a list because the "matches at any depth" case needs two
-    alternatives (root-level and nested) rather than one pattern with
-    branching.
+    Returns a list because each case needs several alternatives (root-level
+    and nested, the path itself and its descendants).
     """
     anchored = pattern.startswith("/")
     p = pattern[1:] if anchored else pattern
@@ -66,13 +68,18 @@ def to_glob(pattern: str) -> list[str]:
     if p == "*":
         return ["**"]
 
-    with_dir_suffix = f"{p}/**" if dir_only else p
+    if dir_only:
+        globs = [f"{p}/**"]
+    elif p.endswith("/*") or p.endswith("**"):
+        globs = [p]
+    else:
+        globs = [p, f"{p}/**"]
 
     if anchored or "/" in p:
-        return [with_dir_suffix]
+        return globs
     # Unanchored, no "/" anywhere in the pattern (e.g. "docker/" or a bare
     # filename like "package.json") -- matches at any depth, not just the root.
-    return [f"{p}/**", f"**/{p}/**"] if dir_only else [p, f"**/{p}"]
+    return globs + [f"**/{glob}" for glob in globs]
 
 
 def resolve_last_match_per_file(rules_with_matches: list[dict]) -> dict[str, dict]:
@@ -135,6 +142,25 @@ def suggested_owners(text: str, files: list[str]) -> list[str]:
     )
 
 
+def enforced_owner_groups(text: str, files: list[str]) -> list[list[str]]:
+    """Resolve the enforced owners GitHub would require for the changed files.
+
+    Args:
+        text: Ownership rules from the trusted GitHub branch.
+        files: Changed paths, using the GitHub all_changed_files convention.
+
+    Returns:
+        Sorted distinct owner sets, one per winning enforced rule. GitHub
+        accepts an approval from any owner of a file's last matching rule, so
+        each set maps to one approval rule with one required approval. A rule
+        without owners un-owns its files and contributes no set.
+    """
+    parsed = parse_codeowners(text)
+    enforced = resolve_last_match_per_file(match_rules(parsed["enforced_rules"], files))
+    groups = {tuple(sorted(set(rule["owners"]))) for rule in enforced.values()} - {()}
+    return [list(group) for group in sorted(groups)]
+
+
 def changed_files(base_sha: str, head_sha: str) -> list[str]:
     """Read changed paths from the merge base with GitHub's deletion semantics.
 
@@ -163,8 +189,10 @@ def changed_files(base_sha: str, head_sha: str) -> list[str]:
 
 
 def parse_rule_line(line: str) -> dict:
+    """Split a rule into pattern and owners, dropping an inline `# comment`."""
     parts = line.strip().split()
-    return {"pattern": parts[0], "owners": parts[1:]}
+    comment = next((i for i, part in enumerate(parts) if part.startswith("#")), len(parts))
+    return {"pattern": parts[0], "owners": parts[1:comment]}
 
 
 def parse_codeowners(text: str) -> dict:

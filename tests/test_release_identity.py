@@ -187,3 +187,34 @@ gh() {
             self.assertEqual(
                 prefix, "release-bump" if environment else "deploy-release"
             )
+
+    def test_only_legacy_bump_commits_skip_ci(self):
+        """Allow required GitHub checks to run on the protected bump PR head."""
+        create = next(
+            step
+            for step in self.bump["steps"]
+            if step.get("name") == "Create and push deployment branch"
+        )
+        commit = next(
+            line.strip()
+            for line in create["run"].splitlines()
+            if line.strip().startswith("git commit ")
+        )
+        title = "beep boop 🤖: Bumping Gym to v1.2.4"
+        for environment, expected in (
+            ("gym-release", title),
+            ("", title + " [skip ci]"),
+        ):
+            with self.subTest(environment=environment):
+                suffix = expression(
+                    create["env"]["CI_SKIP_SUFFIX"],
+                    {"inputs.release-environment": environment},
+                )
+                result = subprocess.run(
+                    ["bash", "-eu", "-c", 'git() { printf "%s" "$4"; }\n' + commit],
+                    env=dict(os.environ, BUMP_TITLE=title, CI_SKIP_SUFFIX=suffix),
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertEqual(result.stdout, expected)

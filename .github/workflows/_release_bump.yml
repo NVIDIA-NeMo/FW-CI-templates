@@ -425,6 +425,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
           BUMP_BRANCH_PREFIX: ${{ inputs.release-environment != '' && 'release-bump' || 'deploy-release' }}
+          BUMP_TITLE: "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}"
+          CI_SKIP_SUFFIX: ${{ inputs.release-environment == '' && ' [skip ci]' || '' }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -438,14 +440,14 @@ jobs:
             [[ -n "$f" ]] && git add "$f"
           done < /tmp/bumped-files.txt
 
-          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }} [skip ci]" || echo "No changes to commit"
+          git commit -s -m "$BUMP_TITLE$CI_SKIP_SUFFIX" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
           PR_URL=$(gh pr create \
             --base "$VERSION_BUMP_BRANCH" \
             --head "$TMP_BRANCH" \
-            --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
+            --title "$BUMP_TITLE" \
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
           PR_NUMBER="${PR_URL##*/}"
           echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV

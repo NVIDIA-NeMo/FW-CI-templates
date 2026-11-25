@@ -42,6 +42,9 @@ def read_file_at_ref(ref: str, path: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+_LINE_TERMINATORS = re.compile(r"[\n\r\v\f\x85\u2028\u2029]")
+
+
 def to_glob(pattern: str) -> list[str]:
     """Convert one CODEOWNERS-style pattern into micromatch glob strings.
 
@@ -52,7 +55,8 @@ def to_glob(pattern: str) -> list[str]:
         everything under it
       - a pattern without a trailing "/" names a file or a directory, so it
         also matches everything under it ("/src" owns "src/a.py"); only the
-        explicit "dir/*" form stays one level deep, as GitHub documents
+        explicit "dir/*" and "dir/**" forms are left as written ("/src/sec**"
+        is a basename wildcard and still owns descendants)
       - a pattern with no "/" anywhere matches at any depth (basename match)
       - "**"/"*" keep their normal glob meaning; micromatch's own "**" already
         handles the zero-or-more-directories case correctly
@@ -65,12 +69,12 @@ def to_glob(pattern: str) -> list[str]:
     if dir_only:
         p = p[:-1]
 
-    if p == "*":
+    if p == "*" and not dir_only:
         return ["**"]
 
     if dir_only:
         globs = [f"{p}/**"]
-    elif p.endswith("/*") or p.endswith("**"):
+    elif p.endswith(("/*", "/**")):
         globs = [p]
     else:
         globs = [p, f"{p}/**"]
@@ -154,7 +158,14 @@ def enforced_owner_groups(text: str, files: list[str]) -> list[list[str]]:
         accepts an approval from any owner of a file's last matching rule, so
         each set maps to one approval rule with one required approval. A rule
         without owners un-owns its files and contributes no set.
+
+    Raises:
+        ValueError: A path contains a line terminator, which glob engines do
+            not match reliably; stop instead of treating the file as unowned.
     """
+    unsupported = sorted(file for file in files if _LINE_TERMINATORS.search(file))
+    if unsupported:
+        raise ValueError(f"Paths with line terminators cannot be matched safely: {unsupported!r}")
     parsed = parse_codeowners(text)
     enforced = resolve_last_match_per_file(match_rules(parsed["enforced_rules"], files))
     groups = {tuple(sorted(set(rule["owners"]))) for rule in enforced.values()} - {()}

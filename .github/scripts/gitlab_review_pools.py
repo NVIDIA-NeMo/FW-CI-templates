@@ -111,15 +111,19 @@ def api(
         command += ["--paginate"]
     if body is not None:
         command += ["--input", "-", "--header", "Content-Type: application/json"]
-    result = subprocess.run(
-        command,
-        input=json.dumps(body) if body is not None else None,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    label = f"{provider} {method} {endpoint.split('?')[0]}"
+    try:
+        result = subprocess.run(
+            command,
+            input=json.dumps(body) if body is not None else None,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{label} timed out") from None
     if result.returncode:
-        raise RuntimeError(f"{provider} {method} {endpoint.split('?')[0]} failed (exit {result.returncode})")
+        raise RuntimeError(f"{label} failed (exit {result.returncode})")
     decoder = json.JSONDecoder()
     remaining = result.stdout.strip()
     pages = []
@@ -191,7 +195,9 @@ def sso_roster() -> dict:
         return json.loads((Path(directory) / "users_sso.json").read_text(encoding="utf-8"))
 
 
-def resolve_identities(logins: set[str], hostname: str, *, username_from_email: bool = False) -> dict[str, str]:
+def resolve_identities(
+    logins: set[str], hostname: str, *, username_from_email: bool = False
+) -> tuple[dict[str, str], list[str]]:
     """Join audited emails to GitLab accounts using an explicit site convention.
 
     Args:
@@ -201,12 +207,14 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
             GitLab username, for sites where private emails cannot be searched.
 
     Returns:
-        Unambiguous GitHub-to-GitLab account correspondences.
+        Unambiguous GitHub-to-GitLab account correspondences, and one problem per
+        account whose GitLab lookup failed; the other accounts still resolve so a
+        fallback team can take over.
     """
     if not logins:
-        return {}
+        return {}, []
     roster = {login.casefold(): entry for login, entry in sso_roster().items()}
-    identities = {}
+    identities, problems = {}, []
     for login in sorted(logins):
         entry = roster.get(login.casefold(), {})
         email = str(entry.get("nvidia_email", "")).strip().lower() if isinstance(entry, dict) else ""
@@ -214,18 +222,23 @@ def resolve_identities(logins: set[str], hostname: str, *, username_from_email: 
             continue
         username = email.split("@", 1)[0]
         query = f"username={quote(username, safe='')}" if username_from_email else f"search={quote(email, safe='')}"
-        users = api("glab", f"users?{query}&per_page=100", hostname, paginate=True)
-        if username_from_email:
-            users = [user for user in users if user["username"].casefold() == username]
-        if len(users) == 1:
+        try:
+            users = api("glab", f"users?{query}&per_page=100", hostname, paginate=True)
+            if username_from_email:
+                users = [user for user in users if user["username"].casefold() == username]
+            if len(users) != 1:
+                continue
             user = users[0]
             if not username_from_email:
                 user = api("glab", f"users/{user['id']}", hostname)
                 emails = {str(user.get(field) or "").strip().casefold() for field in ("email", "public_email")}
                 if email not in emails:
                     continue
-            identities[login] = user["username"]
-    return identities
+        except RuntimeError as error:
+            problems.append(f"{login}: {error}")
+            continue
+        identities[login] = user["username"]
+    return identities, problems
 
 
 def resolve_pools(
@@ -477,8 +490,8 @@ def main() -> None:
     }
     fallback = args.codeowners_fallback
     fallback_memberships = {f"fallback {fallback}": github_members(fallback)} if fallback else {}
-    identities = (
-        json.loads(args.identity_map.read_text(encoding="utf-8"))
+    identities, identity_problems = (
+        (json.loads(args.identity_map.read_text(encoding="utf-8")), [])
         if args.identity_map
         else resolve_identities(
             set().union(*memberships.values(), *required_memberships.values(), *fallback_memberships.values()),
@@ -491,7 +504,7 @@ def main() -> None:
     required, required_problems, required_warnings = resolve_pools(
         required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
     )
-    problems = sorted({*problems, *required_problems, *lookup_problems})
+    problems = sorted({*problems, *required_problems, *lookup_problems, *identity_problems})
     warnings = sorted({*warnings, *required_warnings})
     prefixes = MANAGED_PREFIXES if args.require_codeowners else (RULE_PREFIX,)
     desired, degraded = pools + required, False

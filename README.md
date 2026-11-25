@@ -126,7 +126,9 @@ resolving the exact pools, the adapter replaces the required pools with a single
 and exits non-zero with the problems listed. The MR stays gated until the
 problems are fixed and a later run converges. Without a resolvable fallback
 nothing is written and the job fails. Runs without `--require-codeowners` never
-touch `github-codeowners:` rules.
+touch `github-codeowners:` rules. Patterns follow gitignore syntax: braces are
+literal and `*/` skips root files. A changed path containing a line terminator
+stops the run before any write, because glob engines cannot match it reliably.
 
 Limitation: the rules are MR-local, so GitLab lets the MR author and project
 Maintainers edit them, and no webhook fires for such an edit; the adapter

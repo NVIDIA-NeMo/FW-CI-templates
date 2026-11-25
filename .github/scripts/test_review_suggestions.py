@@ -270,7 +270,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             patch("gitlab_review_pools.trusted_rules", return_value=("sha", "")),
             patch("gitlab_review_pools.suggested_owners", return_value=["@org/a"]),
             patch("gitlab_review_pools.github_members", return_value=["alice"]),
-            patch("gitlab_review_pools.resolve_identities", return_value={"alice": "alice"}),
+            patch("gitlab_review_pools.resolve_identities", return_value=({"alice": "alice"}, [])),
             patch("gitlab_review_pools.resolve_pools", return_value=([pool], [], [])),
             patch("gitlab_review_pools.plan_changes", side_effect=[[{"method": "POST", "body": pool}], []]),
             patch("gitlab_review_pools.apply_changes") as apply,
@@ -333,7 +333,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             ) as request,
         ):
             identities = resolve_identities({"one", "two", "external", "missing"}, "example.test")
-        self.assertEqual(identities, {"one": "different_login"})
+        self.assertEqual(identities, ({"one": "different_login"}, []))
         self.assertEqual(request.call_count, 3)
         self.assertIn("one%40nvidia.com", request.call_args_list[0].args[1])
 
@@ -356,7 +356,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
                     ],
                 ),
             ):
-                self.assertEqual(resolve_identities({"alice"}, "example.test"), expected)
+                self.assertEqual(resolve_identities({"alice"}, "example.test"), (expected, []))
 
     def test_unverified_search_hit_blocks_every_apply_mutation(self):
         """Even an active project Developer cannot substitute a name for email."""
@@ -468,7 +468,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
         ):
             self.assertEqual(
                 resolve_identities({"public-handle"}, "example.test", username_from_email=True),
-                {"public-handle": "employee"},
+                ({"public-handle": "employee"}, []),
             )
         self.assertIn("username=employee", request.call_args.args[1])
 
@@ -668,7 +668,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
 
     def run_main(
         self,
-        identity_map: dict,
+        identity_map: dict | None,
         members: list[dict],
         *extra: str,
         rules: dict | None = None,
@@ -682,7 +682,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             path = Path(directory) / "identities.json"
             path.write_text(json.dumps(identity_map))
             argv = ["script", "--gitlab-host", "example.test", "--project", "1", "--mr", "2"]
-            argv += ["--target-branch", "internal", "--github-repository", "org/repo", "--identity-map", str(path)]
+            argv += ["--target-branch", "internal", "--github-repository", "org/repo"]
+            argv += ["--identity-map", str(path)] if identity_map is not None else []
             argv += (["--require-codeowners"] if enforce else []) + list(extra)
             with (
                 patch("sys.argv", argv),
@@ -907,6 +908,79 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             [body["name"] for method, _, body in writes if method == "POST"], [REQUIRED_PREFIX + "fallback @org/maint"]
         )
         self.assertIn("fell back", failure)
+
+    def test_required_matching_follows_gitignore_semantics(self):
+        """Directory-only `*/`, literal braces and basename `**` match as GitHub does."""
+        sec = [["@org/sec"]]
+        cases = [
+            ("* @org/sec\n*/", ["README.md"], sec),
+            ("* @org/sec\n*/", ["src/a.py"], []),
+            ("* @org/sec\n/src/{public,docs}/", ["src/public/a.py", "src/docs/a.py"], sec),
+            ("* @org/sec\n/src/{public,docs}/", ["src/{public,docs}/a.py"], []),
+            ("/src/sec** @org/sec", ["src/secret/a.py"], sec),
+            ("/src/sec** @org/sec", ["src/section/a.py"], sec),
+            ("/src/sec** @org/sec", ["src/other.py"], []),
+            ("/src/** @org/sec", ["src/a/b.py"], sec),
+        ]
+        for rules, files, expected in cases:
+            with self.subTest(rules=rules, files=files):
+                self.assertEqual(enforced_owner_groups(rules, files), expected)
+
+    def test_line_terminator_paths_stop_the_run_without_touching_rules(self):
+        """A glob engine cannot match such names; stop instead of un-owning the file."""
+        existing = {
+            1: {"id": 1, "name": REQUIRED_PREFIX + "@org/arch", "rule_type": "regular", "approvals_required": 1}
+        }
+        for name in ("src/secret\n.py", "src/secret\r.py", "src/secret\u2028.py"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                enforced_owner_groups("* @org/sec", [name])
+        mr = json.loads(json.dumps(self.MR))
+        mr["changes"] = [{"new_path": "src/secret\n.py", "deleted_file": False}]
+        with patch.object(self, "MR", mr), self.assertRaises(ValueError):
+            self.run_main(
+                {"ann": "ann"},
+                [self.member(10, "ann")],
+                "--codeowners-fallback",
+                "@org/maint",
+                "--apply",
+                rules=existing,
+            )
+        self.assertEqual(list(self.rules), [1], "no rule was deleted")
+
+    def test_one_failed_identity_lookup_does_not_hide_the_fallback(self):
+        """A GitLab lookup error for one account is a listed problem; the fallback still resolves."""
+        roster = {"ann": {"nvidia_email": "ann@nvidia.com"}, "mia": {"nvidia_email": "mia@nvidia.com"}}
+        with (
+            patch("gitlab_review_pools.sso_roster", return_value=roster),
+            patch(
+                "gitlab_review_pools.api",
+                side_effect=[
+                    RuntimeError("glab GET users failed (exit 1)"),
+                    [{"id": 12, "username": "mia"}],
+                    {"id": 12, "username": "mia", "public_email": "mia@nvidia.com"},
+                ],
+            ),
+        ):
+            self.assertEqual(
+                resolve_identities({"ann", "mia"}, "example.test"),
+                ({"mia": "mia"}, ["ann: glab GET users failed (exit 1)"]),
+            )
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        resolved = ({"bob": "bob", "mia": "mia"}, ["ann: glab GET users/20 failed (exit 1)"])
+        with patch("gitlab_review_pools.resolve_identities", return_value=resolved):
+            plan, writes, failure = self.run_main(None, members, "--codeowners-fallback", "@org/maint", "--apply")
+        self.assertIn("ann: glab GET users/20 failed (exit 1)", plan["problems"])
+        self.assertTrue(plan["fallback_applied"])
+        self.assertEqual(
+            [body["name"] for method, _, body in writes if method == "POST"], [REQUIRED_PREFIX + "fallback @org/maint"]
+        )
+        self.assertIn("fell back", failure)
+
+    def test_cli_timeouts_are_lookup_failures(self):
+        """A hung gh/glab call surfaces like any other failed lookup, so the fallback can handle it."""
+        with patch("gitlab_review_pools.subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 120)):
+            with self.assertRaisesRegex(RuntimeError, "gh GET orgs/org/teams/bio/members timed out"):
+                api("gh", "orgs/org/teams/bio/members?per_page=100")
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

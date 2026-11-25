@@ -58,9 +58,13 @@ class ToGlobTests(unittest.TestCase):
         self.assertEqual(to_glob("/a/**/b.py"), ["a/**/b.py", "a/**/b.py/**"])
         self.assertEqual(to_glob("**/docs/"), ["**/docs/**"])
         self.assertEqual(to_glob("docs/**"), ["docs/**"])
+        self.assertEqual(to_glob("/src/sec**"), ["src/sec**", "src/sec**/**"])
 
     def test_bare_star_single_star_star_glob_matches_everything(self):
         self.assertEqual(to_glob("*"), ["**"])
+
+    def test_directory_only_star_skips_root_files(self):
+        self.assertEqual(to_glob("*/"), ["*/**", "**/*/**"])
 
 
 class ParseCodeownersTests(unittest.TestCase):

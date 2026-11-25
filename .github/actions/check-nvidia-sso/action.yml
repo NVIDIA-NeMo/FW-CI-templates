@@ -68,69 +68,75 @@ runs:
           echo "user_count=0" | tee -a "$GITHUB_OUTPUT"
           exit 1
         fi
-        USER_COUNT=$(jq 'length' "$SSO_FILENAME")
+        USER_COUNT=$(jq 'length' < "$SSO_FILENAME")
         echo "sso_file_available=true" | tee -a "$GITHUB_OUTPUT"
         echo "user_count=$USER_COUNT" | tee -a "$GITHUB_OUTPUT"
 
     - name: Check if user is in SSO list
       id: check-membership
       shell: bash
+      env:
+        USERNAME: ${{ inputs.username }}
+        SSO_FILE: ${{ inputs.sso_users_filename }}
+        SSO_FILE_AVAILABLE: ${{ steps.download-sso.outputs.sso_file_available }}
       run: |
-        USERNAME="${{ inputs.username }}"
-        SSO_FILE="${{ inputs.sso_users_filename }}"
+        if [[ "$USERNAME" == *$'\n'* || "$USERNAME" == *$'\r'* ]]; then
+          echo "::error::Invalid newline in SSO username"
+          exit 1
+        fi
 
         # Check if username is a trusted bot
         if [[ "$USERNAME" == "svcnvidia-nemo-ci" || "$USERNAME" == "svcnemo-autobot" || "$USERNAME" == "nemo-automation-bot[bot]" ]]; then
           echo "$USERNAME is a trusted bot"
-          echo "is_member=true" >> $GITHUB_OUTPUT
-          echo "is_org_member=true" >> $GITHUB_OUTPUT
-          echo "user_orgs=NVIDIA,NVIDIA-NeMo" >> $GITHUB_OUTPUT
+          echo "is_member=true" | tee -a "$GITHUB_OUTPUT"
+          echo "is_org_member=true" | tee -a "$GITHUB_OUTPUT"
+          echo "user_orgs=NVIDIA,NVIDIA-NeMo" | tee -a "$GITHUB_OUTPUT"
           exit 0
         fi
 
         echo "Checking if $USERNAME is in NVIDIA SSO users list..."
 
         # Check if SSO file is available
-        if [ "${{ steps.download-sso.outputs.sso_file_available }}" != "true" ] || [ ! -f "$SSO_FILE" ]; then
+        if [ "$SSO_FILE_AVAILABLE" != "true" ] || [ ! -f "$SSO_FILE" ]; then
           echo "ERROR: $SSO_FILE not available - cannot check membership"
-          echo "is_member=false" >> $GITHUB_OUTPUT
-          echo "is_org_member=false" >> $GITHUB_OUTPUT
-          echo "user_orgs=" >> $GITHUB_OUTPUT
+          echo "is_member=false" | tee -a "$GITHUB_OUTPUT"
+          echo "is_org_member=false" | tee -a "$GITHUB_OUTPUT"
+          echo "user_orgs=" | tee -a "$GITHUB_OUTPUT"
           exit 0
         fi
 
         # Check if username exists as a key in the JSON object
-        if jq -e --arg user "$USERNAME" 'has($user)' "$SSO_FILE" > /dev/null 2>&1; then
+        if jq -e --arg user "$USERNAME" 'has($user)' < "$SSO_FILE" > /dev/null; then
           echo "$USERNAME found in NVIDIA SSO users"
-          echo "is_member=true" >> $GITHUB_OUTPUT
 
           # Extract and check org membership
           IS_ORG_MEMBER=$(jq -r --arg user "$USERNAME" '
             .[$user].org_roles // [] |
             map(select(test("^(NVIDIA|NVIDIA-NeMo):Member$"))) |
             length > 0
-          ' "$SSO_FILE")
+          ' < "$SSO_FILE")
 
           USER_ORGS=$(jq -r --arg user "$USERNAME" '
             .[$user].org_roles // [] |
-            map(split(":")[0]) |
+            map(split(":")[0] | if test("[\r\n]") then error("Invalid newline in organization name") else . end) |
             unique |
             join(",")
-          ' "$SSO_FILE")
+          ' < "$SSO_FILE")
 
-          echo "is_org_member=$IS_ORG_MEMBER" >> $GITHUB_OUTPUT
-          echo "user_orgs=$USER_ORGS" >> $GITHUB_OUTPUT
+          echo "is_member=true" | tee -a "$GITHUB_OUTPUT"
+          echo "is_org_member=$IS_ORG_MEMBER" | tee -a "$GITHUB_OUTPUT"
+          printf 'user_orgs=%s\n' "$USER_ORGS" | tee -a "$GITHUB_OUTPUT" > /dev/null
 
           if [ "$IS_ORG_MEMBER" == "true" ]; then
             echo "$USERNAME is a member of NVIDIA or NVIDIA-NeMo org"
           else
-            echo "$USERNAME has @nvidia.com email but is not in NVIDIA or NVIDIA-NeMo org (orgs: $USER_ORGS)"
+            echo "$USERNAME has @nvidia.com email but is not in NVIDIA or NVIDIA-NeMo org"
           fi
         else
           echo "$USERNAME NOT found in NVIDIA SSO users"
-          echo "is_member=false" >> $GITHUB_OUTPUT
-          echo "is_org_member=false" >> $GITHUB_OUTPUT
-          echo "user_orgs=" >> $GITHUB_OUTPUT
+          echo "is_member=false" | tee -a "$GITHUB_OUTPUT"
+          echo "is_org_member=false" | tee -a "$GITHUB_OUTPUT"
+          echo "user_orgs=" | tee -a "$GITHUB_OUTPUT"
         fi
 
 branding:

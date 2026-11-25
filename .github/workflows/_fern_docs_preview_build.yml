@@ -128,7 +128,9 @@ jobs:
 
       - name: Normalize fern directory
         if: inputs.fern-directory != 'fern'
-        run: mv "${{ inputs.fern-directory }}" fern
+        env:
+          FERN_DIRECTORY: ${{ inputs.fern-directory }}
+        run: mv -- "$FERN_DIRECTORY" fern
 
       - name: Upload fern sources and metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

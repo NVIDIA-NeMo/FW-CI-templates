@@ -60,6 +60,8 @@ jobs:
   main:
     name: Build docs
     runs-on: ubuntu-latest
+    env:
+      DOCS_DIRECTORY: ${{ inputs.docs-directory }}
 
     steps:
       - name: Checkout repository
@@ -73,33 +75,43 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
       - name: Install dependencies
+        shell: bash
         working-directory: ${{ inputs.root-dir }}
         env:
+          SYNC_ALL: ${{ inputs.sync-all }}
           NO_EXTRAS: ${{ inputs.no-extras }}
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
         run: |
           uv venv
-          if [ "${{ inputs.sync-all }}" = "true" ]; then
-            # Validate: only allow repeated --no-extra <name> flags
-            if [ -n "$NO_EXTRAS" ]; then
-              if ! echo "$NO_EXTRAS" | grep -qP '^(--no-extra\s+[a-zA-Z0-9._-]+\s*)+$'; then
-                echo "::error::Invalid no-extras value: '$NO_EXTRAS'. Expected format: '--no-extra name1 --no-extra name2'"
+          if [[ "$SYNC_ALL" == true ]]; then
+            read -r -a no_extras <<< "${NO_EXTRAS//$'\n'/ }"
+            for ((i = 0; i < ${#no_extras[@]}; i++)); do
+              case "${no_extras[i]}" in
+                --no-extra) i=$((i + 1)); name=${no_extras[i]:-} ;;
+                --no-extra=*) name=${no_extras[i]#--no-extra=} ;;
+                *) name='' ;;
+              esac
+              if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+                echo "::error::Invalid no-extras value. Expected '--no-extra name1 --no-extra name2'."
                 exit 1
               fi
-            fi
-            uv sync --all-extras --all-groups $NO_EXTRAS
-          elif [ -f "${{ inputs.requirements-file }}" ]; then
-            uv pip install -r "${{ inputs.requirements-file }}"
+            done
+            uv sync --all-extras --all-groups "${no_extras[@]}"
+          elif [[ -f "$REQUIREMENTS_FILE" ]]; then
+            uv pip install -r "$REQUIREMENTS_FILE"
           else
             uv sync --only-group docs
           fi
 
       - name: Sphinx build
         working-directory: ${{ inputs.root-dir }}
+        env:
+          FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
         run: |
           source .venv/bin/activate
-          cd ${{ inputs.docs-directory }}
+          cd -- "$DOCS_DIRECTORY"
 
-          if [ "${{ inputs.fail-on-warning }}" = "true" ]; then
+          if [ "$FAIL_ON_WARNING" = "true" ]; then
             echo "Building docs with --fail-on-warning"
             sphinx-build --fail-on-warning --builder html . _build/html
           else
@@ -119,14 +131,14 @@ jobs:
         working-directory: ${{ inputs.root-dir }}
         run: |
           source .venv/bin/activate
-          cd ${{ inputs.docs-directory }}
+          cd -- "$DOCS_DIRECTORY"
           MAX_RETRIES=3
           RETRY_DELAY=10
-          for attempt in $(seq 1 $MAX_RETRIES); do
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
             sphinx-build --builder linkcheck . _build/linkcheck && break || true
-            if [ $attempt -lt $MAX_RETRIES ]; then
+            if [ "$attempt" -lt "$MAX_RETRIES" ]; then
               echo "Linkcheck attempt ${attempt}/${MAX_RETRIES} produced broken links, retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
+              sleep "$RETRY_DELAY"
               RETRY_DELAY=$((RETRY_DELAY * 2))
             fi
           done
@@ -143,9 +155,9 @@ jobs:
         if: inputs.skip-linkcheck == false
         working-directory: ${{ inputs.root-dir }}
         run: |
-          FALSE_POSITIVES_JSON=${{ inputs.docs-directory }}/broken_links_false_positives.json
-          NEEDS_REVIEW_JSON=${{ inputs.docs-directory }}/broken_links_needing_review.json
-          LINKCHECK_JSON=${{ inputs.docs-directory }}/_build/linkcheck/output.json
+          FALSE_POSITIVES_JSON="$DOCS_DIRECTORY/broken_links_false_positives.json"
+          NEEDS_REVIEW_JSON="$DOCS_DIRECTORY/broken_links_needing_review.json"
+          LINKCHECK_JSON="$DOCS_DIRECTORY/_build/linkcheck/output.json"
 
           function check_environment {
             local err=0
@@ -164,9 +176,9 @@ jobs:
 
           function check_links {
             local err=0
-            broken=$(jq -s 'map(select(.status=="broken"))' "$LINKCHECK_JSON")
+            broken=$(jq -s 'map(select(.status=="broken"))' < "$LINKCHECK_JSON")
             count=$(echo "${broken}" | jq 'length')
-            for i in $(seq 0 $(($count - 1)))
+            for i in $(seq 0 "$((count - 1))")
             do
               entry=$(echo "${broken}" | jq ".[${i}]")
               link=$(echo "${entry}" | jq -r '.uri')
@@ -182,7 +194,7 @@ jobs:
               # "false" indicates that the URL did not match any of the URIs in the false positive file.
               if [[ "false" = "${false_positive_resp}" && "false" = "${needs_review_resp}" ]]; then
                 err=$((err + 1))
-                echo $entry
+                echo "$entry"
               fi
             done
 

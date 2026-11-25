@@ -189,10 +189,9 @@ gh() {
                     _, remote = self.fixture()
                     output = self.root / "outputs"
                     script = step("create-release-branch", "Get release branch ref")["run"]
-                    script = script.replace("${{ github.run_id }}", "123")
                     result = self.shell(script, {
                         "DRY_RUN": dry_run, "RELEASE_ENVIRONMENT": environment, "SRC_DIR": "", "PYPROJECT_NAME": "package",
-                        "RELEASE_BRANCH_PREFIX": "core_", "GITHUB_OUTPUT": str(output),
+                        "RELEASE_BRANCH_PREFIX": "core_", "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(output),
                     })
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(output.read_text(), "version=core_r1.2.3\n")
@@ -246,6 +245,9 @@ gh() {
             ("setuptools", "minor", "rc0", "dev0", "1.3.0rc0.dev0"),
             ("setuptools", "major", "", "", "2.0.0"),
             ("hatch", "minor", "", "", "1.3.0"),
+            ("setuptools", "minor", "rc/team", "nightly", "1.3.0rc/team.nightly"),
+            ("hatch", "minor", "", "team's-build", "1.3.0.team's-build"),
+            ("setuptools", "minor", "", "preview\nnightly", "1.3.0.preview\nnightly"),
         ]:
             with self.subTest(packaging=packaging, release_type=release_type):
                 with tempfile.TemporaryDirectory(dir=self.root) as work:
@@ -258,21 +260,25 @@ gh() {
                             check=True, capture_output=True, text=True,
                         ).stdout
                         script = step("bump-next-version", "Bump version")["run"]
-                        script = script.replace("${{ github.run_id }}", "123")
-                        script = script.replace("${{ inputs.release-type }}", release_type)
                         result = self.shell(script, {
                             "SRC_DIR": "", "PYPROJECT_NAME": "package", "PACKAGING": packaging,
-                            "NEXT_PRERELEASE": prerelease, "NEXT_DEV": dev,
-                            "GITHUB_OUTPUT": str(output),
+                            "RELEASE_TYPE": release_type, "NEXT_PRERELEASE": prerelease, "NEXT_DEV": dev,
+                            "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(output),
                         })
                         self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(output.read_text(), f"version={expected}\n")
-                        info = (checkout / "package/package_info.py").read_text()
-                        if packaging == "hatch":
-                            self.assertIn(f"__version__ = '{expected}'", info)
+                        emitted = output.read_text()
+                        if "\n" in expected:
+                            header, _, remainder = emitted.partition("\n")
+                            self.assertRegex(header, r"^version<<[0-9a-f]{32}$")
+                            self.assertEqual(remainder, f"{expected}\n{header.removeprefix('version<<')}\n")
                         else:
-                            values = {}
-                            exec(info, values)
+                            self.assertEqual(emitted, f"version={expected}\n")
+                        info = (checkout / "package/package_info.py").read_text()
+                        values = {}
+                        exec(info, values)
+                        if packaging == "hatch":
+                            self.assertEqual(values["__version__"], expected)
+                        else:
                             computed = f"{values['MAJOR']}.{values['MINOR']}.{values['PATCH']}{values['PRE_RELEASE']}"
                             if values["DEV"]:
                                 computed += "." + values["DEV"]

@@ -51,11 +51,14 @@ jobs:
 
       - name: Get latest source commit
         id: ref
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
         run: |
-          cd ${{ github.run_id }}
+          cd "$GITHUB_RUN_ID"
           sha=$(git rev-parse HEAD)
-          repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          repo=${SOURCE_REPOSITORY//\//-}
+          echo "sha=${sha}" | tee -a "$GITHUB_OUTPUT"
           echo "short_sha=${sha:0:7}" | tee -a "$GITHUB_OUTPUT"
           echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
           echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
@@ -68,10 +71,18 @@ jobs:
           ref: ${{ inputs.base-branch }}
 
       - name: Bump file
+        env:
+          FILE: ${{ inputs.file }}
+          ARGUMENT: ${{ inputs.argument }}
+          VALUE: ${{ steps.ref.outputs.sha }}
         run: |
-          cd ${{ github.run_id }}
-
-          sed -i 's/\(.* ${{ inputs.argument }}=\).*/\1${{ steps.ref.outputs.sha }}/' ${{ inputs.file }}
+          cd "$GITHUB_RUN_ID"
+          delimiter=$'\x1f'
+          if [[ "$ARGUMENT" == *"$delimiter"* || "$ARGUMENT" == *$'\n'* ]]; then
+            echo "argument must be a single-line pattern without the sed delimiter" >&2
+            exit 1
+          fi
+          sed --sandbox -i -e "s${delimiter}\\(.* $ARGUMENT=\\).*${delimiter}\\1$VALUE${delimiter}" -- "$FILE"
 
       - name: Create Bump PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8

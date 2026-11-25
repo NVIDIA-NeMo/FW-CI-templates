@@ -114,7 +114,7 @@ jobs:
       name: nemo-ci
       deployment: false
     env:
-      IMAGE_NAME: ${{ inputs.image-name }}
+      IMAGE_REPOSITORY: ${{ format('{0}/{1}', inputs.registry, inputs.image-name) }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REF: ${{ github.ref }}
       RUN_ID: ${{ github.run_id }}
@@ -147,8 +147,13 @@ jobs:
       - name: Clean runner cache
         env:
           LABEL: ${{ inputs.image-label }}
+          PRUNE_FILTER_TIMERANGE: ${{ inputs.prune-filter-timerange }}
         run: |
-          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=${{ inputs.prune-filter-timerange }}" --force
+          filters=()
+          if [[ -n "$LABEL" ]]; then
+            filters+=(--filter "label=nemo.library=$LABEL")
+          fi
+          docker system prune "${filters[@]}" --filter "until=$PRUNE_FILTER_TIMERANGE" --force
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -160,151 +165,61 @@ jobs:
 
       - name: Set TAGS and PR_NUMBER
         run: |
+          if [[ "$IMAGE_REPOSITORY" == *$'\n'* || "$IMAGE_REPOSITORY" == *$'\r'* ]]; then
+            echo "::error::registry and image-name must be single-line values"
+            exit 1
+          fi
+
           if [[ -z "$PR_NUMBER" && "$GH_REF" =~ refs/heads/pull-request/([0-9]+) ]]; then
-            export PR_NUMBER="${BASH_REMATCH[1]}"
-            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+            PR_NUMBER="${BASH_REMATCH[1]}"
+            printf 'PR_NUMBER=%s\n' "$PR_NUMBER" >> "$GITHUB_ENV"
           fi
 
-          if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            TAGS="\
-            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
-            ${{ inputs.registry }}/$IMAGE_NAME:main"
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          elif [[ -n "$PR_NUMBER" ]]; then
-            TAGS="\
-            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
-            ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER"
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          else
-            TAGS="\
-            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID"
-            echo "TAGS<<EOF" >> $GITHUB_ENV
-            echo "$TAGS" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          fi
-
-      - name: No cache
-        if: ${{ inputs.use-cache == false }}
-        run: |
-          echo "CACHE_FROM=" >> $GITHUB_ENV
+          {
+            printf 'TAGS<<EOF\n%s:%s\n' "$IMAGE_REPOSITORY" "$RUN_ID"
+            if [[ "$GH_REF" == "refs/heads/main" ]]; then
+              printf '%s:main\n' "$IMAGE_REPOSITORY"
+            elif [[ -n "$PR_NUMBER" ]]; then
+              printf '%s:%s\n' "$IMAGE_REPOSITORY" "$PR_NUMBER"
+            fi
+            printf 'EOF\n'
+          } >> "$GITHUB_ENV"
 
       - name: Configure inline cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == true }}
         run: |
-
-          if [[ "$GH_REF" == "refs/heads/main" ]]; then
-            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
-
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
-            else
-              echo "${TAGS}" >> $GITHUB_ENV
-            fi
-            echo "EOF" >> $GITHUB_ENV
-
-            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
-
-          elif [[ -n "$PR_NUMBER" ]]; then
-            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
-            docker pull ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER || true
-
-            CACHE_FROM="\
-            ${{ inputs.registry }}/$IMAGE_NAME:main
-            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID
-            ${{ inputs.registry }}/$IMAGE_NAME:$PR_NUMBER"
-
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
-            else
-              echo "${CACHE_FROM}" >> $GITHUB_ENV
-            fi
-            echo "EOF" >> $GITHUB_ENV
-
-            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
-
-          else
-            docker pull ${{ inputs.registry }}/$IMAGE_NAME:main || true
-
-            CACHE_FROM="\
-            ${{ inputs.registry }}/$IMAGE_NAME:main
-            ${{ inputs.registry }}/$IMAGE_NAME:$RUN_ID"
-
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
-            else
-              echo "${CACHE_FROM}" >> $GITHUB_ENV
-            fi
-            echo "EOF" >> $GITHUB_ENV
-
-            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
-
+          docker pull -- "$IMAGE_REPOSITORY:main" || true
+          if [[ "$GH_REF" != "refs/heads/main" && -n "$PR_NUMBER" ]]; then
+            docker pull -- "$IMAGE_REPOSITORY:$PR_NUMBER" || true
           fi
+
+          {
+            printf 'CACHE_FROM<<EOF\n'
+            if [[ "$GH_REF" != "refs/heads/main" ]]; then
+              printf '%s:main\n' "$IMAGE_REPOSITORY"
+            fi
+            printf '%s\nEOF\nCACHE_TO=type=inline\n' "$TAGS"
+          } >> "$GITHUB_ENV"
 
       - name: Configure registry cache
         if: ${{ inputs.use-cache == true && inputs.use-inline-cache == false }}
         run: |
-          if [[ "$GH_REF" == "refs/heads/main" ]]; then
-
-            CACHE_FROM="\
-            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main"
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
-            else
-              echo "${CACHE_FROM}" >> $GITHUB_ENV
+          cache_image="${IMAGE_REPOSITORY}-buildcache"
+          {
+            printf 'CACHE_FROM<<EOF\n%s:main\n' "$cache_image"
+            if [[ "$GH_REF" != "refs/heads/main" && -n "$PR_NUMBER" ]]; then
+              printf '%s:%s\n' "$cache_image" "$PR_NUMBER"
             fi
-            echo "EOF" >> $GITHUB_ENV
+            printf 'EOF\n'
 
-            CACHE_TO="\
-            type=registry,ref=${{ inputs.registry }}/$IMAGE_NAME-buildcache:main,mode=max"
-            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_TO" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-
-          elif [[ -n "$PR_NUMBER" ]]; then
-
-            CACHE_FROM="\
-            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main
-            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:$PR_NUMBER"
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
+            if [[ "$GH_REF" == "refs/heads/main" ]]; then
+              printf 'CACHE_TO=type=registry,ref=%s:main,mode=max\n' "$cache_image"
+            elif [[ -n "$PR_NUMBER" ]]; then
+              printf 'CACHE_TO=type=registry,ref=%s:%s,mode=max\n' "$cache_image" "$PR_NUMBER"
             else
-              echo "${CACHE_FROM}" >> $GITHUB_ENV
+              printf 'CACHE_TO=\n'
             fi
-            echo "EOF" >> $GITHUB_ENV
-
-            CACHE_TO="\
-            type=registry,ref=${{ inputs.registry }}/$IMAGE_NAME-buildcache:$PR_NUMBER,mode=max"
-            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_TO" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-
-          else
-
-            CACHE_FROM="\
-            ${{ inputs.registry }}/$IMAGE_NAME-buildcache:main"
-            echo "CACHE_FROM<<EOF" >> $GITHUB_ENV
-            if [[ -n "${{ inputs.cache-from }}" ]]; then
-              echo "${{ inputs.cache-from }}" >> $GITHUB_ENV
-            else
-              echo "${CACHE_FROM}" >> $GITHUB_ENV
-            fi
-            echo "EOF" >> $GITHUB_ENV
-
-            CACHE_TO=""
-            echo "CACHE_TO<<EOF" >> $GITHUB_ENV
-            echo "$CACHE_TO" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-
-          fi
+          } >> "$GITHUB_ENV"
 
       - name: Build and push
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
@@ -313,10 +228,8 @@ jobs:
           push: true
           build-args: ${{ inputs.build-args }}
           build-contexts: ${{ inputs.build-contexts }}
-          cache-from: |
-            ${{ env.CACHE_FROM }}
-          cache-to: |
-            ${{ env.CACHE_TO }}
+          cache-from: ${{ inputs.use-cache && (inputs.cache-from || env.CACHE_FROM) || '' }}
+          cache-to: ${{ inputs.use-cache && env.CACHE_TO || '' }}
           no-cache: ${{ !inputs.use-cache }}
           tags: |
             ${{ env.TAGS }}

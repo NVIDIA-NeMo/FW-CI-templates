@@ -63,6 +63,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     container: ${{ inputs.container-image != '' && inputs.container-image || null }}
+    env:
+      FERN_DIRECTORY: ${{ inputs.fern-directory }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -80,8 +82,8 @@ jobs:
       - name: Detect Fern libraries field
         id: libraries
         run: |
-          DOCS_YML="${{ inputs.fern-directory }}/docs.yml"
-          if [ -f "$DOCS_YML" ] && yq -e '.libraries' "$DOCS_YML" >/dev/null 2>&1; then
+          DOCS_YML="$FERN_DIRECTORY/docs.yml"
+          if [ -f "$DOCS_YML" ] && yq -e '.libraries' < "$DOCS_YML" >/dev/null 2>&1; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
@@ -102,10 +104,10 @@ jobs:
       - name: Generate library reference MDX (autodocs)
         if: steps.libraries.outputs.present == 'true'
         run: |
-          cd "$(dirname "${{ inputs.fern-directory }}")"
+          cd -- "$(dirname -- "$FERN_DIRECTORY")"
           fern docs md generate
 
       - name: Publish Docs
         run: |
-          cd "$(dirname "${{ inputs.fern-directory }}")"
+          cd -- "$(dirname -- "$FERN_DIRECTORY")"
           fern generate --docs

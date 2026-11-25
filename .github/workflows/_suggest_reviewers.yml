@@ -105,6 +105,11 @@ jobs:
       author: ${{ steps.pr.outputs.author }}
       html_url: ${{ steps.pr.outputs.html_url }}
     steps:
+      - name: Validate PR mirror ref
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        shell: bash
+        run: '[[ "$GITHUB_REF_NAME" =~ ^pull-request/[0-9]+$ ]]'
+
       - name: Get PR info
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')

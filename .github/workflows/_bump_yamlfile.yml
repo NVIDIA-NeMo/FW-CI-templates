@@ -11,6 +11,7 @@ on:
         required: false
         default: main
       yaml-path:
+        description: yq expression that selects the value to update.
         type: string
         required: true
       file:
@@ -65,10 +66,13 @@ jobs:
 
       - name: Get latest source commit
         id: ref
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
         run: |
           sha=$(git rev-parse HEAD)
-          repo=$(echo ${{ inputs.source-repository }} | tr '/' '-')
-          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          repo=${SOURCE_REPOSITORY//\//-}
+          echo "sha=${sha}" | tee -a "$GITHUB_OUTPUT"
           echo "short_sha=${sha:0:7}" | tee -a "$GITHUB_OUTPUT"
           echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
           echo "repo=$repo" | tee -a "$GITHUB_OUTPUT"
@@ -79,13 +83,18 @@ jobs:
           token: ${{ secrets.PAT }}
           ref: ${{ inputs.base-branch }}
 
-      - name: Rebase against ${{ inputs.pr-branch || env.default-branch }}
+      - name: Rebase against the existing PR branch
         env:
-          default-branch: bump-ci-container--${{ steps.ref.outputs.repo }}-${{ steps.ref.outputs.date }}-${{ inputs.base-branch }}
+          PR_BRANCH: ${{ inputs.pr-branch || format('bump-ci-container--{0}-{1}-{2}', steps.ref.outputs.repo, steps.ref.outputs.date, inputs.base-branch) }}
         run: |
-          if git ls-remote --exit-code origin ${{ inputs.pr-branch || env.default-branch }}; then
-            git fetch origin ${{ inputs.pr-branch || env.default-branch }}
-            git rebase origin/${{ inputs.pr-branch || env.default-branch }}
+          ref="refs/heads/$PR_BRANCH"
+          git check-ref-format "$ref"
+          if git ls-remote --exit-code --refs origin "$ref"; then
+            git fetch origin "$ref"
+            git rebase FETCH_HEAD
+          else
+            status=$?
+            [[ "$status" == 2 ]] || exit "$status"
           fi
 
       - name: Install yq
@@ -93,8 +102,8 @@ jobs:
           VERSION: v4.45.1
           BINARY: yq_linux_amd64
         run: |
-          wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY} -O yq && \
-          chmod +x yq
+          wget "https://github.com/mikefarah/yq/releases/download/$VERSION/$BINARY" -O "$RUNNER_TEMP/yq"
+          chmod +x "$RUNNER_TEMP/yq"
 
       - name: Bump file
         env:
@@ -102,10 +111,7 @@ jobs:
           VALUE: ${{ steps.ref.outputs.sha }}
           FILE: ${{ inputs.file }}
         run: |
-          ./yq -i 'eval(strenv(YAMLPATH)) = env(VALUE)' $FILE
-
-      - name: Remove yq
-        run: rm yq
+          "$RUNNER_TEMP/yq" -i --expression 'eval(strenv(YAMLPATH)) = env(VALUE)' -- "$FILE"
 
       - name: Install GPG
         run: sudo apt-get install -y gnupg2

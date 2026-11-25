@@ -21,6 +21,7 @@ class ReleasePayloadTests(unittest.TestCase):
         *,
         generated: str | None = None,
         legacy: str | None = None,
+        project_name: str = "Test",
         version: str = "1.2.3",
         file_state: str = "present",
         builder_enabled: bool = True,
@@ -31,14 +32,15 @@ class ReleasePayloadTests(unittest.TestCase):
         create = next(step for step in job["steps"] if step.get("id") == "version-number")
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            checkout = workspace / "run"
-            checkout.mkdir()
+            root_dir = "package [release]"
+            checkout = workspace / "run" / root_dir
+            checkout.mkdir(parents=True)
             temporary_files = workspace / "temporary"
             temporary_files.mkdir()
             expressions = {
                 "github.workspace": str(workspace),
                 "github.run_id": "run",
-                "inputs.root-dir": ".",
+                "inputs.root-dir": root_dir,
                 "inputs.release-ref": "a" * 40,
                 "steps.app-token.outputs.token": "test-token",
                 "inputs.validate-only || inputs.dry-run": "true",
@@ -52,7 +54,7 @@ class ReleasePayloadTests(unittest.TestCase):
 
             if legacy is not None:
                 (checkout / "CHANGELOG.md").write_text(
-                    f"## NVIDIA Test {version}\n\n{legacy}\n\n## Older release\nOld notes\n"
+                    f"## NVIDIA {project_name} {version}\n\n{legacy}\n\n## Older release\nOld notes\n"
                 )
             # Even if the script regresses, it cannot contact GitHub from this test.
             commands = workspace / "bin"
@@ -65,9 +67,10 @@ class ReleasePayloadTests(unittest.TestCase):
             env = dict(
                 os.environ,
                 REPOSITORY="example/test",
-                PROJECT_NAME="Test",
+                PROJECT_NAME=project_name,
                 VERSION=version,
                 TAG_PREFIX="test-",
+                GITHUB_RUN_ID="run",
                 GITHUB_OUTPUT=str(workspace / "outputs"),
                 TMPDIR=str(temporary_files),
                 RUNNER_TEMP=str(temporary_files),
@@ -151,6 +154,38 @@ class ReleasePayloadTests(unittest.TestCase):
 
     def test_missing_generated_changelog_uses_legacy_section(self) -> None:
         self.assertEqual(self.build_payload(legacy="Current notes")["body"], "Current notes")
+
+    def test_legacy_heading_matches_the_literal_project_name(self) -> None:
+        """Preserve punctuation when selecting a project's release notes."""
+        payload = self.build_payload(legacy="Current notes", project_name="Tools/Engineer's [GPU]")
+        self.assertEqual(payload["body"], "Current notes")
+
+    def test_provided_changelog_revision_reaches_the_action_directly(self) -> None:
+        """Only an omitted starting revision needs a repository tag lookup."""
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["create-gh-release"]["steps"]
+        lookup = next(step for step in steps if step.get("id") == "determine-from-tag")
+        builder = next(step for step in steps if step.get("id") == "build-changelog")
+        self.assertIn("inputs.gh-release-from-tag == ''", lookup["if"])
+        self.assertEqual(
+            builder["with"]["fromTag"],
+            "${{ inputs.gh-release-from-tag || steps.determine-from-tag.outputs.from-tag }}",
+        )
+
+    def test_docs_request_name_encodes_the_whole_target_path(self) -> None:
+        """Each request name occupies one Actions output, including line breaks in the path."""
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish-docs"]["steps"]
+        generate = next(step for step in steps if step.get("id") == "request-name")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "outputs"
+            subprocess.run(
+                ["bash", "-eu", "-c", generate["run"]],
+                env=dict(os.environ, S3_TARGET_PATH="team/docs\nnightly",
+                         GITHUB_RUN_ID="123", GITHUB_OUTPUT=str(output)),
+                check=True,
+            )
+            header, _, remainder = output.read_text().partition("\n")
+            self.assertRegex(header, r"^value<<[0-9a-f-]{36}$")
+            self.assertEqual(remainder, f"team-docs\nnightly-publish-docs-123\n{header.removeprefix('value<<')}\n")
 
     def test_missing_changelogs_use_release_fallback(self) -> None:
         self.assertEqual(self.build_payload()["body"], "Release: NVIDIA Test 1.2.3")

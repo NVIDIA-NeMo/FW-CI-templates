@@ -213,29 +213,22 @@ jobs:
 
       - name: Determine fromTag for changelog
         id: determine-from-tag
-        if: inputs.gh-release-use-changelog-builder == true
-        env:
-          INPUT_FROM_TAG: ${{ inputs.gh-release-from-tag }}
+        if: inputs.gh-release-use-changelog-builder && inputs.gh-release-from-tag == ''
         run: |
-          cd ${{ github.run_id }}
+          cd -- "$GITHUB_RUN_ID"
 
-          if [[ -n "$INPUT_FROM_TAG" ]]; then
-            FROM_TAG="$INPUT_FROM_TAG"
-            echo "Using provided fromTag: $FROM_TAG"
+          if [[ -n "$TAG_PREFIX" ]]; then
+            FROM_TAG=$(git tag -l --sort=-v:refname -- "${TAG_PREFIX}*" 2>/dev/null | head -n1 || echo "")
           else
-            if [[ -n "$TAG_PREFIX" ]]; then
-              FROM_TAG=$(git tag -l "${TAG_PREFIX}*" --sort=-v:refname 2>/dev/null | head -n1 || echo "")
-            else
-              FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            fi
-            if [[ -z "$FROM_TAG" ]]; then
-              echo "No previous tags found, leaving fromTag empty"
-            else
-              echo "Auto-detected most recent tag: $FROM_TAG"
-            fi
+            FROM_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           fi
 
-          echo "from-tag=$FROM_TAG" >> $GITHUB_OUTPUT
+          if [[ -z "$FROM_TAG" ]]; then
+            echo "No previous tags found, leaving fromTag empty"
+          else
+            echo "Auto-detected most recent tag: $FROM_TAG"
+          fi
+          printf 'from-tag=%s\n' "$FROM_TAG" | tee -a "$GITHUB_OUTPUT"
 
       - name: Prepare changelog file
         id: changelog-file
@@ -256,7 +249,7 @@ jobs:
           repo: ${{ github.event.repository.name }}
           ignorePreReleases: "false"
           failOnError: "false"
-          fromTag: ${{ steps.determine-from-tag.outputs.from-tag }}
+          fromTag: ${{ inputs.gh-release-from-tag || steps.determine-from-tag.outputs.from-tag }}
           toTag: ${{ inputs.release-ref }}
           mode: ${{ inputs.gh-release-changelog-mode }}
           includeOnlyPaths: ${{ inputs.gh-release-changelog-included-paths }}
@@ -266,11 +259,12 @@ jobs:
         id: version-number
         env:
           SHA: ${{ inputs.release-ref }}
+          ROOT_DIR: ${{ inputs.root-dir }}
           HAS_BUILT_CHANGELOG: ${{ steps.build-changelog.outputs.changelog != '' }}
           BUILT_CHANGELOG_FILE: ${{ steps.changelog-file.outputs.path }}
         run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOT_DIR"
 
           IS_RELEASE_CANDIDATE=$([[ "$VERSION" == *rc* ]] && echo "true" || echo "false")
           IS_ALPHA=$([[ "$VERSION" == *a* ]] && echo "true" || echo "false")
@@ -292,8 +286,8 @@ jobs:
             DATE=$(date +"%Y-%m-%d")
             printf '%s' "Prerelease: $NAME ($DATE)" > "$CHANGELOG_FILE"
           elif [[ -f CHANGELOG.md ]]; then
-            CHANGELOG=$(awk '/^## '"$NAME"'/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
-            CHANGELOG=$(echo "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
+            CHANGELOG=$(RELEASE_HEADING="## $NAME" awk 'index($0, ENVIRON["RELEASE_HEADING"]) == 1 {flag=1; next} /^## /{flag=0} flag' CHANGELOG.md)
+            CHANGELOG=$(printf '%s\n' "$CHANGELOG" | sed '/./,$!d' | sed ':a;N;$!ba;s/\n$//')
             printf '%s' "$CHANGELOG" > "$CHANGELOG_FILE"
           else
             printf '%s' "Release: $NAME" > "$CHANGELOG_FILE"
@@ -316,7 +310,7 @@ jobs:
                         "prerelease": $PRERELEASE,
                       }'
                   )
-          echo -E "$PAYLOAD" > payload.txt
+          printf '%s\n' "$PAYLOAD" > payload.txt
 
       - name: Require protected release dispatch
         if: inputs.release-environment != '' && !inputs.validate-only && !inputs.dry-run
@@ -453,8 +447,8 @@ jobs:
         id: request-name
         shell: bash
         run: |
-          REQUEST_NAME="${S3_TARGET_PATH//\//-}-publish-docs-${{ github.run_id }}"
-          echo "value=${REQUEST_NAME}" >> $GITHUB_OUTPUT
+          delimiter=$(uuidgen)
+          printf 'value<<%s\n%s-publish-docs-%s\n%s\n' "$delimiter" "${S3_TARGET_PATH//\//-}" "$GITHUB_RUN_ID" "$delimiter" >> "$GITHUB_OUTPUT"
 
       - name: Publish documentation
         uses: ./FW-CI-templates/.github/actions/publish-docs
@@ -519,16 +513,17 @@ jobs:
         run: |
           PREFIX=""
           [[ "$IS_DRY_RUN" == "true" ]] && PREFIX="This is a dry-run, nothing actually happened: "
+          delimiter=$(uuidgen)
 
           {
-            echo "message<<EOF"
+            echo "message<<$delimiter"
             echo "${PREFIX}We have released \`${VERSION}\` of \`NVIDIA ${PROJECT_NAME}\` 🚀✨🎉"
             echo
             echo "• <${GH_URL}|GitHub release>"
             if [[ -n "$PYPI_NAME" ]]; then
               echo "• <https://pypi.org/project/${PYPI_NAME}/${VERSION}/|PyPi release>"
             fi
-            echo "EOF"
+            echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
 
       - name: Render assembled Slack message to step summary (validate-only)

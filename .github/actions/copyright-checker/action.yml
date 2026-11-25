@@ -3,23 +3,23 @@ description: "Check that changed Python files have correct NVIDIA copyright head
 
 inputs:
   changed-files:
-    description: "Changed files"
-    required: true
+    description: "Shell-quoted filenames or unquoted filename globs, separated by spaces"
+    required: false
+  changed-files-list:
+    description: "File containing NUL-delimited paths from git diff -z"
+    required: false
 
 runs:
   using: "composite"
   steps:
     - name: Check copyright headers
       shell: bash
+      env:
+        CHANGED_FILES: ${{ inputs.changed-files }}
+        CHANGED_FILES_LIST: ${{ inputs.changed-files-list }}
       run: |
-        echo "Checking copyright headers for changed files..."
-        echo "Changed files: ${{ inputs.changed-files }}"
-
-        # Build the command
-        CMD="python3 ${{ github.action_path }}/check_copyright.py"
-
-        # Add the files
-        CMD="$CMD ${{ inputs.changed-files }}"
-
-        # Run the check
-        eval $CMD
+        if [[ -n "$CHANGED_FILES_LIST" ]]; then
+          xargs -0 -r python3 "$GITHUB_ACTION_PATH/check_copyright.py" -- < "$CHANGED_FILES_LIST"
+        else
+          python3 "$GITHUB_ACTION_PATH/check_copyright.py" --changed-files="$CHANGED_FILES"
+        fi

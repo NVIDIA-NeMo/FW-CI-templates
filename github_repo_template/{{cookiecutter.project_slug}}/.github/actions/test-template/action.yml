@@ -134,96 +134,81 @@ runs:
 
     - name: Docker pull image
       shell: bash
+      env:
+        IMAGE: {% raw %}${{ inputs.image }}{% endraw %}
       run: |
-        docker pull nemoci.azurecr.io/{% raw %}${{ inputs.image }}:${{ github.run_id }}{% endraw %}
+        docker pull "nemoci.azurecr.io/$IMAGE:$GITHUB_RUN_ID"
 
     - name: Checkout repository
       uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2
       with:
         path: {{cookiecutter.project_slug}}
 
+    - name: Calculate test timeout
+      id: timeout
+      shell: bash
+      env:
+        MINUTES: {% raw %}${{ inputs.timeout }}{% endraw %}
+      run: |
+        if [[ ! "$MINUTES" =~ ^[[:space:]]*(\+?(0[xX][[:xdigit:]]+|[0-9]+))[[:space:]]*$ ]] ||
+           ! printf -v minutes '%d' "${BASH_REMATCH[1]}" ||
+           (( minutes <= 0 || minutes > (0x7fffffffffffffff - 60) / 60 )); then
+          echo "::error::timeout must be a positive whole number of minutes representable in seconds"
+          exit 1
+        fi
+        printf 'seconds=%d\n' "$((minutes * 60))" | tee -a "$GITHUB_OUTPUT"
+
     - name: Start container
       shell: bash
-      run: |
-        MNT_PATH={% raw %}${{ steps.azure-fileshare.outputs.mnt_path }}{% endraw %}
-
-        ARG=("")
-        if [[ "{% raw %}${{ inputs.cpu-only }}{% endraw %}" == "false" ]]; then
-          ARG=("--runtime=nvidia --gpus all")
-        fi
-
-        cmd=$(cat <<RUN_TEST_EOF
-        #!/bin/bash
-        docker container rm -f nemo_container_{% raw %}${{ github.run_id }}{% endraw %} || true
-        docker run \
-          --rm \
-          -d \
-          --name nemo_container_{% raw %}${{ github.run_id }}{% endraw %} ${ARG[@]} \
-          --shm-size=64g \
-          --env TRANSFORMERS_OFFLINE=0 \
-          --env HYDRA_FULL_ERROR=1 \
-          --env HF_HOME=/home/TestData/HF_HOME \
-          --env RUN_ID={% raw %}${{ github.run_id }}{% endraw %} \
-          --volume $(pwd)/{{cookiecutter.project_slug}}:/workspace \
-          --volume $MNT_PATH/TestData:/home/TestData \
-          nemoci.azurecr.io/{% raw %}${{ inputs.image }}:${{ github.run_id }}{% endraw %} \
-          bash -c "sleep $(( {% raw %}${{ inputs.timeout }}{% endraw %} * 60 + 60))"
-        RUN_TEST_EOF
-        )
-
-        echo "$cmd" | tee "retry_job.sh"
-        bash retry_job.sh
-
-    - name: Create run-script
-      id: create
-      shell: bash
-      run: |
-        COVERAGE_PREFIX=$([[ "{% raw %}${{ inputs.is_unit_test }}{% endraw %}" == "true" ]] && echo "unit-test" || echo "e2e")
-        echo "coverage-prefix=$COVERAGE_PREFIX" | tee -a "$GITHUB_OUTPUT"
-
-        cmd=$(cat <<RUN_TEST_EOF
-        #!/bin/bash
-
-        (
-          set -e
-
-          docker exec -t nemo_container_{% raw %}${{ github.run_id }}{% endraw %} bash -c '\
-            uv pip install --no-deps -e . && \
-            bash tests/{% raw %}${{ inputs.is_unit_test == 'true' && 'unit_tests' || 'functional_tests' }}{% endraw %}/{% raw %}${{ inputs.script }}{% endraw %}.sh && \
-            echo "Finished successfully." || echo "Did not finish."'
-        ) 2>&1 | tee err.log
-
-        RUN_TEST_EOF
-        )
-
-        echo "timeout_in_seconds=$(( {% raw %}${{ inputs.timeout }}{% endraw %} * 60 ))" | tee -a "$GITHUB_OUTPUT"
-        echo "$cmd" | tee "job.sh"
+      env:
+        PROJECT_DIRECTORY: "{{cookiecutter.project_slug}}"
+        IMAGE: {% raw %}${{ inputs.image }}{% endraw %}
+        CPU_ONLY: {% raw %}${{ inputs.cpu-only }}{% endraw %}
+        TIMEOUT_SECONDS: {% raw %}${{ steps.timeout.outputs.seconds }}{% endraw %}
+        MNT_PATH: {% raw %}${{ steps.azure-fileshare.outputs.mnt_path }}{% endraw %}
+      run: bash "$GITHUB_ACTION_PATH/start-container.sh"
 
     - name: Run main script
       uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
+      env:
+        TEST_ACTION_PATH: {% raw %}${{ github.action_path }}{% endraw %}
+        PROJECT_DIRECTORY: "{{cookiecutter.project_slug}}"
+        TEST_DIRECTORY: {% raw %}${{ inputs.is_unit_test == 'true' && 'unit_tests' || 'functional_tests' }}{% endraw %}
+        TEST_SCRIPT: {% raw %}${{ inputs.script }}{% endraw %}
+        IMAGE: {% raw %}${{ inputs.image }}{% endraw %}
+        CPU_ONLY: {% raw %}${{ inputs.cpu-only }}{% endraw %}
+        TIMEOUT_SECONDS: {% raw %}${{ steps.timeout.outputs.seconds }}{% endraw %}
+        MNT_PATH: {% raw %}${{ steps.azure-fileshare.outputs.mnt_path }}{% endraw %}
       with:
-        timeout_seconds: {% raw %}${{ steps.create.outputs.timeout_in_seconds }}{% endraw %}
+        timeout_seconds: {% raw %}${{ steps.timeout.outputs.seconds }}{% endraw %}
         max_attempts: 3
         shell: bash
         retry_on: timeout
-        command: /bin/bash job.sh
-        on_retry_command: /bin/bash retry_job.sh
+        command: |
+          docker exec -t "nemo_container_$GITHUB_RUN_ID" bash -c '
+            uv pip install --no-deps -e . && bash "$1" &&
+              echo "Finished successfully." || echo "Did not finish."
+          ' bash "tests/$TEST_DIRECTORY/$TEST_SCRIPT.sh" 2>&1 | tee err.log
+        on_retry_command: bash "$TEST_ACTION_PATH/start-container.sh"
 
     - name: Check result
       id: check
       shell: bash
+      env:
+        COVERAGE_PREFIX: {% raw %}${{ inputs.is_unit_test == 'true' && 'unit-test' || 'e2e' }}{% endraw %}
+        IS_OPTIONAL: {% raw %}${{ inputs.is_optional }}{% endraw %}
       run: |
         docker exec nemo_container_{% raw %}${{ github.run_id }}{% endraw %} coverage combine || true
         docker exec nemo_container_{% raw %}${{ github.run_id }}{% endraw %} coverage xml
         docker cp nemo_container_{% raw %}${{ github.run_id }}{% endraw %}:/workspace/.coverage .coverage
         docker cp nemo_container_{% raw %}${{ github.run_id }}{% endraw %}:/workspace/coverage.xml coverage.xml
 
-        coverage_report=coverage-{% raw %}${{ steps.create.outputs.coverage-prefix }}-${{ github.run_id }}-$(uuidgen)
-        echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
+        coverage_report="coverage-$COVERAGE_PREFIX-$GITHUB_RUN_ID-$(uuidgen)"
+        echo "coverage_report=$coverage_report" | tee -a "$GITHUB_OUTPUT"
 
         IS_SUCCESS=$(tail -n 1 err.log | grep -q "Finished successfully." && echo "true" || echo "false")
 
-        if [[ "$IS_SUCCESS" == "false" && "{% raw %}${{ inputs.is_optional }}{% endraw %}" == "true" ]]; then
+        if [[ "$IS_SUCCESS" == "false" && "$IS_OPTIONAL" == "true" ]]; then
           echo "::warning:: Test failed, but displayed as successful because it is marked as optional."
           IS_SUCCESS=true
         fi

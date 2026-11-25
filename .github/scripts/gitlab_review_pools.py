@@ -612,6 +612,11 @@ def main() -> None:
             actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
             if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
                 raise RuntimeError(f"{prefix}pools did not converge; inspect the MR and rerun")
+        # One final snapshot covers every side: a rule edited while a later side was being
+        # written must not be reported as converged.
+        for prefix in changes_by_side:
+            if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
+                raise RuntimeError(f"{prefix}pools changed during reconciliation; rerun")
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
         pool_count = sum(len(side_pools) for side_pools in sides.values())
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": pool_count, "reviewers": assignment}))

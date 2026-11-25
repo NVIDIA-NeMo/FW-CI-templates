@@ -274,7 +274,7 @@ class GitLabReviewPoolTests(unittest.TestCase):
             patch("gitlab_review_pools.github_members", return_value=["alice"]),
             patch("gitlab_review_pools.resolve_identities", return_value=({"alice": "alice"}, [])),
             patch("gitlab_review_pools.resolve_pools", return_value=([pool], [], [])),
-            patch("gitlab_review_pools.plan_changes", side_effect=[[{"method": "POST", "body": pool}], []]),
+            patch("gitlab_review_pools.plan_changes", side_effect=[[{"method": "POST", "body": pool}], [], []]),
             patch("gitlab_review_pools.apply_changes") as apply,
             patch("builtins.print"),
         ):
@@ -992,6 +992,15 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             ("* @org/sec\n/src/(public|docs)/", ["src/(public|docs)/a.py"], []),
             ("/src/(public)/ @org/sec", ["src/(public)/a.py"], sec),
             ("/src/(public)/ @org/sec", ["src/public/a.py"], []),
+            ("/src/\\(public\\)/ @org/sec", ["src/(public)/a.py"], sec),
+            ("/src/\\(public\\|docs\\)/ @org/sec", ["src/(public|docs)/a.py"], sec),
+            ("/src/\\\\(public|docs)/ @org/sec", ["src/\\(public|docs)/a.py"], sec),
+            ("* @org/sec\n/src/**/", ["src/a.py"], sec),
+            ("* @org/sec\n/src/**/", ["src/d/a.py"], []),
+            ("* @org/sec\n/src/**/**/", ["src/a.py"], sec),
+            ("* @org/sec\n/**/**/", ["README.md"], sec),
+            ("* @org/sec\n**/src/**/", ["a/src/b.py"], sec),
+            ("* @org/sec\n**/src/**/", ["a/src/d/b.py"], []),
         ]
         for rules, files, expected in cases:
             with self.subTest(rules=rules, files=files):
@@ -1194,6 +1203,46 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         )
         self.assertEqual([body for method, _, body in writes if "reviewer_ids" in body], [])
         self.assertIn("reconciled with problems", failure)
+
+    def test_required_rule_edited_during_optional_write_is_not_reported_converged(self):
+        """The final snapshot covers every side, so a mid-run edit of a required rule fails the run."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+        mr = json.loads(json.dumps(self.MR))
+        api, self.rules, writes = self.fake_gitlab(mr, members)
+        state = {"optional_written": False}
+
+        def racing_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+            result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
+            if method == "POST" and body["name"].startswith(RULE_PREFIX):
+                state["optional_written"] = True
+            if state["optional_written"] and method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
+                for rule in self.rules.values():
+                    if rule["name"].startswith(REQUIRED_PREFIX):
+                        rule["approvals_required"] = 0
+            return result
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "identities.json"
+            path.write_text(json.dumps(identities))
+            argv = ["script", "--gitlab-host", "example.test", "--project", "1", "--mr", "2", "--target-branch"]
+            argv += ["internal", "--github-repository", "org/repo", "--identity-map", str(path), "--apply"]
+            argv += ["--require-codeowners"]
+            with (
+                patch("sys.argv", argv),
+                patch("gitlab_review_pools.api", side_effect=racing_api),
+                patch(
+                    "gitlab_review_pools.trusted_rules",
+                    return_value=("sha", self.RULES + "\n# suggest: /README.md @org/docs"),
+                ),
+                patch(
+                    "gitlab_review_pools.github_members", side_effect=lambda o: {**self.TEAMS, "@org/docs": ["dan"]}[o]
+                ),
+                patch("builtins.print"),
+                self.assertRaisesRegex(RuntimeError, "changed during reconciliation"),
+            ):
+                main()
+        self.assertEqual([body for method, _, body in writes if "reviewer_ids" in body], [], "no reviewer assignment")
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

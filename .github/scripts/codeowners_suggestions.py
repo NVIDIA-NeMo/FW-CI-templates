@@ -70,15 +70,18 @@ def to_glob(pattern: str) -> list[str]:
     dir_only = p.endswith("/")
     if dir_only:
         p = p[:-1]
-    # Parentheses and pipes are literal in CODEOWNERS; micromatch would read them as groups.
-    p = re.sub(r"[()|]", r"\\\g<0>", p)
+    # Parentheses and pipes are literal in CODEOWNERS; micromatch would read them as
+    # groups. Quote the unescaped ones (an even number of preceding backslashes).
+    p = re.sub(r"(?<!\\)((?:\\\\)*)([()|])", r"\1\\\2", p)
 
     if p == "*" and not dir_only:
         return ["**"]
 
     if dir_only:
-        # "**/" names any directory, so it needs at least one directory component.
-        globs = ["*/**" if p == "**" else f"{p}/**"]
+        # A trailing "**" names any directory ("**/", "/src/**/"), so it must consume
+        # at least one directory component; micromatch's "**" may consume none.
+        p = re.sub(r"(\*\*/)*\*\*$", "*", p)
+        globs = [f"{p}/**"]
     elif p.endswith(("/*", "/**")):
         globs = [p]
     else:

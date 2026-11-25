@@ -190,10 +190,15 @@ if their jobs declare the same environment. Ordinary feature-branch MR jobs
 cannot consume a protected variable.
 Draft and closed MRs are skipped. Without `--require-codeowners` the adapter is
 advisory and its failure must not become a required CI check. With the flag, a
-failed run means the MR may be missing its required code-owner rule, so the
-consumer job must block (`allow_failure: false`); see "Required code-owner
-pools". This repository does not install an MR event trigger or enable this
-adapter on consumer projects.
+failed run means the MR may be missing its required code-owner rule. Run the
+consumer job with `allow_failure: false` so the failure is visible, and note
+that this only reddens the trusted branch pipeline: it is not bound to the MR
+head and does not by itself block the merge. A consumer that needs fail-closed
+behavior before the first successful write must add a provider-enforced
+backstop (for example a project-level approval rule the adapter is allowed to
+coexist with) or a required MR check bound to the head SHA that waits for the
+trusted job. This repository does not install an MR event trigger or enable
+this adapter on consumer projects.
 
 Validate locally with:
 

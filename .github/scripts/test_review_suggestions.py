@@ -12,7 +12,6 @@ from unittest.mock import patch
 
 from codeowners_suggestions import enforced_owner_groups, match_rules, suggested_owners
 from gitlab_review_pools import (
-    MANAGED_PREFIXES,
     REQUIRED_PREFIX,
     RULE_PREFIX,
     api,
@@ -20,6 +19,7 @@ from gitlab_review_pools import (
     approval_inheritance_problems,
     assign_reviewers_if_empty,
     event_mr,
+    github_members,
     main,
     mr_changed_paths,
     parse_args,
@@ -627,13 +627,17 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         """Stand-in for github_members; tests override it to inject failures."""
         return self.TEAMS[owner]
 
-    def fake_gitlab(self, mr: dict, members: list[dict], rules: dict | None = None, *, overwritten: bool = True):
-        """Stateful GitLab stand-in recording every write."""
+    def fake_gitlab(
+        self, mr: dict, members: list[dict], rules: dict | None = None, *, overwritten: bool = True, fail: tuple = ()
+    ):
+        """Stateful GitLab stand-in recording every write; `fail` names one (method, id) write that errors."""
         rules, writes = rules if rules is not None else {}, []
 
         def api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
             if method != "GET":
                 writes.append((method, endpoint.rsplit("/", 1)[-1], body))
+                if (method, endpoint.rsplit("/", 1)[-1]) == fail:
+                    raise RuntimeError(f"glab {method} approval_rules failed (exit 1)")
             if endpoint.endswith("/changes?access_raw_diffs=true"):
                 return mr
             if "/members/all" in endpoint:
@@ -676,10 +680,11 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         rules: dict | None = None,
         overwritten: bool = True,
         enforce: bool = True,
+        fail: tuple = (),
     ) -> tuple[dict, list, str | None]:
         """Run main() against the fake; return the printed plan, the writes, and the exit message."""
         mr = json.loads(json.dumps(self.MR))
-        api, self.rules, writes = self.fake_gitlab(mr, members, rules, overwritten=overwritten)
+        api, self.rules, writes = self.fake_gitlab(mr, members, rules, overwritten=overwritten, fail=fail)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "identities.json"
             path.write_text(json.dumps(identity_map))
@@ -979,6 +984,14 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             ("/src/sec** @org/sec", ["src/section/a.py"], sec),
             ("/src/sec** @org/sec", ["src/other.py"], []),
             ("/src/** @org/sec", ["src/a/b.py"], sec),
+            ("* @org/a\n/src/ @org/sec", ["src"], [["@org/a"]]),
+            ("* @org/a\ndocker/ @org/sec", ["x/docker"], [["@org/a"]]),
+            ("* @org/sec\n**/", ["README.md"], sec),
+            ("* @org/sec\n**/", ["a/b.py"], []),
+            ("* @org/sec\n/src/(public|docs)/", ["src/public/a.py", "src/docs/a.py"], sec),
+            ("* @org/sec\n/src/(public|docs)/", ["src/(public|docs)/a.py"], []),
+            ("/src/(public)/ @org/sec", ["src/(public)/a.py"], sec),
+            ("/src/(public)/ @org/sec", ["src/public/a.py"], []),
         ]
         for rules, files, expected in cases:
             with self.subTest(rules=rules, files=files):
@@ -1055,31 +1068,36 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             [{"name": REQUIRED_PREFIX + "b"}],
             [{"name": REQUIRED_PREFIX + "fallback"}],
         )
+        both = {REQUIRED_PREFIX: req, RULE_PREFIX: opt}
         cases = {
-            "healthy": (((opt, []), (req, []), None), (opt + req, MANAGED_PREFIXES, [], False)),
-            "optional problem": (((opt, ["x"]), (req, []), None), (req, (REQUIRED_PREFIX,), [], False)),
-            "required problem, no fallback": (
-                ((opt, []), (req, ["y"]), None),
-                (opt + req, MANAGED_PREFIXES, ["y"], False),
-            ),
+            "healthy": (((opt, []), (req, []), None), (both, [], False)),
+            "optional problem": (((opt, ["x"]), (req, []), None), ({REQUIRED_PREFIX: req}, [], False)),
+            "required problem, no fallback": (((opt, []), (req, ["y"]), None), (both, ["y"], False)),
             "required problem, fallback ok": (
                 ((opt, []), (req, ["y"]), (fb, [])),
-                (opt + fb, MANAGED_PREFIXES, [], True),
+                ({REQUIRED_PREFIX: fb, RULE_PREFIX: opt}, [], True),
             ),
-            "required problem, fallback broken": (
-                ((opt, []), (req, ["y"]), (fb, ["z"])),
-                (opt + req, MANAGED_PREFIXES, ["y"], False),
-            ),
+            "required problem, fallback broken": (((opt, []), (req, ["y"]), (fb, ["z"])), (both, ["y"], False)),
             "both sides broken, fallback ok": (
                 ((opt, ["x"]), (req, ["y"]), (fb, [])),
-                (fb, (REQUIRED_PREFIX,), [], True),
+                ({REQUIRED_PREFIX: fb}, [], True),
+            ),
+            "both sides broken, no fallback": (
+                ((opt, ["x"]), (req, ["y"]), None),
+                ({REQUIRED_PREFIX: req}, ["y"], False),
+            ),
+            "both sides broken, fallback broken": (
+                ((opt, ["x"]), (req, ["y"]), (fb, ["z"])),
+                ({REQUIRED_PREFIX: req}, ["y"], False),
             ),
         }
         for name, (inputs, expected) in cases.items():
             with self.subTest(name):
                 self.assertEqual(plan_sides(*inputs, enforce=True), expected)
-        self.assertEqual(plan_sides((opt, ["x"]), ([], []), None, enforce=False), ([], (), ["x"], False))
-        self.assertEqual(plan_sides((opt, []), ([], []), None, enforce=False), (opt, (RULE_PREFIX,), [], False))
+        sides, _, _ = plan_sides((opt, []), (req, []), None, enforce=True)
+        self.assertEqual(list(sides), [REQUIRED_PREFIX, RULE_PREFIX], "required side is reconciled first")
+        self.assertEqual(plan_sides((opt, ["x"]), ([], []), None, enforce=False), ({}, ["x"], False))
+        self.assertEqual(plan_sides((opt, []), ([], []), None, enforce=False), ({RULE_PREFIX: opt}, [], False))
 
     def test_required_rules_with_other_types_or_counts(self):
         """A hand-made non-regular rule under the prefix stops the run; two approvals are reset to one."""
@@ -1104,6 +1122,78 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         }
         self.assertEqual(mr_changed_paths(mr), ["added.py", "new.py"])
         self.assertEqual(mr_changed_paths(mr, include_deleted=True), ["added.py", "gone.py", "new.py"])
+
+    def test_author_as_the_only_eligible_owner_falls_back(self):
+        """The most common trigger: the author is the sole mapped member of a required owner set."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(1, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        plan, writes, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/maint", "--apply")
+        self.assertIn("@org/arch: no eligible reviewers other than the MR author", plan["problems"])
+        self.assertTrue(plan["fallback_applied"])
+        self.assertEqual(
+            [body["name"] for method, _, body in writes if method == "POST"], [REQUIRED_PREFIX + "fallback @org/maint"]
+        )
+        self.assertIn("fell back", failure)
+
+    def test_email_owner_is_an_explicit_problem(self):
+        """GitHub accepts email owners; the mirror cannot resolve them, so it says so instead of guessing."""
+        identities = {"ann": "ann", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(12, "mia")]
+
+        def teams(owner):
+            return self.TEAMS[owner] if owner in self.TEAMS else github_members(owner)
+
+        with (
+            patch.object(self, "RULES", "* @org/arch\n/bio/ docs@example.com"),
+            patch.object(self, "lookup_team", teams),
+        ):
+            plan, _, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/maint")
+        self.assertIn("docs@example.com: email owners are not supported; use a GitHub login or team", plan["problems"])
+        self.assertIn("fell back", failure)
+
+    def test_hand_required_optional_pool_is_ignored_when_only_required_rules_are_managed(self):
+        """Reconciling the required side alone neither touches nor trips over a hand-required optional pool."""
+        hand_required = {"id": 1, "name": RULE_PREFIX + "@org/a", "approvals_required": 1, "rule_type": "regular"}
+        self.assertEqual(plan_changes([], [hand_required], prefixes=(REQUIRED_PREFIX,)), [])
+
+    def test_required_side_converges_before_an_optional_write_fails(self):
+        """Required repairs land and verify first; a failing optional write then fails the run."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+        existing = {
+            1: {"id": 1, "name": REQUIRED_PREFIX + "@org/arch", "approvals_required": 0, "rule_type": "regular"},
+            2: {"id": 2, "name": RULE_PREFIX + "@org/docs", "approvals_required": 0, "rule_type": "regular"},
+        }
+        for rule in existing.values():
+            rule.update(users=[], groups=[])
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+            self.assertRaisesRegex(RuntimeError, "glab PUT approval_rules failed"),
+        ):
+            self.run_main(identities, members, "--apply", rules=existing, fail=("PUT", "2"))
+        self.assertEqual(self.rules[1]["approvals_required"], 1, "required rule restored before the optional write")
+        self.assertEqual(self.rules[1]["user_ids"], [10])
+
+    def test_hand_required_optional_pool_blocks_only_the_optional_side(self):
+        """A human-required optional rule is reported; required pools still converge; no reviewers assigned."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+        existing = {1: {"id": 1, "name": RULE_PREFIX + "@org/docs", "approvals_required": 1, "rule_type": "regular"}}
+        existing[1].update(users=[], groups=[])
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+        ):
+            plan, writes, failure = self.run_main(identities, members, "--apply", rules=existing)
+        self.assertIn("Refusing to change rule github-review-pool: @org/docs", "".join(plan["problems"]))
+        self.assertEqual(plan["reviewer_ids_to_assign"], [])
+        self.assertEqual(
+            sorted(rule["name"] for rule in self.rules.values()),
+            [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint", RULE_PREFIX + "@org/docs"],
+        )
+        self.assertEqual([body for method, _, body in writes if "reviewer_ids" in body], [])
+        self.assertIn("reconciled with problems", failure)
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

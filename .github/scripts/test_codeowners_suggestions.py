@@ -152,6 +152,13 @@ class FindRedundantRulesTests(unittest.TestCase):
         self.assertEqual(redundant[0]["rule"]["pattern"], "/docker/scripts/")
         self.assertEqual(redundant[0]["covered_by"]["pattern"], "/docker/")
 
+    def test_file_pattern_covers_nested_suggest_with_identical_owner(self):
+        enforced_rules = [{"pattern": "/src", "owners": ["@org/a"]}]
+        suggest_rules = [{"pattern": "/src/a.py", "owners": ["@org/a"]}]
+        self.assertEqual(
+            [r["rule"]["pattern"] for r in find_redundant_rules(enforced_rules, suggest_rules)], ["/src/a.py"]
+        )
+
     def test_nested_suggest_with_different_owner_is_deliberate_override_not_flagged(self):
         enforced_rules = [{"pattern": "/docker/", "owners": ["@nvidia-nemo/automation"]}]
         suggest_rules = [{"pattern": "/docker/scripts/", "owners": ["@anwithk"]}]

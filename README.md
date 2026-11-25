@@ -188,9 +188,12 @@ Protect that environment for the dedicated trigger owner as well: variable
 protection alone permits other protected branches to consume the credentials
 if their jobs declare the same environment. Ordinary feature-branch MR jobs
 cannot consume a protected variable.
-Draft and closed MRs are skipped. The adapter is advisory; its failure
-must not become a required CI check. This repository does not install an MR event
-trigger or enable this adapter on consumer projects.
+Draft and closed MRs are skipped. Without `--require-codeowners` the adapter is
+advisory and its failure must not become a required CI check. With the flag, a
+failed run means the MR may be missing its required code-owner rule, so the
+consumer job must block (`allow_failure: false`); see "Required code-owner
+pools". This repository does not install an MR event trigger or enable this
+adapter on consumer projects.
 
 Validate locally with:
 

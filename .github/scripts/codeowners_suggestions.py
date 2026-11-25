@@ -15,7 +15,8 @@
 """Resolve `# suggest:` review routing for the GitHub and GitLab adapters.
 
 The membership validator also imports the parser. Path matching uses pinned
-micromatch with the options used by step-security/changed-files.
+micromatch configured for gitignore-style CODEOWNERS patterns (see
+review-matcher/match.cjs).
 
 Convention: a normal CODEOWNERS line is enforced (GitHub reads it, branch
 protection can require it). A `# suggest: <pattern> @owner ...` line uses
@@ -60,6 +61,7 @@ def to_glob(pattern: str) -> list[str]:
       - a pattern with no "/" anywhere matches at any depth (basename match)
       - "**"/"*" keep their normal glob meaning; micromatch's own "**" already
         handles the zero-or-more-directories case correctly
+      - "(", ")" and "|" are literal characters, as in gitignore
     Returns a list because each case needs several alternatives (root-level
     and nested, the path itself and its descendants).
     """
@@ -68,12 +70,15 @@ def to_glob(pattern: str) -> list[str]:
     dir_only = p.endswith("/")
     if dir_only:
         p = p[:-1]
+    # Parentheses and pipes are literal in CODEOWNERS; micromatch would read them as groups.
+    p = re.sub(r"[()|]", r"\\\g<0>", p)
 
     if p == "*" and not dir_only:
         return ["**"]
 
     if dir_only:
-        globs = [f"{p}/**"]
+        # "**/" names any directory, so it needs at least one directory component.
+        globs = ["*/**" if p == "**" else f"{p}/**"]
     elif p.endswith(("/*", "/**")):
         globs = [p]
     else:

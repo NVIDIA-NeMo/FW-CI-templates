@@ -171,6 +171,8 @@ def github_members(owner: str) -> list[str]:
     appears as a suggested owner, a required owner and the fallback.
     """
     name = owner.removeprefix("@")
+    if "@" in name:
+        raise RuntimeError("email owners are not supported; use a GitHub login or team")
     if "/" not in name:
         return [name]
     organization, team = name.split("/", 1)
@@ -301,7 +303,7 @@ def plan_sides(
     fallback: tuple[list[dict], list[str]] | None,
     *,
     enforce: bool,
-) -> tuple[list[dict], tuple[str, ...], list[str], bool]:
+) -> tuple[dict[str, list[dict]], list[str], bool]:
     """Decide what one run reconciles, so a problem on one side never weakens the other.
 
     Args:
@@ -311,27 +313,30 @@ def plan_sides(
         enforce: Whether required pools are managed in this run.
 
     Returns:
-        Desired pools, the prefixes to reconcile, blocking problems, and whether
-        the required side fell back.
+        The pools to reconcile per managed prefix, required side first so it is
+        written and verified before any optional work, the blocking problems,
+        and whether the required side fell back.
 
     The optional side is advisory: any problem skips optional reconciliation for
     this run. The required side fails closed: its problems block every write,
-    unless a fallback without problems of its own replaces the exact pools.
+    unless a fallback without problems of its own replaces the exact pools. When
+    nothing is left to reconcile, every problem blocks, as it always did for
+    optional-only runs.
     """
     optional_pools, optional_problems = optional
     required_pools, required_problems = required
     degraded = bool(required_problems and fallback and not fallback[1])
     if degraded:
         required_pools = fallback[0]
-    active = {RULE_PREFIX: not optional_problems, REQUIRED_PREFIX: enforce}
-    prefixes = tuple(prefix for prefix, on in active.items() if on)
-    desired = (optional_pools if RULE_PREFIX in prefixes else []) + (
-        required_pools if REQUIRED_PREFIX in prefixes else []
-    )
+    sides = {}
+    if enforce:
+        sides[REQUIRED_PREFIX] = required_pools
+    if not optional_problems:
+        sides[RULE_PREFIX] = optional_pools
     blocking = [] if degraded else list(required_problems)
-    if not prefixes:
+    if not sides:
         blocking = sorted({*optional_problems, *required_problems})
-    return desired, prefixes, blocking, degraded
+    return sides, blocking, degraded
 
 
 def plan_changes(
@@ -547,27 +552,38 @@ def main() -> None:
     required, required_problems, required_warnings = resolve_pools(
         required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
     )
-    optional_problems = sorted({*optional_problems, *lookups["optional"]})
-    required_problems = sorted({*required_problems, *lookups["required"]})
-    problems = sorted({*optional_problems, *required_problems, *lookups["fallback"], *identity_problems})
-    warnings = sorted({*warnings, *required_warnings})
+    optional_problems += lookups["optional"]
+    required_problems += lookups["required"]
+    problems = [*optional_problems, *required_problems, *lookups["fallback"], *identity_problems]
+    warnings += required_warnings
     fallback_side = None
     if required_problems and fallback:
         fallback_pools, fallback_problems, fallback_warnings = resolve_pools(
             fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
         )
         fallback_side = (fallback_pools, sorted({*fallback_problems, *lookups["fallback"]}))
-        problems = sorted({*problems, *fallback_side[1]})
-        warnings = sorted({*warnings, *fallback_warnings})
-    desired, prefixes, blocking, degraded = plan_sides(
+        problems += fallback_side[1]
+        warnings += fallback_warnings
+    sides, blocking, degraded = plan_sides(
         (pools, optional_problems), (required, required_problems), fallback_side, enforce=args.require_codeowners
     )
-    reviewer_pools = pools if RULE_PREFIX in prefixes else []
+    reviewer_pools = pools if RULE_PREFIX in sides else []
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-    changes = plan_changes(desired, existing, prefixes=prefixes)
+    changes_by_side = {}
+    for prefix, side_pools in sides.items():
+        try:
+            changes_by_side[prefix] = plan_changes(side_pools, existing, prefixes=(prefix,))
+        except ValueError as error:
+            if prefix == REQUIRED_PREFIX:
+                raise
+            # A hand-required optional pool blocks only the optional side.
+            problems.append(str(error))
+            reviewer_pools = []
+    changes = [change for side_changes in changes_by_side.values() for change in side_changes]
     if not blocking and any(change["method"] == "POST" for change in changes):
         blocking = approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host))
-        problems = sorted({*problems, *blocking})
+        problems += blocking
+    problems, warnings = sorted(set(problems)), sorted(set(warnings))
     print(
         json.dumps(
             {
@@ -591,12 +607,14 @@ def main() -> None:
     if blocking:
         raise SystemExit("Review-pool preconditions are not satisfied; no writes performed")
     if args.apply:
-        apply_changes(args.gitlab_host, root, mr, changes)
-        actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-        if plan_changes(desired, actual, prefixes=prefixes):
-            raise RuntimeError("Review pools did not converge; inspect the MR and rerun")
+        for prefix, side_changes in changes_by_side.items():
+            apply_changes(args.gitlab_host, root, mr, side_changes)
+            actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
+            if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
+                raise RuntimeError(f"{prefix}pools did not converge; inspect the MR and rerun")
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
-        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": len(desired), "reviewers": assignment}))
+        pool_count = sum(len(side_pools) for side_pools in sides.values())
+        print(json.dumps({"applied": True, "mr": args.mr, "pool_count": pool_count, "reviewers": assignment}))
     if degraded:
         raise SystemExit("Code-owner pools fell back to the configured team; fix the listed problems")
     if problems:

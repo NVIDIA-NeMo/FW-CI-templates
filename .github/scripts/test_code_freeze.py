@@ -38,6 +38,92 @@ class CodeFreezeTests(unittest.TestCase):
             capture_output=True,
         )
 
+    def resolve_cutoff(self, cutoff, **overrides):
+        """Run the template's resolver with disposable output and offline API responses."""
+        dispatch_sha = "a" * 40
+        cutoff_sha = "b" * 40
+        output = self.root / "cutoff-output"
+        output.write_text("")
+        env = {
+            "FREEZE_COMMIT": cutoff,
+            "FREEZE_SOURCE_BRANCH": "main",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_REPOSITORY": "example/project",
+            "GITHUB_SHA": dispatch_sha,
+            "GITHUB_OUTPUT": str(output),
+            "FIXTURE_SHA": cutoff_sha,
+            "FIXTURE_STATUS": "ahead",
+        }
+        env.update(overrides)
+        api = """
+gh() {
+    [[ $1 == api && $# == 4 && $3 == --jq ]] || return 1
+    case "$2" in
+        "repos/example/project/commits/release%2Fcutoff"|"repos/example/project/commits/$FIXTURE_SHA")
+            [[ -n "$FIXTURE_SHA" ]] || return 1
+            jq -n --arg sha "$FIXTURE_SHA" '{sha: $sha}' | jq -r "$4" ;;
+        "repos/example/project/compare/$FIXTURE_SHA...$GITHUB_SHA")
+            [[ -n "$FIXTURE_STATUS" ]] || return 1
+            jq -n --arg status "$FIXTURE_STATUS" '{status: $status}' | jq -r "$4" ;;
+        *) return 1 ;;
+    esac
+}
+"""
+        result = self.shell(api + step("resolve-freeze-commit", "Resolve freeze cutoff")["run"], env)
+        return result.returncode, output.read_text()
+
+    def test_cutoff_resolution_pins_the_run_or_an_ancestor(self):
+        """Accept an empty cutoff, the source branch, and immutable or named ancestors."""
+        for branch in ("main", "trunk", "release/maintained"):
+            for cutoff in ("", branch):
+                with self.subTest(branch=branch, cutoff=cutoff):
+                    result = self.resolve_cutoff(
+                        cutoff, FREEZE_SOURCE_BRANCH=branch, GITHUB_REF=f"refs/heads/{branch}"
+                    )
+                    self.assertEqual(result, (0, "sha=" + "a" * 40 + "\n"))
+        for cutoff in ("release/cutoff", "b" * 40):
+            for status in ("ahead", "identical"):
+                with self.subTest(cutoff=cutoff, status=status):
+                    self.assertEqual(
+                        self.resolve_cutoff(cutoff, FIXTURE_STATUS=status),
+                        (0, "sha=" + "b" * 40 + "\n"),
+                    )
+
+    def test_cutoff_resolution_fails_closed(self):
+        """Reject off-source dispatch, unrelated cutoffs, and failed or malformed API responses."""
+        for overrides in (
+            {"GITHUB_REF": "refs/heads/topic"},
+            {"GITHUB_REF": "refs/tags/main"},
+            {"FIXTURE_SHA": ""},
+            {"FIXTURE_SHA": "invalid"},
+            {"FIXTURE_STATUS": "behind"},
+            {"FIXTURE_STATUS": "diverged"},
+            {"FIXTURE_STATUS": ""},
+        ):
+            with self.subTest(overrides=overrides):
+                code, output = self.resolve_cutoff("release/cutoff", **overrides)
+                self.assertNotEqual(code, 0)
+                self.assertEqual(output, "")
+
+    def test_cutoff_policy_is_optional_and_applies_before_release_credentials(self):
+        """Select the caller's ref only when it omitted the optional branch policy."""
+        policy = WORKFLOW["on"]["workflow_call"]["inputs"]["freeze-source-branch"]
+        self.assertEqual(policy["default"], "")
+        resolver = WORKFLOW["jobs"]["resolve-freeze-commit"]
+        self.assertNotIn("if", resolver)
+        self.assertEqual(resolver["permissions"], {"contents": "read"})
+        resolution = step("resolve-freeze-commit", "Resolve freeze cutoff")
+        self.assertEqual(resolution["if"], "inputs.freeze-source-branch != ''")
+        self.assertEqual(resolution["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(resolver["outputs"]["sha"], "${{ steps.resolve.outputs.sha }}")
+        writer = WORKFLOW["jobs"]["create-release-branch"]
+        self.assertEqual(writer["needs"], "resolve-freeze-commit")
+        self.assertEqual(writer["if"], "inputs.freeze-source-branch == '' || needs.resolve-freeze-commit.outputs.sha != ''")
+        self.assertEqual(
+            step("create-release-branch", "Checkout repository")["with"]["ref"],
+            "${{ inputs.freeze-source-branch == '' && inputs.freeze-commit || needs.resolve-freeze-commit.outputs.sha }}",
+        )
+
     def test_app_authentication_never_falls_back_to_legacy_credentials(self):
         cases = [
             ("3610216", "test-key", "test-app-token", True, "test-app-token"),

@@ -33,6 +33,11 @@ on:
       freeze-commit:
         type: string
         description: Commit SHA to use for cut-off
+      freeze-source-branch:
+        type: string
+        required: false
+        default: ""
+        description: Require the caller to run on this branch and the cutoff to be reachable from the triggering commit
       dry-run:
         type: boolean
         description: Dry-run code-freeze
@@ -91,7 +96,45 @@ defaults:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
+  resolve-freeze-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve freeze cutoff
+        id: resolve
+        if: inputs.freeze-source-branch != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREEZE_SOURCE_BRANCH: ${{ inputs.freeze-source-branch }}
+          FREEZE_COMMIT: ${{ inputs.freeze-commit }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/$FREEZE_SOURCE_BRANCH" ]]; then
+            echo "::error::Start the code freeze from the configured source branch."
+            exit 1
+          fi
+          sha=$GITHUB_SHA
+          if [[ -n "$FREEZE_COMMIT" && "$FREEZE_COMMIT" != "$FREEZE_SOURCE_BRANCH" ]]; then
+            ref_path=$(jq -nr --arg ref "$FREEZE_COMMIT" '$ref | @uri')
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref_path" --jq '.sha')
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::The freeze cutoff must resolve to a full commit SHA."
+              exit 1
+            fi
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...$GITHUB_SHA" --jq '.status')
+            if [[ "$status" != identical && "$status" != ahead ]]; then
+              echo "::error::The freeze cutoff must be on the configured source branch."
+              exit 1
+            fi
+          fi
+          echo "sha=$sha" | tee -a "$GITHUB_OUTPUT"
+
   create-release-branch:
+    needs: resolve-freeze-commit
+    if: inputs.freeze-source-branch == '' || needs.resolve-freeze-commit.outputs.sha != ''
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release-branch.outputs.version }}
@@ -142,7 +185,7 @@ jobs:
           path: ${{ github.run_id }}
           fetch-depth: 0
           token: ${{ steps.github-token.outputs.token }}
-          ref: ${{ inputs.freeze-commit }}
+          ref: ${{ inputs.freeze-source-branch == '' && inputs.freeze-commit || needs.resolve-freeze-commit.outputs.sha }}
 
       - name: Get release branch ref
         id: release-branch

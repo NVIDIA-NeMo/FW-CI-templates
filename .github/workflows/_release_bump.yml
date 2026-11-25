@@ -61,8 +61,12 @@ on:
           via admin bypass, so this precondition is what makes the push succeed.
       app-id:
         type: string
-        required: true
+        required: false
         description: GitHub App ID used to mint the bot token for git push and PR creation.
+      release-environment:
+        type: string
+        required: false
+        description: Environment with RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY. Production opens a version bump PR for normal review; rehearsals use the job token.
       library-name:
         type: string
         required: true
@@ -97,15 +101,16 @@ on:
         description: Sub-directory containing the package source(s).
     secrets:
       BOT_KEY:
-        required: true
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
     outputs:
       release-version:
         description: The version being released (current version of the first bump target, before the bump).
         value: ${{ jobs.bump-next-version.outputs.release-version }}
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   check-admin-permission:
@@ -140,7 +145,7 @@ jobs:
   bump-next-version:
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.validate-only && 'public' || 'main' }}
+      name: ${{ (inputs.validate-only || (inputs.release-environment != '' && inputs.dry-run)) && 'public' || inputs.release-environment || 'main' }}
       deployment: false
     needs: [check-admin-permission]
     if: |
@@ -159,17 +164,66 @@ jobs:
       FALLBACK_PYPROJECT_NAME: ${{ inputs.python-package }}
       FALLBACK_SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
     steps:
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      - name: Create caller-supplied App token
+        if: inputs.release-environment == ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
 
+      - name: Create protected release token
+        if: inputs.release-environment != '' && env.IS_INERT == 'false'
+        id: release-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-administration: read
+
+      - name: Verify protected release source and destination
+        if: inputs.release-environment != '' && env.IS_INERT == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.release-token.outputs.token }}
+          RELEASE_SHA: ${{ inputs.release-ref }}
+          BUMP_BRANCH: ${{ inputs.version-bump-branch }}
+          RELEASE_PATTERN: ${{ inputs.release-branch-pattern }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_QUERY: >-
+            query($owner:String!, $name:String!, $ref:String!) {
+              repository(owner:$owner, name:$name) {
+                ref(qualifiedName:$ref) {
+                  target { oid }
+                  branchProtectionRule { pattern restrictsPushes blocksCreations requiresApprovingReviews requiresCodeOwnerReviews }
+                }
+              }
+            }
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" || ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Dispatch production releases from the default branch with a full commit SHA."
+            exit 1
+          fi
+          branch=$(gh api graphql -f query="$BRANCH_QUERY" -f owner="$GITHUB_REPOSITORY_OWNER" \
+            -f name="${GITHUB_REPOSITORY#*/}" -f ref="refs/heads/$BUMP_BRANCH" --jq '.data.repository.ref')
+          tip=$(jq -er --arg branch "$BUMP_BRANCH" --arg default "$DEFAULT_BRANCH" --arg pattern "$RELEASE_PATTERN" '
+            select(.branchProtectionRule | .requiresApprovingReviews and .requiresCodeOwnerReviews and
+              (if $branch == $default then .pattern == $default else .pattern == $pattern and .restrictsPushes and .blocksCreations end)) |
+            .target.oid' <<< "$branch")
+          comparison=$(gh api "repos/$GITHUB_REPOSITORY/compare/$RELEASE_SHA...$tip" --jq '.status')
+          if [[ "$comparison" != identical && "$comparison" != ahead ]]; then
+            echo "::error::The release SHA must be on the authorized version bump branch."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: ${{ github.run_id }}
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token || github.token }}
+          persist-credentials: ${{ !inputs.validate-only && !inputs.dry-run }}
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ inputs.release-ref }}
@@ -209,6 +263,11 @@ jobs:
               PATCH=$(awk '/^PATCH = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
               PRERELEASE=$(awk '/^PRE_RELEASE = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
 
+              if [[ ! "$MAJOR" =~ ^(0|[1-9][0-9]*)$ || ! "$MINOR" =~ ^(0|[1-9][0-9]*)$ || ! "$PATCH" =~ ^(0|[1-9][0-9]*)$ ||
+                    ( -n "$PRERELEASE" && ! "$PRERELEASE" =~ ^(rc|a)(0|[1-9][0-9]*)$ ) ]]; then
+                echo "::error::Invalid numeric version or pre-release suffix in $PACKAGE_INFO_FILE"
+                exit 1
+              fi
               CURRENT_VERSION="$MAJOR.$MINOR.$PATCH$PRERELEASE"
 
               if [[ "$PRERELEASE" != "" ]]; then
@@ -251,20 +310,19 @@ jobs:
 
       - name: Record computed versions
         if: env.IS_INERT == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.bump.outputs.release-version }}
+          NEXT_VERSION: ${{ steps.bump.outputs.next-version }}
         run: |
           {
             echo "## Bump rehearsal"
             echo
-            echo "- release-version (current): \`${{ steps.bump.outputs.release-version }}\`"
-            echo "- next-version (after bump): \`${{ steps.bump.outputs.next-version }}\`"
-            echo
-            echo "IS_INERT=true → preconditions are asserted (App permissions +"
-            echo "source rule \`isAdminEnforced=false\`). No commit is pushed, no PR"
-            echo "is opened, and no branch is created on this repo."
+            printf -- '- release-version (current): %s\n- next-version (after bump): %s\n' "$RELEASE_VERSION" "$NEXT_VERSION"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Validate release config
-        if: env.IS_INERT == 'true'
+        if: env.IS_INERT == 'true' && inputs.release-environment == ''
+        shell: bash
         env:
           APP_ID: ${{ inputs.app-id }}
           BOT_KEY: ${{ secrets.BOT_KEY }}
@@ -347,7 +405,7 @@ jobs:
       - name: Resolve version-bump-branch
         if: env.IS_INERT == 'false'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
           INPUT_BRANCH: ${{ inputs.version-bump-branch }}
         run: |
           # Consumers that fall back to `github.ref_name` get a PR-derived ref
@@ -365,7 +423,10 @@ jobs:
       - name: Create and push deployment branch
         if: env.IS_INERT == 'false'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
+          BUMP_BRANCH_PREFIX: ${{ inputs.release-environment != '' && 'release-bump' || 'deploy-release' }}
+          BUMP_TITLE: "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}"
+          CI_SKIP_SUFFIX: ${{ inputs.release-environment == '' && ' [skip ci]' || '' }}
         run: |
           cd ${{ github.run_id }}
           cd ${{ inputs.root-dir }}
@@ -373,28 +434,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          TMP_BRANCH="deploy-release/$(uuidgen)"
+          TMP_BRANCH="$BUMP_BRANCH_PREFIX/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
           while IFS= read -r f; do
             [[ -n "$f" ]] && git add "$f"
           done < /tmp/bumped-files.txt
 
-          git commit -s -m "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }} [skip ci]" || echo "No changes to commit"
+          git commit -s -m "$BUMP_TITLE$CI_SKIP_SUFFIX" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
           echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
 
           PR_URL=$(gh pr create \
             --base "$VERSION_BUMP_BRANCH" \
             --head "$TMP_BRANCH" \
-            --title "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}" \
+            --title "$BUMP_TITLE" \
             --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
           PR_NUMBER="${PR_URL##*/}"
           echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
+          echo "Version bump pull request: $PR_URL" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Merge deploy-release branch into target
-        if: env.IS_INERT == 'false'
+        if: env.IS_INERT == 'false' && inputs.release-environment == ''
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
 
@@ -428,9 +490,9 @@ jobs:
           done
 
       - name: Delete temporary branch
-        if: always() && env.IS_INERT == 'false'
+        if: always() && env.IS_INERT == 'false' && inputs.release-environment == ''
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
         run: |
           cd ${{ github.run_id }}
           if [[ -n "${TMP_BRANCH:-}" ]]; then

@@ -33,6 +33,11 @@ on:
       freeze-commit:
         type: string
         description: Commit SHA to use for cut-off
+      freeze-source-branch:
+        type: string
+        required: false
+        default: ""
+        description: Require the caller to run on this branch and the cutoff to be reachable from the triggering commit
       dry-run:
         type: boolean
         description: Dry-run code-freeze
@@ -52,6 +57,11 @@ on:
         description: Job environment; empty preserves the legacy use-pat selection
         type: string
         default: ""
+      release-environment:
+        required: false
+        type: string
+        default: ""
+        description: Protected environment providing RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY for a manual freeze on freeze-source-branch
       packaging:
         required: false
         description: "Packaging tool (supported: setuptools, hatch)"
@@ -81,6 +91,8 @@ on:
         required: false
       BOT_KEY:
         required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
     outputs:
       release-branch:
         description: "Released version (same as its branch name)"
@@ -91,7 +103,50 @@ defaults:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
+  resolve-freeze-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Require a protected freeze dispatch
+        if: inputs.release-environment != '' && (github.event_name != 'workflow_dispatch' || inputs.freeze-source-branch == '')
+        run: |
+          echo "::error::Dispatch a protected freeze from its configured source branch."
+          exit 1
+      - name: Resolve freeze cutoff
+        id: resolve
+        if: inputs.freeze-source-branch != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREEZE_SOURCE_BRANCH: ${{ inputs.freeze-source-branch }}
+          FREEZE_COMMIT: ${{ inputs.freeze-commit }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/$FREEZE_SOURCE_BRANCH" ]]; then
+            echo "::error::Start the code freeze from the configured source branch."
+            exit 1
+          fi
+          sha=$GITHUB_SHA
+          if [[ -n "$FREEZE_COMMIT" && "$FREEZE_COMMIT" != "$FREEZE_SOURCE_BRANCH" ]]; then
+            ref_path=$(jq -nr --arg ref "$FREEZE_COMMIT" '$ref | @uri')
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref_path" --jq '.sha')
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::The freeze cutoff must resolve to a full commit SHA."
+              exit 1
+            fi
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...$GITHUB_SHA" --jq '.status')
+            if [[ "$status" != identical && "$status" != ahead ]]; then
+              echo "::error::The freeze cutoff must be on the configured source branch."
+              exit 1
+            fi
+          fi
+          echo "sha=$sha" | tee -a "$GITHUB_OUTPUT"
+
   create-release-branch:
+    needs: resolve-freeze-commit
+    if: inputs.freeze-source-branch == '' || needs.resolve-freeze-commit.outputs.sha != ''
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release-branch.outputs.version }}
@@ -101,30 +156,38 @@ jobs:
       PYPROJECT_NAME: ${{ inputs.python-package }}
       RELEASE_BRANCH_PREFIX: ${{ inputs.release-branch-prefix }}
     environment:
-      name: ${{ inputs.environment-name || (inputs.use-pat && 'main' || 'public') }}
+      name: ${{ (inputs.release-environment != '' && inputs.dry-run && 'public') || inputs.release-environment || inputs.environment-name || (inputs.use-pat && 'main' || 'public') }}
       deployment: false
     steps:
       - name: Generate GitHub App token
-        if: inputs.app-id != ''
+        if: (inputs.release-environment != '' && !inputs.dry-run) || (inputs.release-environment == '' && inputs.app-id != '')
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ inputs.app-id }}
-          private-key: ${{ secrets.BOT_KEY }}
+          app-id: ${{ inputs.release-environment == '' && inputs.app-id || vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets[inputs.release-environment == '' && 'BOT_KEY' || 'RELEASE_APP_PRIVATE_KEY'] }}
           permission-contents: write
-          # Protected release-branch creation uses the installation's admin access.
-          permission-administration: write
+          permission-administration: ${{ inputs.release-environment == '' && 'write' || 'read' }}
 
       - name: Select GitHub token
         id: github-token
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
+          RELEASE_ENVIRONMENT: ${{ inputs.release-environment }}
+          RELEASE_APP_ID: ${{ vars.RELEASE_APP_ID }}
+          DRY_RUN: ${{ inputs.dry-run }}
           APP_ID: ${{ inputs.app-id }}
-          BOT_KEY: ${{ secrets.BOT_KEY }}
+          BOT_KEY: ${{ inputs.release-environment == '' && secrets.BOT_KEY || '' }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          LEGACY_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          LEGACY_TOKEN: ${{ inputs.release-environment == '' && inputs.use-pat && secrets.PAT || github.token }}
         run: |
-          if [[ -n "$APP_ID" || -n "$BOT_KEY" ]]; then
+          if [[ -n "$RELEASE_ENVIRONMENT" && "$DRY_RUN" != true ]]; then
+            if [[ ! "$RELEASE_APP_ID" =~ ^[1-9][0-9]*$ || -z "$APP_TOKEN" ]]; then
+              echo "::error::The protected environment requires a valid release App ID and installation token."
+              exit 1
+            fi
+            TOKEN="$APP_TOKEN"
+          elif [[ -z "$RELEASE_ENVIRONMENT" && ( -n "$APP_ID" || -n "$BOT_KEY" ) ]]; then
             if [[ -z "$APP_ID" || -z "$BOT_KEY" || -z "$APP_TOKEN" ]]; then
               echo "::error::App authentication requires app-id, BOT_KEY, and a minted token"
               exit 1
@@ -142,10 +205,12 @@ jobs:
           path: ${{ github.run_id }}
           fetch-depth: 0
           token: ${{ steps.github-token.outputs.token }}
-          ref: ${{ inputs.freeze-commit }}
+          ref: ${{ inputs.freeze-source-branch == '' && inputs.freeze-commit || needs.resolve-freeze-commit.outputs.sha }}
 
       - name: Get release branch ref
         id: release-branch
+        env:
+          RELEASE_ENVIRONMENT: ${{ inputs.release-environment }}
         run: |
           cd ${{ github.run_id }}
 
@@ -162,24 +227,54 @@ jobs:
 
           git switch --force-create "${RELEASE_BRANCH}"
 
-          if [[ "$DRY_RUN" != "true" ]]; then
+          if [[ "$DRY_RUN" != "true" && -z "$RELEASE_ENVIRONMENT" ]]; then
             git push -u origin "${RELEASE_BRANCH}" --force
           fi
+
+      - name: Create protected release branch
+        if: inputs.release-environment != '' && !inputs.dry-run
+        working-directory: ${{ github.run_id }}
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.version }}
+          CUTOFF_SHA: ${{ needs.resolve-freeze-commit.outputs.sha }}
+        run: |
+          ref="refs/heads/$RELEASE_BRANCH"
+          if [[ ! "$CUTOFF_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The release branch requires a verified commit SHA."
+            exit 1
+          fi
+          if [[ "$ref" == "$GITHUB_REF" ]] || ! git check-ref-format "$ref"; then
+            echo "::error::The release destination must be a valid branch other than the freeze source."
+            exit 1
+          fi
+          if git push --force-with-lease="$ref:" origin "$CUTOFF_SHA:$ref"; then
+            exit 0
+          fi
+          current=$(git ls-remote --refs origin "$ref")
+          if [[ "$current" == "$CUTOFF_SHA"$'\t'"$ref" ]]; then
+            echo "The release branch already points to the verified cutoff."
+            exit 0
+          fi
+          echo "::error::Could not create $ref at $CUTOFF_SHA. If the branch exists, its tip must match the verified cutoff."
+          exit 1
 
   bump-next-version:
     runs-on: ubuntu-latest
     needs: [create-release-branch]
+    environment:
+      name: ${{ (inputs.release-environment != '' && inputs.dry-run && 'public') || inputs.release-environment }}
+      deployment: false
     env:
       SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
       PYPROJECT_NAME: ${{ inputs.python-package }}
     steps:
       - name: Generate GitHub App token
-        if: inputs.app-id != ''
+        if: (inputs.release-environment != '' && !inputs.dry-run) || (inputs.release-environment == '' && inputs.app-id != '')
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ inputs.app-id }}
-          private-key: ${{ secrets.BOT_KEY }}
+          app-id: ${{ inputs.release-environment == '' && inputs.app-id || vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets[inputs.release-environment == '' && 'BOT_KEY' || 'RELEASE_APP_PRIVATE_KEY'] }}
           permission-contents: write
           permission-pull-requests: write
 
@@ -187,12 +282,21 @@ jobs:
         id: github-token
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
+          RELEASE_ENVIRONMENT: ${{ inputs.release-environment }}
+          RELEASE_APP_ID: ${{ vars.RELEASE_APP_ID }}
+          DRY_RUN: ${{ inputs.dry-run }}
           APP_ID: ${{ inputs.app-id }}
-          BOT_KEY: ${{ secrets.BOT_KEY }}
+          BOT_KEY: ${{ inputs.release-environment == '' && secrets.BOT_KEY || '' }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          LEGACY_TOKEN: ${{ inputs.use-pat && secrets.PAT || github.token }}
+          LEGACY_TOKEN: ${{ inputs.release-environment == '' && inputs.use-pat && secrets.PAT || github.token }}
         run: |
-          if [[ -n "$APP_ID" || -n "$BOT_KEY" ]]; then
+          if [[ -n "$RELEASE_ENVIRONMENT" && "$DRY_RUN" != true ]]; then
+            if [[ ! "$RELEASE_APP_ID" =~ ^[1-9][0-9]*$ || -z "$APP_TOKEN" ]]; then
+              echo "::error::The protected environment requires a valid release App ID and installation token."
+              exit 1
+            fi
+            TOKEN="$APP_TOKEN"
+          elif [[ -z "$RELEASE_ENVIRONMENT" && ( -n "$APP_ID" || -n "$BOT_KEY" ) ]]; then
             if [[ -z "$APP_ID" || -z "$BOT_KEY" || -z "$APP_TOKEN" ]]; then
               echo "::error::App authentication requires app-id, BOT_KEY, and a minted token"
               exit 1
@@ -260,7 +364,7 @@ jobs:
         id: create-pull-request
         if: ${{ inputs.dry-run != true }}
         with:
-          token: ${{ inputs.app-id != '' && steps.github-token.outputs.token || github.token }}
+          token: ${{ inputs.release-environment == '' && inputs.app-id == '' && github.token || steps.github-token.outputs.token }}
           path: ${{ github.run_id }}
           branch: ci/bump-${{ steps.bump-version.outputs.version }}
           title: "Version bump to `${{ steps.bump-version.outputs.version }}`"

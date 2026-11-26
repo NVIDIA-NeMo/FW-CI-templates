@@ -20,8 +20,8 @@ on:
   workflow_call:
     inputs:
       bot-app-id:
-        description: GitHub App ID for a read-only installation token.
-        required: true
+        description: GitHub App ID to use with BOT_KEY when GUARDWORDS_DEPLOY_KEY is absent.
+        required: false
         type: string
       base-sha:
         description: Pull request base commit SHA.
@@ -37,9 +37,12 @@ on:
         default: 0
         type: number
     secrets:
+      GUARDWORDS_DEPLOY_KEY:
+        description: Read-only SSH deploy key for NVIDIA-NeMo/Guardwords. Takes precedence over App credentials.
+        required: false
       BOT_KEY:
         description: GitHub App private key; installation must have Contents read access to NVIDIA-NeMo/Guardwords.
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -49,6 +52,22 @@ jobs:
   guardwords-check:
     runs-on: ubuntu-latest
     steps:
+      - name: Select Guardwords credential
+        id: auth
+        shell: bash
+        env:
+          HAS_DEPLOY_KEY: ${{ secrets.GUARDWORDS_DEPLOY_KEY != '' }}
+          HAS_APP: ${{ inputs.bot-app-id != '' && secrets.BOT_KEY != '' }}
+        run: |
+          if [[ "$HAS_DEPLOY_KEY" == true ]]; then
+            echo 'method=ssh' | tee -a "$GITHUB_OUTPUT"
+          elif [[ "$HAS_APP" == true ]]; then
+            echo 'method=app' | tee -a "$GITHUB_OUTPUT"
+          else
+            echo '::error::Provide GUARDWORDS_DEPLOY_KEY or both bot-app-id and BOT_KEY.'
+            exit 1
+          fi
+
       - name: Check out pull request head
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -66,6 +85,7 @@ jobs:
 
       - name: Create read-only Guardwords token
         id: guardwords-token
+        if: steps.auth.outputs.method == 'app'
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           app-id: ${{ inputs.bot-app-id }}
@@ -79,7 +99,8 @@ jobs:
         with:
           repository: NVIDIA-NeMo/Guardwords
           ref: main
-          token: ${{ steps.guardwords-token.outputs.token }}
+          ssh-key: ${{ secrets.GUARDWORDS_DEPLOY_KEY }}
+          token: ${{ steps.auth.outputs.method == 'ssh' && github.token || steps.guardwords-token.outputs.token }}
           path: .guardwords
           persist-credentials: false
 

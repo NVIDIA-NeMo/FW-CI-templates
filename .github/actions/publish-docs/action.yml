@@ -85,8 +85,7 @@ inputs:
   update-version-picker:
     description: Whether to update the version picker
     required: false
-    type: boolean
-    default: true
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -120,46 +119,52 @@ runs:
 
     - name: Set variables
       id: vars
-      shell: bash -x -e -u -o pipefail {0}
+      shell: bash -e -u -o pipefail {0}
       env:
         COMMIT_MSG: ${{ github.event.head_commit.message || '' }}
+        DOCS_VERSION_OVERRIDE: ${{ inputs.docs-version-override }}
+        PROJECT_TYPE: ${{ inputs.project-type }}
+        RUN_ON_VERSION_TAG_ONLY: ${{ inputs.run-on-version-tag-only }}
+        OVERWRITE_LATEST_ON_TAG: ${{ inputs.overwrite-latest-on-tag }}
       run: |
         echo "::notice:: GitHub ref: ${GITHUB_REF}"
-        echo "::notice:: Commit message: ${COMMIT_MSG}"
 
         VERSION=""
         DOCSET=""
 
         # Use docs-version-override if provided, otherwise extract from tag
-        if [[ -n "${{ inputs.docs-version-override }}" ]]; then
-          VERSION="${{ inputs.docs-version-override }}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "::notice:: Publishing docs for version ${VERSION} (from override)" >> $GITHUB_STEP_SUMMARY
+        if [[ -n "$DOCS_VERSION_OVERRIDE" ]]; then
+          if [[ "$DOCS_VERSION_OVERRIDE" == *$'\n'* || "$DOCS_VERSION_OVERRIDE" == *$'\r'* ]]; then
+            echo "::error::docs-version-override must be a single line."
+            exit 1
+          fi
+          VERSION="$DOCS_VERSION_OVERRIDE"
+          printf 'version=%s\n' "$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "::notice:: Publishing docs for version ${VERSION} (from override)" >> "$GITHUB_STEP_SUMMARY"
         elif [[ "$GITHUB_REF" =~ /(.+)-v([0-9]+\.[0-9]+(\.[0-9]+)?) ]]; then
-          case ${{ inputs.project-type }} in
+          case "$PROJECT_TYPE" in
             single-docset)
               VERSION="${BASH_REMATCH[2]}"
-              echo "version=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
-              echo "::notice:: Publishing docs for version ${VERSION}" >> $GITHUB_STEP_SUMMARY
+              printf 'version=%s\n' "$VERSION" | tee -a "$GITHUB_OUTPUT"
+              echo "::notice:: Publishing docs for version ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
               ;;
             multi-docset)
               DOCSET="${BASH_REMATCH[1]}"
               VERSION="${BASH_REMATCH[2]}"
-              echo "docset=$DOCSET" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              printf 'docset=%s\nversion=%s\n' "$DOCSET" "$VERSION" | tee -a "$GITHUB_OUTPUT"
               if [ -z "${DOCSET}" ] || [ -z "${VERSION}" ]; then
                 echo "::error::Could not extract docset or version from tag"
                 exit 1
               fi
-              echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}" >> $GITHUB_STEP_SUMMARY
+              echo "::notice:: Publishing docs for ${DOCSET} version ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
               ;;
             *)
-              echo "::error::Invalid project type: ${{ inputs.project-type }}"
+              echo "::error::Expected project-type to be single-docset or multi-docset."
               exit 1
           esac
         fi
 
-        if [[ ${{ inputs.run-on-version-tag-only }} == "true" && -z "${VERSION}" ]]; then
+        if [[ "$RUN_ON_VERSION_TAG_ONLY" == "true" && -z "${VERSION}" ]]; then
           echo "::notice::Could not extract version from tag, skipping publish."
           exit 0
         fi
@@ -169,21 +174,21 @@ runs:
         # If the overwrite-latest-on-tag input is true and the ref is a tag, publish latest.
         # If the overwrite-latest-on-tag input is false and the ref is a tag, do not publish latest.
         # Otherwise, publish latest for merges to the default branch. Projects that run on version tags only do not reach this code path.
-        if [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && -n "${{ inputs.docs-version-override }}" ]]; then
+        if [[ "$OVERWRITE_LATEST_ON_TAG" == 'true' && -n "$DOCS_VERSION_OVERRIDE" ]]; then
           PUBLISH_LATEST=true
-        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'false' && -n "${{ inputs.docs-version-override }}" ]]; then
+        elif [[ "$OVERWRITE_LATEST_ON_TAG" == 'false' && -n "$DOCS_VERSION_OVERRIDE" ]]; then
           PUBLISH_LATEST=false
         elif [[ "${COMMIT_MSG}" =~ /not-latest ]] || [[ "$GITHUB_REF" =~ "not-latest" ]]; then
           PUBLISH_LATEST=false
-        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then
+        elif [[ "$OVERWRITE_LATEST_ON_TAG" == 'true' && "$GITHUB_REF" == refs/tags/* ]]; then
           PUBLISH_LATEST=true
-        elif [[ ${{ inputs.overwrite-latest-on-tag }} == 'false' && "$GITHUB_REF" == refs/tags/* ]]; then
+        elif [[ "$OVERWRITE_LATEST_ON_TAG" == 'false' && "$GITHUB_REF" == refs/tags/* ]]; then
           PUBLISH_LATEST=false
         else
           PUBLISH_LATEST=true
         fi
 
-        echo "publish_latest=${PUBLISH_LATEST}" >> $GITHUB_OUTPUT
+        printf 'publish_latest=%s\n' "$PUBLISH_LATEST" | tee -a "$GITHUB_OUTPUT"
         echo "::notice:: Publish latest: ${PUBLISH_LATEST}"
 
     - name: Normalize S3 paths
@@ -191,19 +196,23 @@ runs:
       env:
         S3_TARGET_ROOT: ${{ inputs.s3-target-root }}
         S3_TARGET_PATH: ${{ inputs.s3-target-path }}
-      shell: bash -x -e -u -o pipefail {0}
+        DOCSET: ${{ steps.vars.outputs.docset }}
+      shell: bash -e -u -o pipefail {0}
       run: |
         S3_ROOT="${S3_TARGET_ROOT%/}"
         S3_PATH="${S3_TARGET_PATH#/}"
         S3_PATH="${S3_PATH%/}"
 
         # Multi-docset projects need HTML artifacts in a directory that is named after the docset.
-        if [[ ! -z "${{ steps.vars.outputs.docset }}" ]]; then
-          S3_PATH="${S3_PATH}/${{ steps.vars.outputs.docset}}"
+        if [[ -n "$DOCSET" ]]; then
+          S3_PATH="${S3_PATH}/${DOCSET}"
         fi
 
-        echo "s3_root=${S3_ROOT}" >> $GITHUB_OUTPUT
-        echo "s3_path=${S3_PATH}" >> $GITHUB_OUTPUT
+        if [[ "$S3_ROOT$S3_PATH" == *$'\n'* || "$S3_ROOT$S3_PATH" == *$'\r'* ]]; then
+          echo "::error::S3 destinations must be single-line paths."
+          exit 1
+        fi
+        printf 's3_root=%s\ns3_path=%s\n' "$S3_ROOT" "$S3_PATH" | tee -a "$GITHUB_OUTPUT"
 
     - name: Download HTML artifacts
       uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -213,9 +222,11 @@ runs:
 
     - name: Verify artifacts
       shell: bash -x -e -u -o pipefail {0}
+      env:
+        ARTIFACTS_PATH: ${{ inputs.artifacts-path }}
       run: |
-        if [ ! -d "${{ inputs.artifacts-path }}" ]; then
-          echo "::error::Artifacts path ${{ inputs.artifacts-path }} does not exist."
+        if [ ! -d "$ARTIFACTS_PATH" ]; then
+          echo "::error::Artifacts path ${ARTIFACTS_PATH} does not exist."
           exit 1
         fi
 
@@ -244,11 +255,12 @@ runs:
         S3_ROOT: ${{ steps.paths.outputs.s3_root }}
         S3_PATH: ${{ steps.paths.outputs.s3_path }}
         VERSION: ${{ steps.vars.outputs.version }}
+        UPDATE_VERSION_PICKER: ${{ inputs.update-version-picker }}
       run: |
         echo "Syncing artifacts to versioned directory: ${VERSION}"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/${VERSION}" --exclude .buildinfo --exclude .doctrees --delete
 
-        if [[ ${{ inputs.update-version-picker }} == 'true' ]]; then
+        if [[ "$UPDATE_VERSION_PICKER" == 'true' ]]; then
           for file in versions.json versions1.json; do
             if [ -f "${file}" ]; then
               aws s3 cp "${file}" "${S3_ROOT}/${S3_PATH}/" || {
@@ -258,7 +270,7 @@ runs:
           done
         fi
 
-        echo "published=true" >> $GITHUB_OUTPUT
+        echo "published=true" | tee -a "$GITHUB_OUTPUT"
 
     - name: Publish latest docs
       if: ${{ steps.vars.outputs.publish_latest == 'true' && inputs.dry-run == 'false' }}
@@ -272,7 +284,7 @@ runs:
         echo "Syncing artifacts to latest directory"
         aws s3 sync . "${S3_ROOT}/${S3_PATH}/latest" --exclude .buildinfo --exclude .doctrees --delete
 
-        echo "published=true" >> $GITHUB_OUTPUT
+        echo "published=true" | tee -a "$GITHUB_OUTPUT"
 
     - name: Flush Akamai cache
       id: akamai-flush
@@ -282,6 +294,9 @@ runs:
         AKAMAI_CLIENT_TOKEN: ${{ inputs.akamai-client-token }}
         AKAMAI_CLIENT_SECRET: ${{ inputs.akamai-client-secret }}
         AKAMAI_ACCESS_TOKEN: ${{ inputs.akamai-access-token }}
+        EMAILS_CSV: ${{ inputs.emails-csv }}
+        REQUEST_NAME: ${{ inputs.request-name }}
+        DRY_RUN: ${{ inputs.dry-run }}
         S3_PATH: ${{ steps.paths.outputs.s3_path }}
         XSLT_TEMPLATE: ${{ github.action_path }}/akamai-eccu-flush.xslt
         EDGERC_TEMPLATE: ${{ github.action_path }}/edgerc.template
@@ -299,7 +314,7 @@ runs:
         cat /tmp/flush.xml
 
         # Validate and prepare email list JSON
-        echo -n "${{ inputs.emails-csv }}" | jq -Rc 'split(",")' > /tmp/email-addresses.json || {
+        printf '%s' "$EMAILS_CSV" | jq -Rc 'split(",")' > /tmp/email-addresses.json || {
           echo "::error::Invalid JSON format for Akamai notification emails"
           exit 1
         }
@@ -307,7 +322,7 @@ runs:
         # Create edgerc file
         envsubst < "${EDGERC_TEMPLATE}" > ~/.edgerc
 
-        if [[ ${{ inputs.dry-run }} == 'true' ]]; then
+        if [[ "$DRY_RUN" == 'true' ]]; then
           rm ~/.edgerc
           exit 0
         fi
@@ -318,7 +333,7 @@ runs:
           propertyName=docs.nvidia.com \
           propertyNameExactMatch=true \
           propertyType=HOST_HEADER \
-          requestName="${{ inputs.request-name }}" \
+          requestName="$REQUEST_NAME" \
           statusUpdateEmails:=@/tmp/email-addresses.json || {
             echo "::warning::Failed to flush Akamai cache, but continuing workflow"
             rm ~/.edgerc
@@ -326,7 +341,7 @@ runs:
           }
 
         rm ~/.edgerc
-        echo "flush_success=true" >> $GITHUB_OUTPUT
+        echo "flush_success=true" | tee -a "$GITHUB_OUTPUT"
 
     - name: Summary
       if: always()
@@ -338,27 +353,27 @@ runs:
         CACHE_FLUSHED: ${{ steps.akamai-flush.outputs.flush_success || 'false' }}
       shell: bash -x -e -u -o pipefail {0}
       run: |
-        echo "## 📚 Documentation Publishing Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Source" >> $GITHUB_STEP_SUMMARY
-        echo "- **Workflow Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Published To" >> $GITHUB_STEP_SUMMARY
+        echo "## 📚 Documentation Publishing Summary" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "### Source" >> "$GITHUB_STEP_SUMMARY"
+        echo "- **Workflow Run:** [#${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "### Published To" >> "$GITHUB_STEP_SUMMARY"
         if [[ "${PUBLISHED_VERSION}" == "true" ]]; then
-          echo "- ✅ **Version:** \`${VERSION}\` → \`s3://.../${S3_PATH}/${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Version:** \`${VERSION}\` → \`s3://.../${S3_PATH}/${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
         fi
         if [[ "${PUBLISHED_LATEST}" == "true" ]]; then
-          echo "- ✅ **Latest:** \`${VERSION}\` → \`s3://.../${S3_PATH}/latest\` (updated to match release)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Latest:** \`${VERSION}\` → \`s3://.../${S3_PATH}/latest\` (updated to match release)" >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "- ⏭️ **Latest:** not updated (manual dispatch or /not-latest flag)" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏭️ **Latest:** not updated (manual dispatch or /not-latest flag)" >> "$GITHUB_STEP_SUMMARY"
         fi
         if [[ "${PUBLISHED_VERSION}" == "false" ]] && [[ "${PUBLISHED_LATEST}" == "false" ]]; then
-          echo "- ⚠️ No documentation was published" >> $GITHUB_STEP_SUMMARY
+          echo "- ⚠️ No documentation was published" >> "$GITHUB_STEP_SUMMARY"
         fi
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Cache" >> $GITHUB_STEP_SUMMARY
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "### Cache" >> "$GITHUB_STEP_SUMMARY"
         if [[ "${CACHE_FLUSHED}" == "true" ]]; then
-          echo "- ✅ Akamai cache flush requested" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Akamai cache flush requested" >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "- ⏭️ Cache flush skipped (nothing published)" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏭️ Cache flush skipped (nothing published)" >> "$GITHUB_STEP_SUMMARY"
         fi

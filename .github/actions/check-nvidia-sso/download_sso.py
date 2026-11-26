@@ -206,13 +206,17 @@ def main() -> int:
     try:
         if not os.environ.get("GH_TOKEN"):
             raise ValueError("GitHub audit credential is missing")
-        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", GITHUB_AUDITS_REPO) is None:
+        if (
+            re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", GITHUB_AUDITS_REPO) is None
+            or any(segment in {".", ".."} for segment in GITHUB_AUDITS_REPO.split("/"))
+        ):
             raise ValueError("invalid audit repository")
         destination = Path(SSO_USERS_FILENAME)
         if (
             not SSO_USERS_FILENAME
             or destination.name != SSO_USERS_FILENAME
             or SSO_USERS_FILENAME in {".", ".."}
+            or any(character in SSO_USERS_FILENAME for character in "\r\n")
         ):
             raise ValueError("SSO filename must be a plain filename")
         data = download_roster()

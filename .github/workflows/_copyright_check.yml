@@ -36,50 +36,49 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate PR mirror ref
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        run: '[[ "$GITHUB_REF_NAME" =~ ^pull-request/[0-9]+$ ]]'
+
       - name: Get PR info
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')
         uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
 
-      - name: Determine base reference
-        id: get-sha
+      - name: Find changed Python files
+        id: changed-files
+        env:
+          IS_PR: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
+          BASE_REF: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.ref }}
         run: |
-          IS_PR=${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
-          BASE_REF=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}
-
           git config --global user.email "you@example.com"
           git config --global user.name "GitHub Action"
 
           if [[ "$IS_PR" == "true" ]]; then
-            git fetch origin "$BASE_REF"
-            git merge "origin/$BASE_REF"
-            BASE_SHA=$(git rev-parse "origin/$BASE_REF")
+            git check-ref-format "refs/heads/$BASE_REF"
+            git fetch --no-tags origin "refs/heads/$BASE_REF"
+            BASE_SHA=$(git rev-parse --verify 'FETCH_HEAD^{commit}')
+            git merge "$BASE_SHA"
           else
-            BASE_SHA=$(git rev-parse "$BASE_REF")
+            BASE_SHA=$(git rev-parse --verify 'HEAD~1^{commit}')
           fi
 
-          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
-          echo "base_sha=${BASE_SHA}" | tee -a "$GITHUB_OUTPUT"
-
-      - name: Get changed files
-        id: changed-files
-        uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
-        with:
-          sha: ${{ steps.get-sha.outputs.sha }}
-          base_sha: ${{ steps.get-sha.outputs.base_sha }}
-          files: '**/*.py'
-          separator: ' '
+          files=$(mktemp "$RUNNER_TEMP/copyright-files.XXXXXXXX")
+          git diff --name-only -z --diff-filter=ACMR --ignore-submodules=all "$BASE_SHA" HEAD -- '*.py' > "$files"
+          if [[ -s "$files" ]]; then
+            printf 'file_list=%s\n' "$files" | tee -a "$GITHUB_OUTPUT"
+          fi
 
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.changed-files.outputs.file_list != ''
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: copyright-checker
 
       - name: Check copyright headers
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.changed-files.outputs.file_list != ''
         uses: ./copyright-checker/.github/actions/copyright-checker
         with:
-          changed-files: ${{ steps.changed-files.outputs.all_changed_files }}
+          changed-files-list: ${{ steps.changed-files.outputs.file_list }}

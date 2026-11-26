@@ -87,15 +87,17 @@ jobs:
           NVIDIA_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA-NeMo' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
           NVIDIA_NEMO_GITHUB_TOKEN: ${{ github.repository_owner == 'NVIDIA-NeMo' && steps.repo-app-token.outputs.token || github.repository_owner == 'NVIDIA' && steps.cross-org-app-token.outputs.token || secrets.GH_TOKEN || steps.repo-app-token.outputs.token || github.token }}
         run: |
-          # Get the username who triggered the action
-          USERNAME="${{ github.actor }}"
-
+          if [[ "$IS_VALID_EVENT" == true || "$GITHUB_EVENT_NAME" == push ]]; then
+            if ! [[ "$ISSUE_NUMBER" =~ ^[+]?0*[1-9][0-9]*$ ]]; then
+              echo "::error::Expected a positive issue number."
+              exit 1
+            fi
+          fi
           # For manual testing, always treat as community user
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             echo "Manual test mode - treating as community user"
             echo "is_maintainer=false" | tee -a "$GITHUB_OUTPUT"
             echo "is_valid_event=true" | tee -a "$GITHUB_OUTPUT"
-            echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -112,7 +114,8 @@ jobs:
             IS_MAINTAINER=true
           else
             echo "Checking if $ISSUE_AUTHOR is a repo collaborator..."
-            API_URL="https://api.github.com/repos/$REPO/collaborators/$ISSUE_AUTHOR"
+            author_path=$(jq -nr --arg login "$ISSUE_AUTHOR" '$login | @uri')
+            API_URL="https://api.github.com/repos/$REPO/collaborators/$author_path"
             REPO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -121,7 +124,7 @@ jobs:
               "$API_URL")
 
             echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA-NeMo..."
-            API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$ISSUE_AUTHOR"
+            API_URL="https://api.github.com/orgs/NVIDIA-NeMo/members/$author_path"
             ORG_NVIDIA_NEMO_MEMBERSHIP_RESPONSE=$(curl --silent --show-error \
               --output /dev/null --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -130,7 +133,7 @@ jobs:
               "$API_URL")
 
             echo "Checking if $ISSUE_AUTHOR is an organization member of NVIDIA..."
-            API_URL="https://api.github.com/orgs/NVIDIA/members/$ISSUE_AUTHOR"
+            API_URL="https://api.github.com/orgs/NVIDIA/members/$author_path"
             ORG_NVIDIA_MEMBERSHIP_RESPONSE=$(curl --silent --show-error --output /dev/null \
               --write-out "%{http_code}" --location \
               -H "Accept: application/vnd.github+json" \
@@ -149,7 +152,6 @@ jobs:
 
           echo "is_maintainer=$IS_MAINTAINER" | tee -a "$GITHUB_OUTPUT"
           echo "is_valid_event=$IS_VALID_EVENT" | tee -a "$GITHUB_OUTPUT"
-          echo "username=$USERNAME" | tee -a "$GITHUB_OUTPUT"
 
       - name: Add community-request label for community users
         env:
@@ -162,7 +164,7 @@ jobs:
           )
         run: |
           # Add the community-request label
-          gh issue edit "$ISSUE_NUMBER" --add-label "community-request"
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "community-request"
 
       - name: Add community issue to community project
         env:
@@ -174,6 +176,10 @@ jobs:
             && steps.pre-flight.outputs.is_valid_event == 'true'
           )
         run: |
+          if ! [[ "$COMMUNITY_PROJECT_ID" =~ ^[+]?0*[1-9][0-9]*$ ]]; then
+            echo "::error::Expected a positive project number."
+            exit 1
+          fi
           ISSUE_NODE_ID=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER" --jq .node_id)
           # shellcheck disable=SC2016
           PROJECT_NODE_ID=$(gh api graphql -f query='
@@ -214,16 +220,18 @@ jobs:
           )
         run: |
           # Check if the issue has the "community-request" label before attempting to remove it
-          LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels -q '.labels[].name')
+          LABELS=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json labels -q '.labels[].name')
           if echo "$LABELS" | grep -q "^community-request$"; then
-            gh issue edit "$ISSUE_NUMBER" --remove-label "community-request"
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "community-request"
           else
             echo "Label 'community-request' not present on issue #$ISSUE_NUMBER, skipping removal."
           fi
 
       - name: Log action taken
+        env:
+          IS_MAINTAINER: ${{ steps.pre-flight.outputs.is_maintainer }}
         run: |
-          echo "User: ${{ steps.pre-flight.outputs.username }}"
-          echo "Is maintainer: ${{ steps.pre-flight.outputs.is_maintainer }}"
-          echo "Event: ${{ github.event_name }}"
+          echo "User: $GITHUB_ACTOR"
+          echo "Is maintainer: $IS_MAINTAINER"
+          echo "Event: $GITHUB_EVENT_NAME"
           echo "Issue number: $ISSUE_NUMBER"

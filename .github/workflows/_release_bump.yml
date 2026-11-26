@@ -161,6 +161,7 @@ jobs:
       IS_INERT: ${{ inputs.validate-only || inputs.dry-run }}
       PACKAGING: ${{ inputs.packaging }}
       BUMP_TARGETS: ${{ inputs.bump-targets }}
+      ROOT_DIR: ${{ inputs.root-dir }}
       FALLBACK_PYPROJECT_NAME: ${{ inputs.python-package }}
       FALLBACK_SRC_DIR: ${{ inputs.has-src-dir && 'src/' || '' }}
     steps:
@@ -231,8 +232,8 @@ jobs:
       - name: Bump version(s)
         id: bump
         run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOT_DIR"
 
           # Resolve bump targets. JSON array if provided, else single fallback.
           if [[ -n "$BUMP_TARGETS" ]]; then
@@ -258,10 +259,10 @@ jobs:
             echo "Bumping $PYPROJECT_NAME at $PACKAGE_INFO_FILE"
 
             if [[ "$PACKAGING" == "setuptools" || "$PACKAGING" == "uv" ]]; then
-              MAJOR=$(awk '/^MAJOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
-              MINOR=$(awk '/^MINOR = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
-              PATCH=$(awk '/^PATCH = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}')
-              PRERELEASE=$(awk '/^PRE_RELEASE = /' $PACKAGE_INFO_FILE | awk -F"= " '{print $2}' | tr -d '"' | tr -d "'")
+              MAJOR=$(awk -F'= ' '/^MAJOR = / {print $2}' < "$PACKAGE_INFO_FILE")
+              MINOR=$(awk -F'= ' '/^MINOR = / {print $2}' < "$PACKAGE_INFO_FILE")
+              PATCH=$(awk -F'= ' '/^PATCH = / {print $2}' < "$PACKAGE_INFO_FILE")
+              PRERELEASE=$(awk -F'= ' '/^PRE_RELEASE = / {print $2}' < "$PACKAGE_INFO_FILE" | tr -d '"' | tr -d "'")
 
               if [[ ! "$MAJOR" =~ ^(0|[1-9][0-9]*)$ || ! "$MINOR" =~ ^(0|[1-9][0-9]*)$ || ! "$PATCH" =~ ^(0|[1-9][0-9]*)$ ||
                     ( -n "$PRERELEASE" && ! "$PRERELEASE" =~ ^(rc|a)(0|[1-9][0-9]*)$ ) ]]; then
@@ -282,12 +283,12 @@ jobs:
                   exit 1
                 fi
               else
-                NEXT_PATCH=$((${PATCH} + 1))
+                NEXT_PATCH=$((PATCH + 1))
                 NEXT_PRERELEASE=$PRERELEASE
               fi
 
-              sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" $PACKAGE_INFO_FILE
-              sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" $PACKAGE_INFO_FILE
+              sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" -- "$PACKAGE_INFO_FILE"
+              sed -i "/^PRE_RELEASE/c\PRE_RELEASE = \"$NEXT_PRERELEASE\"" -- "$PACKAGE_INFO_FILE"
               BUMPED_FILES+=("$PACKAGE_INFO_FILE")
 
               TARGET_NEXT="$MAJOR.$MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
@@ -306,7 +307,7 @@ jobs:
 
           echo "release-version=$RELEASE_VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "next-version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
-          printf '%s\n' "${BUMPED_FILES[@]}" > /tmp/bumped-files.txt
+          printf '%s\0' "${BUMPED_FILES[@]}" > "$RUNNER_TEMP/bumped-files"
 
       - name: Record computed versions
         if: env.IS_INERT == 'true'
@@ -330,6 +331,10 @@ jobs:
           SOURCE_PATTERN: ${{ inputs.release-branch-pattern }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
+          QUERY: >-
+            query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) {
+              branchProtectionRules(first: 100) { nodes { pattern isAdminEnforced } }
+            } }
         run: |
           set -euo pipefail
           # Assert the preconditions a real release relies on, without side effects.
@@ -379,7 +384,6 @@ jobs:
           echo "App installation permissions OK: $PERMS"
 
           # 2. Source release-branch rule has admin enforcement off.
-          QUERY='query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) { branchProtectionRules(first: 100) { nodes { pattern isAdminEnforced } } } }'
           BODY=$(jq -nc --arg q "$QUERY" --arg owner "$OWNER" --arg repo "$REPO" '{query: $q, variables: {owner: $owner, repo: $repo}}')
           RESPONSE=$(curl --silent --show-error --fail \
             -H "Authorization: bearer $GH_TOKEN" \
@@ -415,10 +419,14 @@ jobs:
           # In all those cases, fall back to the repo's default branch.
           BRANCH="$INPUT_BRANCH"
           if [[ "$BRANCH" =~ ^[0-9]+/(merge|head)$ ]] || [[ "$BRANCH" =~ ^pull-request/[0-9]+$ ]]; then
-            BRANCH=$(gh api "repos/${{ github.repository }}" --jq '.default_branch')
+            BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
             echo "::warning::version-bump-branch resolved to PR-derived ref '$INPUT_BRANCH'; falling back to default branch '$BRANCH'."
           fi
-          echo "VERSION_BUMP_BRANCH=$BRANCH" | tee -a $GITHUB_ENV
+          if [[ "$BRANCH" == -* ]] || ! git check-ref-format "refs/heads/$BRANCH"; then
+            echo "::error::version-bump-branch must be a valid branch name."
+            exit 1
+          fi
+          printf 'VERSION_BUMP_BRANCH=%s\n' "$BRANCH" | tee -a "$GITHUB_ENV"
 
       - name: Create and push deployment branch
         if: env.IS_INERT == 'false'
@@ -426,31 +434,33 @@ jobs:
           GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
           BUMP_BRANCH_PREFIX: ${{ inputs.release-environment != '' && 'release-bump' || 'deploy-release' }}
           BUMP_TITLE: "beep boop 🤖: Bumping ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}"
+          BUMP_BODY: "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}."
           CI_SKIP_SUFFIX: ${{ inputs.release-environment == '' && ' [skip ci]' || '' }}
         run: |
-          cd ${{ github.run_id }}
-          cd ${{ inputs.root-dir }}
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOT_DIR"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           TMP_BRANCH="$BUMP_BRANCH_PREFIX/$(uuidgen)"
           git checkout -b "$TMP_BRANCH"
-          while IFS= read -r f; do
-            [[ -n "$f" ]] && git add "$f"
-          done < /tmp/bumped-files.txt
+          while IFS= read -r -d '' f; do
+            [[ -n "$f" ]] && git --literal-pathspecs add -- "$f"
+          done < "$RUNNER_TEMP/bumped-files"
 
           git commit -s -m "$BUMP_TITLE$CI_SKIP_SUFFIX" || echo "No changes to commit"
           git push -u origin "$TMP_BRANCH"
-          echo "TMP_BRANCH=$TMP_BRANCH" | tee -a $GITHUB_ENV
+          echo "TMP_BRANCH=$TMP_BRANCH" | tee -a "$GITHUB_ENV"
 
           PR_URL=$(gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
             --base "$VERSION_BUMP_BRANCH" \
             --head "$TMP_BRANCH" \
             --title "$BUMP_TITLE" \
-            --body "This is an automated PR to bump ${{ inputs.library-name }} to v${{ steps.bump.outputs.next-version }}.")
+            --body "$BUMP_BODY")
           PR_NUMBER="${PR_URL##*/}"
-          echo "PR_NUMBER=$PR_NUMBER" | tee -a $GITHUB_ENV
+          echo "PR_NUMBER=$PR_NUMBER" | tee -a "$GITHUB_ENV"
           echo "Version bump pull request: $PR_URL" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Merge deploy-release branch into target
@@ -458,7 +468,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
         run: |
-          cd ${{ github.run_id }}
+          cd -- "$GITHUB_RUN_ID"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -494,7 +504,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-token.outputs.token || steps.app-token.outputs.token }}
         run: |
-          cd ${{ github.run_id }}
+          cd -- "$GITHUB_RUN_ID"
           if [[ -n "${TMP_BRANCH:-}" ]]; then
             git push -d origin "$TMP_BRANCH" || true
           fi

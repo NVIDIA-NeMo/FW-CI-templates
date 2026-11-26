@@ -48,7 +48,12 @@ jobs:
         id: cache-from
         env:
           GH_TOKEN: {% raw %}${{ github.token }}{% endraw %}
+          IMAGE_NAME: {% raw %}${{ inputs.image-name }}{% endraw %}
         run: |
+          if [[ "$IMAGE_NAME" == *$'\n'* || "$IMAGE_NAME" == *$'\r'* ]]; then
+            echo "::error::Expected a single image name"
+            exit 1
+          fi
           LAST_PRS=$(gh api graphql -f query='
             query {
               repository(owner: "NVIDIA-NeMo", name: "{{cookiecutter.project_slug}}") {
@@ -59,12 +64,10 @@ jobs:
                 }
               }
             }' | jq -r '.data.repository.pullRequests.nodes[].number' | while read -r number; do
-              echo "nemoci.azurecr.io/{% raw %}${{ inputs.image-name }}-buildcache:$number{% endraw %}"
+              printf 'nemoci.azurecr.io/%s-buildcache:%s\n' "$IMAGE_NAME" "$number"
             done)
 
-          echo "LAST_PRS<<EOF" >> $GITHUB_OUTPUT
-          echo "$LAST_PRS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          printf 'LAST_PRS<<EOF\n%s\nEOF\n' "$LAST_PRS" | tee -a "$GITHUB_OUTPUT"
 
   build:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_container.yml@3bde7eec1009d0de2634acbccad8977d6d2983c4 # v0.29.0

@@ -18,7 +18,7 @@ inputs:
     description: "Package name to check imports for"
     required: true
   python-binary:
-    description: "Python binary to use"
+    description: "Python interpreter name or path, optionally with startup arguments"
     required: false
     default: "python"
 
@@ -27,10 +27,15 @@ runs:
   steps:
     - name: Install dependencies
       shell: bash -x -e -u -o pipefail {0}
-      run: ${{ inputs.python-binary }} -m pip install -r ${GITHUB_ACTION_PATH}/requirements.txt
+      env:
+        PYTHON_BINARY: ${{ inputs.python-binary }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/run-python.sh" "$PWD" -m pip install -r "$GITHUB_ACTION_PATH/requirements.txt"
 
     - name: Check imports
       shell: bash -x -e -u -o pipefail {0}
+      env:
+        PYTHON_BINARY: ${{ inputs.python-binary }}
+        PACKAGE_NAME: ${{ inputs.package-name }}
       run: |
-        cd /tmp # Move into another dir to avoid local import
-        ${{ inputs.python-binary }} ${GITHUB_ACTION_PATH}/check_imports.py --package-name ${{ inputs.package-name }}
+        bash "$GITHUB_ACTION_PATH/run-python.sh" /tmp "$GITHUB_ACTION_PATH/check_imports.py" --package-name "$PACKAGE_NAME"

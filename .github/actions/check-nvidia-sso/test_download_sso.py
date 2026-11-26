@@ -210,6 +210,23 @@ class DownloadSsoTests(unittest.TestCase):
         save.assert_not_called()
         self.assertNotIn("do-not-log-token", output.getvalue())
 
+    def test_cli_rejects_invalid_repository_or_filename_before_download(self) -> None:
+        """Only accept repository coordinates and a single-line local filename."""
+        with patch.object(downloader, "download_roster") as download:
+            for setting, value in [
+                ("GITHUB_AUDITS_REPO", "./audit"),
+                ("GITHUB_AUDITS_REPO", "org/.."),
+                ("SSO_USERS_FILENAME", "report\r2026.json"),
+                ("SSO_USERS_FILENAME", "report\n2026.json"),
+            ]:
+                with (
+                    self.subTest(setting=setting, value=value),
+                    patch.object(downloader, setting, value),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(downloader.main(), 1)
+            download.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,9 +52,8 @@ on:
   workflow_call:
     inputs:
       workflow_ref:
-        description: "Ref of this repo (FW-CI-templates) to check out for shared scripts/actions"
+        description: "Optional helper checkout ref. Defaults to the commit defining this reusable workflow."
         required: false
-        default: main
         type: string
       pr_number:
         description: >
@@ -105,6 +104,11 @@ jobs:
       author: ${{ steps.pr.outputs.author }}
       html_url: ${{ steps.pr.outputs.html_url }}
     steps:
+      - name: Validate PR mirror ref
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        shell: bash
+        run: '[[ "$GITHUB_REF_NAME" =~ ^pull-request/[0-9]+$ ]]'
+
       - name: Get PR info
         id: get-pr-info
         if: startsWith(github.ref, 'refs/heads/pull-request/')
@@ -206,12 +210,13 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}
         run: git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"
 
-      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+      - name: Checkout workflow helpers
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: ${{ inputs.workflow_ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ inputs.workflow_ref || job.workflow_sha }}
           path: ci-templates
+          persist-credentials: false
 
       - name: Install shared review matcher
         run: npm ci --prefix ci-templates/.github/scripts/review-matcher --ignore-scripts --no-audit --no-fund

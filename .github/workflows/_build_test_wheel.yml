@@ -141,9 +141,11 @@ jobs:
 
       - name: Get Python version
         id: python-version
+        env:
+          REQUESTED_PYTHON_VERSION: ${{ inputs.python-version }}
         run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOTDIR"
 
           if [[ "$PACKAGING" == "uv" ]]; then
             if [ -f ".python-version" ]; then
@@ -153,9 +155,11 @@ jobs:
               exit 1
             fi
           else
-            PYTHON_VERSION="${{ inputs.python-version }}"
+            PYTHON_VERSION=$(printf '%s' "$REQUESTED_PYTHON_VERSION")
           fi
-          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+          PYTHON_VERSION=${PYTHON_VERSION%$'\r'}
+          [[ "$PYTHON_VERSION" != *$'\n'* && "$PYTHON_VERSION" != *$'\r'* ]]
+          printf 'version=%s\n' "$PYTHON_VERSION" | tee -a "$GITHUB_OUTPUT"
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -196,8 +200,8 @@ jobs:
           NO_BUILD_ISOLATION: ${{ inputs.no-build-isolation }}
           NO_VCS_VERSION: "1"
         run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOTDIR"
           ls -al
 
           if [[ "$GH_TOKEN" != "" ]]; then
@@ -206,30 +210,28 @@ jobs:
           fi
 
           # Install the package to import and check the version in a later step
+          installer=(pip)
+          build_python=(python)
           if [[ "$PACKAGING" == "uv" ]]; then
             # Install uv
             curl -LsSf https://astral.sh/uv/install.sh | sh
             export PATH="$HOME/.local/bin:$PATH"
             uv venv --system-site-packages .venv
             source .venv/bin/activate
-            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              uv pip install torch
-              uv pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
-              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
-                uv pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
-              fi
-            fi
-            uv pip install $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") -e .
-          else
-            if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
-              pip install torch
-              pip install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
-              if [[ -n "$EXTRA_NO_BUILD_ISOLATION_PACKAGES" ]]; then
-                pip install $EXTRA_NO_BUILD_ISOLATION_PACKAGES
-              fi
-            fi
-            pip install -e $([[ "$NO_BUILD_ISOLATION" == "true" ]] && echo "--no-build-isolation" || "") .
+            installer=(uv pip)
+            build_python=(uv run --no-sync --active python)
           fi
+          install_args=()
+          if [[ "$NO_BUILD_ISOLATION" == "true" ]]; then
+            install_args+=(--no-build-isolation)
+            "${installer[@]}" install torch
+            "${installer[@]}" install --upgrade setuptools pybind11 wheel_stub packaging poetry poetry-dynamic-versioning
+            read -r -a extra_packages <<< "${EXTRA_NO_BUILD_ISOLATION_PACKAGES//$'\n'/ }"
+            if (( ${#extra_packages[@]} )); then
+              "${installer[@]}" install "${extra_packages[@]}"
+            fi
+          fi
+          "${installer[@]}" install "${install_args[@]}" -e .
 
           # Build the wheel
           if [[ "$PACKAGING" == "uv" ]]; then
@@ -240,31 +242,25 @@ jobs:
           fi
 
           # Get the expected version and name of the package
-          cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
+          "${build_python[@]}" - <<'PY'
+          import importlib
+          import os
+          from pathlib import Path
 
-          with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
-          with open("name.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__package_name__)
-          EOF
-          )
-
-          if [[ "$PACKAGING" == "uv" ]]; then
-            uv run --no-sync --active python -c "$cmd"
-          else
-            python -c "$cmd"
-          fi
-
-          EXPECTED_VERSION=$(cat version.txt)
-          NAME=$(cat name.txt | tr '_' '-')
-
-          echo "version=$EXPECTED_VERSION" | tee -a "$GITHUB_OUTPUT"
-          echo "name=$NAME" | tee -a "$GITHUB_OUTPUT"
+          package = importlib.import_module(os.environ["PYPROJECT_NAME"])
+          outputs = {
+              "version": package.__version__.rstrip("\n"),
+              "name": package.__package_name__.rstrip("\n").replace("_", "-"),
+              "DIST_DIR": str(Path.cwd() / "dist"),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in outputs.items():
+                  if "\r" in value or "\n" in value:
+                      raise ValueError(f"wheel output {key} must be a single line")
+                  print(f"{key}={value}", file=output)
+          PY
 
           ls -al dist/
-
-          echo "DIST_DIR=$(pwd)/dist" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload wheel
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -297,9 +293,11 @@ jobs:
 
       - name: Get Python version
         id: python-version
+        env:
+          REQUESTED_PYTHON_VERSION: ${{ inputs.python-version }}
         run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOTDIR"
 
           if [[ "$PACKAGING" == "uv" ]]; then
             if [ -f ".python-version" ]; then
@@ -309,9 +307,11 @@ jobs:
               exit 1
             fi
           else
-            PYTHON_VERSION="${{ inputs.python-version }}"
+            PYTHON_VERSION=$(printf '%s' "$REQUESTED_PYTHON_VERSION")
           fi
-          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+          PYTHON_VERSION=${PYTHON_VERSION%$'\r'}
+          [[ "$PYTHON_VERSION" != *$'\n'* && "$PYTHON_VERSION" != *$'\r'* ]]
+          printf 'version=%s\n' "$PYTHON_VERSION" | tee -a "$GITHUB_OUTPUT"
 
       - name: Setup Python ${{ steps.python-version.outputs.version }}
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -329,32 +329,24 @@ jobs:
             source .venv/bin/activate
           fi
 
-          cd dist/${{ github.run_id }}/
+          cd -- "dist/$GITHUB_RUN_ID"
 
           ls -al
 
           if [[ "$PACKAGING" == "uv" ]]; then
-            uv pip install *.whl
+            uv pip install ./*.whl
           else
-            pip install *.whl
+            pip install ./*.whl
           fi
 
-          cmd=$(cat <<EOF
-          import $PYPROJECT_NAME
+          python - <<'PY'
+          import importlib
+          import os
 
-          with open("version.txt", "w") as fh:
-            fh.write($PYPROJECT_NAME.__version__)
-          EOF
-          )
-
-          python -c "$cmd"
-
-          INSTALLED_VERSION=$(cat version.txt)
-
-          if [[ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]]; then
-            echo 'Wheel has an outdated version, mission abort immediately!'
-            exit 1
-          fi
+          package = importlib.import_module(os.environ["PYPROJECT_NAME"])
+          if package.__version__.rstrip("\n") != os.environ["EXPECTED_VERSION"]:
+              raise SystemExit("Wheel has an outdated version, mission abort immediately!")
+          PY
 
   validate-wheel:
     needs: build-wheel
@@ -445,14 +437,16 @@ jobs:
           PY
 
       - name: check-wheel-contents
+        env:
+          WHEEL_CONTENT_IGNORE: ${{ inputs.wheel-content-ignore }}
         run: |
-          check-wheel-contents --ignore ${{ inputs.wheel-content-ignore }} dist/*.whl
+          check-wheel-contents --ignore="$WHEEL_CONTENT_IGNORE" dist/*.whl
 
       - name: check-manifest
         if: inputs.packaging == 'setuptools' && inputs.skip-check-manifest == false
         run: |
-          cd ${{ github.run_id }}
-          cd $ROOTDIR
+          cd -- "$GITHUB_RUN_ID"
+          cd -- "$ROOTDIR"
           if [[ ! -f MANIFEST.in ]]; then
             echo "::notice::No MANIFEST.in found; skipping check-manifest."
             exit 0

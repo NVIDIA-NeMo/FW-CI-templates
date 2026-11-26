@@ -45,9 +45,8 @@ on:
         default: ""
         type: string
       workflow_ref:
-        description: "The ref to use for the workflow"
+        description: "Optional helper checkout ref. Defaults to the commit defining this reusable workflow."
         required: false
-        default: main
         type: string
       sso_users_filename:
         description: "Filename of SSO users JSON"
@@ -95,12 +94,12 @@ jobs:
       is_ci_workload: ${{ steps.is_ci_workload.outputs.main }}
       force_run_all: ${{ steps.force_run_all.outputs.main }}
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
-      base_ref: ${{ steps.base-ref.outputs.base }}
+      base_ref: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.ref || 'HEAD~1' }}
       is_deployment_workflow: ${{ steps.is-deployment-workflow.outputs.main == 'true' }}
       is_member: ${{ steps.check-sso.outputs.is_member || 'false' }}
-      runner_prefix: ${{ steps.select_runner.outputs.runner_prefix || '' }}
-      test_data_path: ${{ steps.select_runner.outputs.test_data_path || '' }}
-      registry: ${{ steps.select_runner.outputs.registry || '' }}
+      runner_prefix: ${{ inputs[format('{0}_runner_prefix', steps.select_runner.outputs.profile)] || '' }}
+      test_data_path: ${{ inputs[format('{0}_test_data_path', steps.select_runner.outputs.profile)] || '' }}
+      registry: ${{ inputs[format('{0}_registry', steps.select_runner.outputs.profile)] || '' }}
     env:
       TESTS_TO_RUN: ${{ inputs.test_to_run }}
       EVENT_NAME: ${{ github.event_name }}
@@ -110,6 +109,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
+
+      - name: Validate PR mirror ref
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        shell: bash
+        run: '[[ "$GITHUB_REF_NAME" =~ ^pull-request/[0-9]+$ ]]'
 
       - name: Get PR info
         id: get-pr-info
@@ -122,16 +126,11 @@ jobs:
         run: |
           echo "main=true" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Determine base reference
-        id: base-ref
-        run: |
-          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" | tee -a $GITHUB_OUTPUT
-
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
         with:
-          base_sha: ${{ steps.base-ref.outputs.base }}
+          base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.sha || 'HEAD~1' }}
           files_yaml: |
             doc:
               - '**.md'
@@ -146,10 +145,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IS_PR: ${{ startsWith(github.ref, 'refs/heads/pull-request/') }}
+          PR_NUMBER: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number }}
         run: |
           if [[ "$IS_PR" == "true" ]]; then
-            PR_NUMBER=${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').number }}
-            HAS_DOCS_ONLY_LABEL=$(gh pr view $PR_NUMBER --json labels | jq '[.labels[].name] | any(. == "docs-only")')
+            HAS_DOCS_ONLY_LABEL=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name] | any(. == "docs-only")')
           else
             HAS_DOCS_ONLY_LABEL=false
           fi
@@ -201,12 +200,13 @@ jobs:
 
           echo "main=$force_run_all" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Checkout NVIDIA-NeMo/FW-CI-templates
+      - name: Checkout workflow helpers
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: ${{ inputs.workflow_ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ inputs.workflow_ref || job.workflow_sha }}
           path: ci-templates
+          persist-credentials: false
 
       - name: Check NVIDIA SSO membership
         id: check-sso
@@ -226,11 +226,7 @@ jobs:
         if: ${{ inputs.default_runner_prefix != '' }}
         run: |
           if [[ "$IS_MEMBER" == "true" || "$IS_CI_WORKLOAD" == "true" ]]; then
-            echo "runner_prefix=${{ inputs.default_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
-            echo "test_data_path=${{ inputs.default_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
-            echo "registry=${{ inputs.default_registry }}" | tee -a "$GITHUB_OUTPUT"
+            echo "profile=default" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "runner_prefix=${{ inputs.non_nvidia_runner_prefix }}" | tee -a "$GITHUB_OUTPUT"
-            echo "test_data_path=${{ inputs.non_nvidia_test_data_path }}" | tee -a "$GITHUB_OUTPUT"
-            echo "registry=${{ inputs.non_nvidia_registry }}" | tee -a "$GITHUB_OUTPUT"
+            echo "profile=non_nvidia" | tee -a "$GITHUB_OUTPUT"
           fi

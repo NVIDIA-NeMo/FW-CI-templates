@@ -5,6 +5,10 @@ Script to check and optionally add NVIDIA copyright headers to files.
 
 import sys
 import argparse
+import codecs
+import glob
+import os
+import shlex
 import re  # Import the regular expression module
 from pathlib import Path
 from datetime import datetime
@@ -15,6 +19,50 @@ HEADER_REGEX = re.compile(r"^#\s*(?:Copyright|SPDX-FileCopyrightText:\s*Copyrigh
 
 # Original format string, still used for the error message suggestion
 EXPECTED_HEADER = """# Copyright (c) {} NVIDIA CORPORATION & AFFILIATES. All rights reserved."""
+
+
+def split_changed_files(value):
+    """Read legacy shell-quoted filenames, including Bash printf %q output."""
+
+    def unquote(match, protect_globs):
+        """Preserve quoted filename segments during word splitting and globbing."""
+        part = match[0]
+        if part.startswith("$'"):
+            raw = os.fsencode(part[2:-1])
+            raw = re.sub(
+                rb"\\.",
+                lambda esc: rb"\x1b" if esc[0] in (rb"\e", rb"\E") else esc[0],
+                raw,
+                flags=re.DOTALL,
+            )
+            literal = os.fsdecode(codecs.escape_decode(raw)[0])
+        elif part.startswith('"'):
+            literal = re.sub(
+                r'\\([$`"\\\n])', lambda esc: esc[1].strip('\n'), part[1:-1]
+            )
+        elif part.startswith("'"):
+            literal = part[1:-1]
+        elif part == "\\\n":
+            return ""
+        else:
+            literal = part[1:]
+        return shlex.quote(glob.escape(literal) if protect_globs else literal)
+
+    quoting = re.compile(
+        r"""\\.|\$'(?:\\.|[^'\\])*'|'[^']*'|"(?:\\.|[^"\\])*" """,
+        re.DOTALL | re.VERBOSE,
+    )
+    try:
+        words = shlex.split(quoting.sub(lambda part: unquote(part, False), value))
+        patterns = shlex.split(quoting.sub(lambda part: unquote(part, True), value))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid changed-files quoting: {exc}") from exc
+
+    paths = []
+    for word, pattern in zip(words, patterns):
+        matches = sorted(glob.glob(pattern)) if glob.has_magic(pattern) else []
+        paths.extend(matches or [word])
+    return paths
 
 
 def has_correct_header(file_path):
@@ -37,27 +85,33 @@ def main():
     )
     parser.add_argument(
         'files',
-        nargs='+',
+        nargs='*',
         help='Files to check/modify'
+    )
+    parser.add_argument(
+        '--changed-files', type=split_changed_files, default=[], help=argparse.SUPPRESS
     )
 
     args = parser.parse_args()
+    files = args.files + args.changed_files
+    if not files:
+        parser.error('provide at least one file to check')
 
     missing_headers = []
 
-    for file_path in args.files:
+    for file_path in files:
         path = Path(file_path)
 
         if not path.exists():
-            print(f"File not found: {file_path}")
+            print(f"File not found: {file_path!r}")
             continue
 
         if not path.is_file():
-            print(f"Not a file: {file_path}")
+            print(f"Not a file: {file_path!r}")
             continue
 
         if not has_correct_header(path):
-            print(f"✗ Header missing: {file_path}")
+            print(f"✗ Header missing: {file_path!r}")
             missing_headers.append(path)
 
     # Exit with error code if headers are missing and not added

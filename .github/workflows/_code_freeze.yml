@@ -212,17 +212,21 @@ jobs:
         env:
           RELEASE_ENVIRONMENT: ${{ inputs.release-environment }}
         run: |
-          cd ${{ github.run_id }}
+          cd -- "$GITHUB_RUN_ID"
 
           PACKAGE_INFO_FILE="$SRC_DIR${PYPROJECT_NAME//.//}/package_info.py"
 
-          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" "$PACKAGE_INFO_FILE"
-          sed -i "/^DEV/c\DEV = ''" "$PACKAGE_INFO_FILE"
+          sed -i "/^PRE_RELEASE/c\PRE_RELEASE = ''" -- "$PACKAGE_INFO_FILE"
+          sed -i "/^DEV/c\DEV = ''" -- "$PACKAGE_INFO_FILE"
 
-          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
+          cd -- "$SRC_DIR${PYPROJECT_NAME//.//}"
 
           VERSION=$(python -c "import package_info; print(f\"{package_info.MAJOR}.{package_info.MINOR}.{package_info.PATCH}\")")
           RELEASE_BRANCH="${RELEASE_BRANCH_PREFIX}r${VERSION}"
+          if [[ "$RELEASE_BRANCH" == -* ]] || ! git check-ref-format "refs/heads/$RELEASE_BRANCH"; then
+            echo "::error::The computed release branch must be a valid branch name."
+            exit 1
+          fi
           echo "version=${RELEASE_BRANCH}" | tee -a "$GITHUB_OUTPUT"
 
           git switch --force-create "${RELEASE_BRANCH}"
@@ -324,40 +328,50 @@ jobs:
           PACKAGING: ${{ inputs.packaging }}
           NEXT_PRERELEASE: ${{ inputs.next-pre-release }}
           NEXT_DEV: ${{ inputs.next-dev }}
+          RELEASE_TYPE: ${{ inputs.release-type }}
         run: |
-          cd ${{ github.run_id }}
+          cd -- "$GITHUB_RUN_ID"
 
-          pushd "$SRC_DIR${PYPROJECT_NAME//.//}"
+          cd -- "$SRC_DIR${PYPROJECT_NAME//.//}"
 
-          MAJOR=$(python -c "import package_info; print(package_info.MAJOR)")
-          MINOR=$(python -c "import package_info; print(package_info.MINOR)")
+          python - <<'PY'
+          import os
+          import re
+          import uuid
+          from pathlib import Path
 
-          if [[ "${{ inputs.release-type }}" == "major" ]]; then
-            NEXT_MAJOR=$(( MAJOR + 1))
-            NEXT_MINOR=0
-          else
-            NEXT_MAJOR=$MAJOR
-            NEXT_MINOR=$(( MINOR + 1))
-          fi
+          import package_info
 
-          NEXT_PATCH=0
+          major = int(str(package_info.MAJOR), 10)
+          minor = int(str(package_info.MINOR), 10)
+          if os.environ["RELEASE_TYPE"] == "major":
+              major, minor = major + 1, 0
+          else:
+              minor += 1
+          prerelease = os.environ["NEXT_PRERELEASE"]
+          dev = os.environ["NEXT_DEV"]
+          version = f"{major}.{minor}.0{prerelease}" + (f".{dev}" if dev else "")
 
-          NEXT_VERSION="$NEXT_MAJOR.$NEXT_MINOR.$NEXT_PATCH$NEXT_PRERELEASE"
-          if [[ -n "$NEXT_DEV" ]]; then
-            NEXT_VERSION="$NEXT_VERSION.$NEXT_DEV"
-          fi
+          packaging = os.environ["PACKAGING"]
+          if packaging in ("setuptools", "hatch"):
+              fields = {"MAJOR": major, "MINOR": minor, "PATCH": 0, "PRE_RELEASE": prerelease, "DEV": dev}
+              if packaging == "hatch":
+                  fields = {"__version__": version}
+              assignments = re.compile(r"^(" + "|".join(fields) + r")\b[^\r\n]*", re.MULTILINE)
+              path = Path("package_info.py")
+              with path.open("r+", encoding="utf-8", newline="") as source:
+                  updated = assignments.sub(lambda match: f"{match[1]} = {fields[match[1]]!r}", source.read())
+                  source.seek(0)
+                  source.write(updated)
+                  source.truncate()
 
-          if [[ "$PACKAGING" == "setuptools" ]]; then
-            sed -i "/^MAJOR/c\MAJOR = $NEXT_MAJOR" package_info.py
-            sed -i "/^MINOR/c\MINOR = $NEXT_MINOR" package_info.py
-            sed -i "/^PATCH/c\PATCH = $NEXT_PATCH" package_info.py
-            sed -i "/^PRE_RELEASE/c\PRE_RELEASE = '$NEXT_PRERELEASE'" package_info.py
-            sed -i "/^DEV/c\DEV = '$NEXT_DEV'" package_info.py
-          elif [[ "$PACKAGING" == "hatch" ]]; then
-            sed -i "/^__version__/c\__version__ = '$NEXT_VERSION'" package_info.py
-          fi
-
-          echo "version=$NEXT_VERSION" | tee -a "$GITHUB_OUTPUT"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              if "\n" in version or "\r" in version:
+                  delimiter = uuid.uuid4().hex
+                  print(f"version<<{delimiter}\n{version}\n{delimiter}", file=output)
+              else:
+                  print(f"version={version}", file=output)
+          PY
 
       - name: Create Version Bump PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
@@ -385,15 +399,8 @@ jobs:
       RELEASE_BRANCH: ${{ needs.create-release-branch.outputs.version }}
       SLACK_WEBHOOK_ADMIN: "<!subteam^${{ secrets.SLACK_WEBHOOK_ADMIN }}>"
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
-
       - name: Send Slack alert
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        uses: $/.github/actions/send-slack-alert
         with:
           message: >
             ${{ inputs.dry-run == true && 'This is a dry-run, nothing actually happened: ' || '' }}We have frozen release branch `${{ env.RELEASE_BRANCH }}` of `${{ inputs.library-name }}` 🚀✨🎉

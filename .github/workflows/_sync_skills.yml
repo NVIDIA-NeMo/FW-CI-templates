@@ -40,6 +40,8 @@ jobs:
         run: '[ -f AGENTS.md ] && ln -sf AGENTS.md CLAUDE.md || true'
 
       - name: Commit and push if changed
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -48,6 +50,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          BRANCH="${{ github.head_ref || github.ref_name }}"
           git commit -m "chore(beep boop 🤖): symlink skills/ → .claude/skills, .agents/skills and AGENTS.md → CLAUDE.md"
-          git push origin HEAD:"$BRANCH"
+          git push origin "HEAD:$BRANCH"

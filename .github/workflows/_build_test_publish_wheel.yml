@@ -204,15 +204,8 @@ jobs:
       COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
       COMMIT_SHA: ${{ github.sha }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          repository: NVIDIA-NeMo/FW-CI-templates
-          ref: v0.17.0
-          path: send-slack-alert
-
       - name: Send Slack alert
-        uses: ./send-slack-alert/.github/actions/send-slack-alert
+        uses: $/.github/actions/send-slack-alert
         with:
           message: >
             <${{ env.RUN_URL }}|Build, test, and push PyPi wheel (test)> has failed for <${{ env.COMMIT_URL }}|${{ env.COMMIT_SHA }}>.

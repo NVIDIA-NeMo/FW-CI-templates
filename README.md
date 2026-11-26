@@ -165,9 +165,14 @@ actionlint .github/workflows/_suggest_reviewers.yml .github/workflows/pre-flight
 ## Guardwords checks
 
 The reusable `_guardwords_check.yml` workflow scans added diff lines and optionally
-fetches the PR description using its `pr-number` input. Pass the PR number from the
-same verified metadata used to validate the mirror commit. For mirror-push callers,
-expose the number from the PR metadata job:
+fetches the PR description using its `pr-number` input. For catalog access, pass
+a read-only deploy key registered on `NVIDIA-NeMo/Guardwords` as the
+`GUARDWORDS_DEPLOY_KEY` secret. Callers using GitHub App authentication can
+supply the `bot-app-id` input and `BOT_KEY` secret. The deploy key takes
+precedence when both are supplied.
+
+Pass the PR number from the same verified metadata used to validate the mirror
+commit. For mirror-push callers, expose the number from the PR metadata job:
 
 ```yaml
 outputs:

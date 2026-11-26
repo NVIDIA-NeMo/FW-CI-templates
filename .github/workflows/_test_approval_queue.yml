@@ -24,6 +24,10 @@ name: Test Approval Queue
 #
 # jobs:
 #   approve-test-queue:
+#     permissions:
+#       actions: read
+#       contents: read
+#       pull-requests: read
 #     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_test_approval_queue.yml@main
 #     with:
 #       workflow_name: CICD NeMo
@@ -117,7 +121,7 @@ on:
         type: boolean
     secrets:
       PAT:
-        description: "GitHub token with access to read workflow runs and approve pending deployments."
+        description: "Required reviewer's token for approving pending deployments; it reads workflow runs only when target_repository is another repository."
         required: true
       NVIDIA_MANAGEMENT_ORG_PAT:
         description: "GitHub token with access to download the NVIDIA SSO users release asset."
@@ -141,6 +145,13 @@ jobs:
     name: Approve queue (${{ matrix.branch }}, ${{ matrix.contributor_type }})
     runs-on: ubuntu-latest
     environment: ${{ inputs.approval_environment }}
+    # Reads use this job's GITHUB_TOKEN, which has its own per-repository budget. The PAT is kept
+    # for the approval POST, the only call that needs a required reviewer's identity, so the shared
+    # bot account's hourly REST quota is not spent on polling.
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
@@ -181,6 +192,7 @@ jobs:
           MAX_CONCURRENCY_EXTERNAL: ${{ inputs.max_concurrency_external }}
           MAX_CONCURRENCY_INTERNAL: ${{ inputs.max_concurrency_internal }}
           PRIMARY_BRANCH: ${{ inputs.primary_branch }}
+          READ_TOKEN: ${{ github.token }}
           SSO_USERS_FILE: ${{ inputs.sso_users_filename }}
           TARGET_DEPLOYMENT_ENVIRONMENT: ${{ inputs.target_deployment_environment }}
           TARGET_REPOSITORY: ${{ inputs.target_repository }}
@@ -197,12 +209,18 @@ jobs:
           import requests
 
           REPO = os.environ.get("TARGET_REPOSITORY") or os.environ["GITHUB_REPOSITORY"]
-          API_BASE = f"https://api.github.com/repos/{REPO}"
+          API_URL = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          API_BASE = f"{API_URL}/repos/{REPO}"
           WORKFLOW_NAME = os.environ["WORKFLOW_NAME"]
           TARGET_BRANCH = os.environ["MATRIX_BRANCH"]
           TARGET_DEPLOYMENT_ENVIRONMENT = os.environ["TARGET_DEPLOYMENT_ENVIRONMENT"]
           CONTRIBUTOR_TYPE = os.environ["CONTRIBUTOR_TYPE"]
           APPROVAL_TOKEN = os.environ["APPROVAL_TOKEN"]
+          READ_TOKEN = (
+              os.environ["READ_TOKEN"]
+              if REPO.casefold() == os.environ["GITHUB_REPOSITORY"].casefold()
+              else APPROVAL_TOKEN
+          )
           APPROVE_COMMENT = os.environ["APPROVE_COMMENT"]
           PRIMARY_BRANCH = os.environ["PRIMARY_BRANCH"]
 
@@ -225,14 +243,19 @@ jobs:
           with open(os.environ["SSO_USERS_FILE"], encoding="utf-8") as sso_file:
               sso_users = json.load(sso_file)
 
-          session = requests.Session()
-          session.headers.update(
-              {
-                  "Authorization": f"Bearer {APPROVAL_TOKEN}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              }
-          )
+          def github_session(token):
+              session = requests.Session()
+              session.headers.update(
+                  {
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  }
+              )
+              return session
+
+          read_session = github_session(READ_TOKEN)
+          approval_session = github_session(APPROVAL_TOKEN)
 
           def make_request(endpoint, method="GET", data=None, max_retries=5):
               """Make a GitHub API request with retry on transient failures."""
@@ -240,9 +263,9 @@ jobs:
               for attempt in range(max_retries):
                   try:
                       if method == "GET":
-                          response = session.get(url, timeout=30)
+                          response = read_session.get(url, timeout=30)
                       elif method == "POST":
-                          response = session.post(url, json=data, timeout=30)
+                          response = approval_session.post(url, json=data, timeout=30)
                       else:
                           raise ValueError(f"Unsupported HTTP method: {method}")
 

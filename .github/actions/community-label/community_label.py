@@ -5,9 +5,12 @@
 import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 from contextlib import closing
 from functools import partial
-from http.client import HTTPException, HTTPSConnection
+from http.client import HTTPSConnection
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,6 +28,9 @@ OTHER_ASSOCIATIONS = {
     "NONE",
 }
 LABEL = "community-request"
+GITHUB_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}(?:\[bot\])?")
+MEMBER_ROLE = re.compile(r"([A-Za-z0-9_-]+):(?:Member|Owner)")
+COLLABORATOR_ROLE = re.compile(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+:Collaborator")
 
 
 def github_request(token, method, path, data=None):
@@ -46,13 +52,6 @@ def github_request(token, method, path, data=None):
         with connection.getresponse() as response:
             if response.getheader("X-GitHub-SSO"):
                 raise RuntimeError("GitHub reports incomplete SSO access")
-            scopes = response.getheader("X-OAuth-Scopes")
-            if path.startswith("/user/memberships/orgs/") and scopes is not None:
-                granted = {scope.strip() for scope in scopes.split(",")}
-                if not granted.intersection({"read:org", "write:org", "admin:org"}):
-                    raise RuntimeError(
-                        "The audit PAT lacks private membership visibility"
-                    )
             body = None
             if response.status == 200 and method != "HEAD":
                 body = json.load(response)
@@ -122,9 +121,7 @@ def snapshot(event_name, event, repository, repository_id, repo_request):
     if item_identity(current, repository, repository_id) != target:
         raise ValueError("Current GitHub item differs from the triggering item")
     login = current["user"]["login"]
-    if not isinstance(login, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}(?:\[bot\])?", login
-    ):
+    if not isinstance(login, str) or not GITHUB_LOGIN.fullmatch(login):
         raise ValueError("Unknown GitHub author")
     association = current.get("author_association")
     if association not in ASSOCIATED | OTHER_ASSOCIATIONS:
@@ -142,35 +139,55 @@ def snapshot(event_name, event, repository, repository_id, repo_request):
     }, label_present(current["labels"])
 
 
-def org_membership(org_request, org, login):
-    """Check active membership, verifying private visibility before accepting a 404."""
-    status, body = org_request(
-        "GET", f"/orgs/{org}/memberships/{quote(login, safe='')}"
+def load_sso_roster():
+    """Download the pinned audit asset with only the SSO read credential."""
+    token = os.environ.get("SSO_TOKEN")
+    if not token:
+        raise RuntimeError("Missing GitHub audit credential")
+    downloader = (
+        Path(__file__).resolve().parents[1] / "check-nvidia-sso/download_sso.py"
     )
-    missing = status == 404
-    if missing:
-        status, body = org_request("GET", f"/user/memberships/orgs/{org}")
-    if status != 200:
-        raise RuntimeError(f"Cannot verify {org} membership (HTTP {status})")
-    if (
-        not isinstance(body, dict)
-        or body.get("organization", {}).get("login", "").casefold() != org.casefold()
-    ):
-        raise ValueError(f"Unexpected organization in {org} membership")
-    state = body.get("state")
-    if missing:
-        if state != "active":
-            raise RuntimeError(f"Cannot confirm private membership visibility in {org}")
-        return False
-    if body.get("user", {}).get(
-        "login", ""
-    ).casefold() != login.casefold() or state not in {"active", "pending"}:
-        raise ValueError(f"Invalid {org} membership response")
-    return state == "active"
+    with tempfile.TemporaryDirectory() as directory:
+        subprocess.run(
+            [sys.executable, "-I", str(downloader)],
+            cwd=directory,
+            env={"GH_TOKEN": token},
+            check=True,
+            timeout=90,
+        )
+        return json.loads((Path(directory) / "users_sso.json").read_bytes())
 
 
-def internal_author(item, repo_request, org_request):
-    """Recognize an exempt author, collaborator or active member of either organization."""
+def roster_membership(roster, login):
+    """Read the original author's organization roles from a complete SSO snapshot."""
+    if not isinstance(roster, dict) or not roster:
+        raise ValueError("Invalid GitHub SSO roster")
+    matching_roles = None
+    for account, record in roster.items():
+        roles = record.get("org_roles") if isinstance(record, dict) else None
+        if (
+            not isinstance(account, str)
+            or not GITHUB_LOGIN.fullmatch(account)
+            or not isinstance(roles, list)
+            or not all(isinstance(role, str) and role for role in roles)
+        ):
+            raise ValueError("Invalid GitHub SSO roster record")
+        if account.casefold() == login.casefold():
+            if matching_roles is not None:
+                raise ValueError("Ambiguous GitHub SSO account")
+            matching_roles = roles
+    member = False
+    for role in matching_roles or []:
+        match = MEMBER_ROLE.fullmatch(role)
+        if match:
+            member = member or match[1].casefold() in {"nvidia", "nvidia-nemo"}
+        elif not COLLABORATOR_ROLE.fullmatch(role):
+            raise ValueError("Unknown GitHub SSO organization role")
+    return member
+
+
+def internal_author(item, repo_request, load_roster):
+    """Recognize exempt authors, repository collaborators and recorded org members."""
     login = item["login"]
     if login.casefold() == "svcnemo-autobot" or item["association"] in ASSOCIATED:
         return True
@@ -185,25 +202,16 @@ def internal_author(item, repo_request, org_request):
         raise RuntimeError(
             f"Cannot verify repository collaborator visibility (HTTP {status})"
         )
-    error = None
-    for org in ("NVIDIA-NeMo", "NVIDIA"):
-        try:
-            if org_membership(org_request, org, login):
-                return True
-        except (ValueError, RuntimeError, OSError, HTTPException) as exc:
-            error = exc
-    if error is not None:
-        raise error
-    return False
+    return roster_membership(load_roster(), login)
 
 
-def classify(event_name, event, repository, repository_id, repo_request, org_request):
+def classify(event_name, event, repository, repository_id, repo_request, load_roster):
     """Return a decision only when the current item's label needs to change."""
     result = snapshot(event_name, event, repository, repository_id, repo_request)
     if result is None:
         return None
     item, has_label = result
-    desired = not internal_author(item, repo_request, org_request)
+    desired = not internal_author(item, repo_request, load_roster)
     return {**item, "present": desired} if has_label != desired else None
 
 
@@ -247,9 +255,7 @@ def main():
     )
     phase = os.environ["PHASE"]
     if phase == "classify":
-        decision = classify(
-            *args, partial(github_request, os.environ.get("MEMBERSHIP_TOKEN"))
-        )
+        decision = classify(*args, load_sso_roster)
         if decision:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
                 print(

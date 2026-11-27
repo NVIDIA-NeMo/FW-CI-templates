@@ -6,7 +6,7 @@ on:
   workflow_call:
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT:
-        description: Read-only identity credential with private member visibility in NVIDIA and NVIDIA-NeMo
+        description: Read-only credential for the NVIDIA GitHub audit SSO release asset
         required: true
 
 permissions: {}
@@ -34,7 +34,7 @@ jobs:
         with:
           phase: classify
         env:
-          MEMBERSHIP_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+          SSO_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
   publish-issue:
     if: needs.classify.outputs.decision != '' && !github.event.issue.pull_request

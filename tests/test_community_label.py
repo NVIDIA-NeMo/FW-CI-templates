@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-"""Exercise issue-event binding and membership visibility before a label write."""
+"""Exercise issue-event binding and SSO roster classification before a label write."""
 
+import json
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 from runpy import run_path
@@ -41,7 +44,15 @@ def test_workflow_separates_credentials_and_permissions():
         "issues": "read",
         "pull-requests": "write",
     }
-    assert "secrets.NVIDIA_MANAGEMENT_ORG_PAT" in str(jobs["classify"]["steps"])
+    classify_step = jobs["classify"]["steps"][0]
+    assert (
+        classify_step["env"]["SSO_TOKEN"] == "${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}"
+    )
+    action_path = ROOT / ".github/actions/community-label/action.yml"
+    action = yaml.load(action_path.read_text(), Loader=yaml.BaseLoader)
+    runner = action["runs"]["steps"][0]
+    assert runner["env"]["REPO_TOKEN"] == "${{ github.token }}"
+    assert runner["run"] == 'python3 -I "$GITHUB_ACTION_PATH/community_label.py"'
     for job in ("publish-issue", "publish-pr"):
         assert "secrets." not in str(jobs[job])
         assert jobs[job]["needs"] == "classify"
@@ -63,32 +74,11 @@ def test_partial_sso_never_returns_membership_result(monkeypatch, status):
         request.__globals__, "HTTPSConnection", lambda *a, **k: connection
     )
     with pytest.raises(RuntimeError, match="SSO"):
-        request("fixture-read-only-token", "GET", f"/orgs/NVIDIA/memberships/{LOGIN}")
+        request(
+            "repository-token", "GET", f"/repositories/{GYM_ID}/collaborators/{LOGIN}"
+        )
     response.getheader.assert_called_with("X-GitHub-SSO")
     response.read.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "scopes, permitted",
-    [(None, True), ("repo, read:org", True), ("repo", False), ("", False)],
-)
-def test_private_visibility_requires_classic_org_scope(monkeypatch, scopes, permitted):
-    """A classic PAT must prove an organization scope; fine-grained credentials omit this header."""
-    request = SCRIPT["github_request"]
-    connection = MagicMock()
-    response = connection.getresponse.return_value.__enter__.return_value
-    response.status = 200
-    response.getheader.side_effect = {"X-OAuth-Scopes": scopes}.get
-    response.read.return_value = b'{"state":"active"}'
-    monkeypatch.setitem(
-        request.__globals__, "HTTPSConnection", lambda *a, **k: connection
-    )
-    args = ("fixture-read-only-token", "GET", "/user/memberships/orgs/NVIDIA")
-    if permitted:
-        assert request(*args) == (200, {"state": "active"})
-    else:
-        with pytest.raises(RuntimeError):
-            request(*args)
 
 
 def issue_event(repository, repository_id, author=LOGIN):
@@ -116,7 +106,7 @@ def issue_event(repository, repository_id, author=LOGIN):
 
 
 class GitHub:
-    """Record calls with distinct repository and private organization credentials."""
+    """Record repository calls and private SSO roster reads."""
 
     def __init__(self, repository=GYM, repository_id=GYM_ID, author=LOGIN):
         """Set up an existing issue whose author has no known affiliation."""
@@ -132,15 +122,10 @@ class GitHub:
             ("GET", f"{self.collaborators_path}/{author}"): (404, None),
             ("HEAD", f"{self.collaborators_path}?per_page=1"): (200, None),
         }
-        self.org_routes = {}
-        for org in ORGS:
-            self.org_routes["GET", f"/orgs/{org}/memberships/{author}"] = (404, None)
-            self.org_routes["GET", f"/user/memberships/orgs/{org}"] = (
-                200,
-                {"state": "active", "organization": {"login": org}},
-            )
+        self.load_roster = MagicMock(
+            return_value={"other-user": {"org_roles": ["NVIDIA:Member"]}}
+        )
         self.repo_calls = []
-        self.org_calls = []
         self.writes = []
 
     def repo_request(self, method, path, data=None):
@@ -155,12 +140,6 @@ class GitHub:
             return 200, []
         return self.repo_routes[method, path]
 
-    def org_request(self, method, path, data=None):
-        """Allow only membership reads using the audit credential."""
-        self.org_calls.append((method, path))
-        assert method == "GET" and data is None
-        return self.org_routes[method, path]
-
     def classify(self, event_name="issue_comment"):
         """Classify with the read-only job's credentials."""
         return classify(
@@ -169,7 +148,7 @@ class GitHub:
             self.repository,
             self.repository_id,
             self.repo_request,
-            self.org_request,
+            self.load_roster,
         )
 
     def publish(self, decision, event_name="issue_comment"):
@@ -201,9 +180,7 @@ def test_comment_reconciles_original_author(repository, repository_id):
         ("POST", f"{github.item_path}/labels", {"labels": [LABEL]})
     ]
     assert ("HEAD", f"{github.collaborators_path}?per_page=1") in github.repo_calls
-    for org in ORGS:
-        assert ("GET", f"/orgs/{org}/memberships/{LOGIN}") in github.org_calls
-        assert ("GET", f"/user/memberships/orgs/{org}") in github.org_calls
+    github.load_roster.assert_called_once_with()
 
 
 @pytest.mark.parametrize(
@@ -230,7 +207,7 @@ def test_other_issue_never_receives_write(which):
     with pytest.raises((ValueError, RuntimeError)):
         github.run()
     assert github.writes == []
-    assert github.org_calls == []
+    github.load_roster.assert_not_called()
 
 
 @pytest.mark.parametrize("repository,number", [(AUTOMODEL, 42), (GYM, 43)])
@@ -242,7 +219,8 @@ def test_comment_must_belong_to_event_issue(repository, number):
     )
     with pytest.raises((ValueError, RuntimeError)):
         github.run()
-    assert not github.repo_calls and not github.org_calls and not github.writes
+    assert not github.repo_calls and not github.writes
+    github.load_roster.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -264,7 +242,8 @@ def test_ineligible_events_skip_github(event_name, action, is_pr):
             "url": "https://api.github.com/example"
         }
     github.run(event_name)
-    assert not github.repo_calls and not github.org_calls and not github.writes
+    assert not github.repo_calls and not github.writes
+    github.load_roster.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -316,24 +295,27 @@ def test_associated_author_removes_label_without_private_reads(association, auth
     github.event["action"] = "reopened"
     github.run("issues")
     assert github.writes == [("DELETE", f"{github.item_path}/labels/{LABEL}", None)]
-    assert github.org_calls == []
+    github.load_roster.assert_not_called()
 
 
-@pytest.mark.parametrize("source", ["repo", *ORGS])
-def test_verified_members_skip_or_remove_label(source):
-    """A positive from either live membership source classifies the original author as internal."""
+def test_repository_collaborator_removes_label_without_roster():
+    """A repository collaborator does not require a private roster read."""
     github = GitHub()
-    if source == "repo":
-        github.repo_routes["GET", f"{github.collaborators_path}/{LOGIN}"] = (204, None)
-    else:
-        github.org_routes["GET", f"/orgs/{source}/memberships/{LOGIN}"] = (
-            200,
-            {
-                "state": "active",
-                "organization": {"login": source},
-                "user": {"login": LOGIN},
-            },
-        )
+    github.repo_routes["GET", f"{github.collaborators_path}/{LOGIN}"] = (204, None)
+    github.item["labels"] = [{"name": LABEL}]
+    github.run()
+    assert github.writes == [("DELETE", f"{github.item_path}/labels/{LABEL}", None)]
+    github.load_roster.assert_not_called()
+
+
+@pytest.mark.parametrize("org", ORGS)
+@pytest.mark.parametrize("role", ["Member", "Owner"])
+def test_verified_members_skip_or_remove_label(org, role):
+    """The issue author's role in either organization exempts every login casing."""
+    github = GitHub()
+    github.load_roster.return_value = {
+        LOGIN.upper(): {"org_roles": ["Other:Member", f"{org}:{role}"]}
+    }
     github.run()
     assert github.writes == []
     github.item["labels"] = [{"name": LABEL}]
@@ -342,37 +324,140 @@ def test_verified_members_skip_or_remove_label(source):
 
 
 @pytest.mark.parametrize(
-    "source, response",
+    "method, suffix, response",
     [
-        ("repo target", (403, None)),
-        ("repo visibility", (404, None)),
-        ("org target", (429, None)),
-        ("org target", (200, {})),
-        ("org visibility", (403, None)),
-        ("org visibility", (200, {"state": "pending"})),
-        ("org visibility", (200, {"other": True})),
+        ("GET", f"/{LOGIN}", (403, None)),
+        ("HEAD", "?per_page=1", (404, None)),
     ],
 )
-def test_uncertain_membership_aborts_without_write(source, response):
-    """Authorization errors, malformed responses and concealed memberships cannot prove absence."""
+def test_uncertain_collaborator_visibility_aborts_without_write(
+    method, suffix, response
+):
+    """Missing repository collaborator visibility cannot prove absence."""
     github = GitHub()
-    routes = {
-        "repo target": (
-            github.repo_routes,
-            ("GET", f"{github.collaborators_path}/{LOGIN}"),
-        ),
-        "repo visibility": (
-            github.repo_routes,
-            ("HEAD", f"{github.collaborators_path}?per_page=1"),
-        ),
-        "org target": (github.org_routes, ("GET", f"/orgs/NVIDIA/memberships/{LOGIN}")),
-        "org visibility": (github.org_routes, ("GET", "/user/memberships/orgs/NVIDIA")),
-    }
-    target, path = routes[source]
-    target[path] = response
+    github.repo_routes[method, github.collaborators_path + suffix] = response
     with pytest.raises((ValueError, RuntimeError)):
         github.run()
     assert github.writes == []
+    github.load_roster.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [[], ["Other:Member"], ["NVIDIA-Labs:Member"], ["NVIDIA/other-repo:Collaborator"]],
+)
+def test_roster_enrollment_without_target_membership_receives_label(roles):
+    """An email or membership in another organization leaves the author external."""
+    github = GitHub()
+    github.load_roster.return_value = {
+        LOGIN: {"nvidia_email": "example@nvidia.com", "org_roles": roles}
+    }
+    github.run()
+    assert github.writes == [
+        ("POST", f"{github.item_path}/labels", {"labels": [LABEL]})
+    ]
+
+
+@pytest.mark.parametrize(
+    "roster",
+    [
+        None,
+        [],
+        {},
+        {"message": "unexpected payload"},
+        {f"{LOGIN} ": {"org_roles": ["NVIDIA:Member"]}},
+        {"other": {"org_roles": [None]}},
+        {LOGIN: None},
+        {LOGIN: {}},
+        {LOGIN: {"org_roles": "NVIDIA:Member"}},
+        {LOGIN: {"org_roles": [None]}},
+        {LOGIN: {"org_roles": ["NVIDIA"]}},
+        {LOGIN: {"org_roles": ["NVIDIA:"]}},
+        {LOGIN: {"org_roles": ["NVIDIA:Member:Other"]}},
+        {LOGIN: {"org_roles": ["NVIDIA-NeMo:Unknown"]}},
+        {LOGIN: {"org_roles": []}, LOGIN.upper(): {"org_roles": ["NVIDIA:Member"]}},
+    ],
+)
+def test_invalid_roster_aborts_without_write(roster):
+    """Empty, malformed or ambiguous membership evidence cannot drive a label change."""
+    github = GitHub()
+    github.load_roster.return_value = roster
+    with pytest.raises((ValueError, RuntimeError)):
+        github.run()
+    assert github.writes == []
+
+
+@pytest.mark.parametrize("denied", [False, True])
+def test_classifier_entry_point_uses_pinned_private_roster(
+    tmp_path, monkeypatch, capsys, denied
+):
+    """Run the composite action's main path with an allowlisted downloader invocation."""
+    github = GitHub()
+    github.item["labels"] = [{"name": LABEL}]
+    event_file = tmp_path / "event.json"
+    event_file.write_text(json.dumps(github.event))
+    output_file = tmp_path / "outputs"
+    output_file.touch()
+    action = ROOT / ".github/actions/community-label"
+    for key, value in {
+        "GITHUB_ACTION_PATH": str(action),
+        "GITHUB_EVENT_NAME": "issue_comment",
+        "GITHUB_EVENT_PATH": str(event_file),
+        "GITHUB_REPOSITORY": GYM,
+        "GITHUB_REPOSITORY_ID": str(GYM_ID),
+        "GITHUB_OUTPUT": str(output_file),
+        "REPO_TOKEN": "repository-token",
+        "SSO_TOKEN": "private-roster-token",
+        "SSO_FILENAME": "unexpected.json",
+        "SSO_RELEASE_TAG": "unexpected",
+        "SSO_REPOSITORY": "unexpected/audit",
+        "PHASE": "classify",
+    }.items():
+        monkeypatch.setenv(key, value)
+    directories = []
+
+    def run_downloader(command, *, cwd, env, check, **options):
+        """Require the hardened helper and isolate its credential and temporary roster."""
+        downloader = action.parent / "check-nvidia-sso/download_sso.py"
+        assert downloader.is_file() and Path(command[-1]).resolve() == downloader
+        assert list(command[:-1]) == [sys.executable, "-I"]
+        assert check and env["GH_TOKEN"] == "private-roster-token"
+        assert "repository-token" not in env.values()
+        assert env.get("SSO_REPOSITORY", "NVIDIA-GitHub-Management/github-audits") == (
+            "NVIDIA-GitHub-Management/github-audits"
+        )
+        assert env.get("SSO_RELEASE_TAG", "v0.1.0") == "v0.1.0"
+        assert env.get("SSO_FILENAME", "users_sso.json") == "users_sso.json"
+        directory = Path(cwd)
+        directories.append(directory)
+        if denied:
+            raise subprocess.CalledProcessError(1, command)
+        roster = {LOGIN.upper(): {"org_roles": ["NVIDIA:Member"]}}
+        (directory / "users_sso.json").write_text(json.dumps(roster))
+        return subprocess.CompletedProcess(command, returncode=0)
+
+    def repo_request(token, method, path, data=None):
+        """Require the repository job credential on every item or collaborator request."""
+        assert token == "repository-token"
+        return github.repo_request(method, path, data)
+
+    main = SCRIPT["main"]
+    monkeypatch.setitem(main.__globals__, "github_request", repo_request)
+    monkeypatch.setattr(subprocess, "run", run_downloader)
+    if denied:
+        with pytest.raises((RuntimeError, subprocess.CalledProcessError)):
+            main()
+        assert output_file.read_text() == ""
+    else:
+        main()
+        name, value = output_file.read_text().strip().split("=", 1)
+        assert name == "decision"
+        assert json.loads(value)["present"] is False
+    assert github.writes == []
+    assert len(directories) == 1 and not directories[0].exists()
+    captured = capsys.readouterr()
+    for private in (LOGIN, LOGIN.upper(), "repository-token", "private-roster-token"):
+        assert private not in captured.out + captured.err
 
 
 def test_external_author_already_labeled():

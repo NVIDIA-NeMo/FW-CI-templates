@@ -607,6 +607,9 @@ class GitLabReviewPoolTests(unittest.TestCase):
 class RequiredCodeOwnerPoolTests(unittest.TestCase):
     """Mirror GitHub's required code-owner review as one-approval GitLab rules."""
 
+    def setUp(self) -> None:
+        github_members.cache_clear()
+
     MR = {
         "sha": "a",
         "target_branch": "internal",
@@ -1200,7 +1203,34 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             ],
         }
         self.assertEqual(mr_changed_paths(mr), ["added.py", "new.py"])
-        self.assertEqual(mr_changed_paths(mr, include_deleted=True), ["added.py", "gone.py", "new.py"])
+        self.assertEqual(mr_changed_paths(mr, include_deleted=True), ["added.py", "gone.py", "new.py", "old.py"])
+
+    def test_moving_a_file_out_of_an_owned_directory_still_requires_its_owner(self):
+        """A rename removes the old path, so its owners are required just like for a deletion."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        mr = json.loads(json.dumps(self.MR))
+        mr["changes"] = [{"old_path": "bio/x.py", "new_path": "misc/x.py", "deleted_file": False, "renamed_file": True}]
+        with patch.object(self, "MR", mr):
+            plan, _, failure = self.run_main(identities, members)
+        self.assertIsNone(failure)
+        self.assertEqual(plan["required_owners"], [["@org/arch"], ["@org/bio", "@org/maint"]])
+        self.assertEqual(plan["owners"], [], "suggestions keep the new-path convention")
+
+    def test_hand_required_optional_pool_in_an_optional_only_run_is_reported_not_written(self):
+        """Without the flag there is no other side to reconcile; the refusal is listed and nothing is written."""
+        existing = {1: {"id": 1, "name": RULE_PREFIX + "@org/docs", "approvals_required": 1, "rule_type": "regular"}}
+        existing[1].update(users=[], groups=[])
+        with (
+            patch.object(self, "RULES", "# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+        ):
+            plan, writes, failure = self.run_main(
+                {"dan": "dan"}, [self.member(13, "dan")], "--apply", rules=existing, enforce=False
+            )
+        self.assertIn("Refusing to change rule github-review-pool: @org/docs", "".join(plan["problems"]))
+        self.assertEqual(writes, [])
+        self.assertIsNotNone(failure)
 
     def test_author_as_the_only_eligible_owner_falls_back(self):
         """The most common trigger: the author is the sole mapped member of a required owner set."""

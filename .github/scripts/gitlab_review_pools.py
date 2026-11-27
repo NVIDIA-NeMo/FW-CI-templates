@@ -153,15 +153,17 @@ def mr_changed_paths(mr: dict, *, include_deleted: bool = False) -> list[str]:
 
     Args:
         mr: Merge request with its changes.
-        include_deleted: Also return deleted paths; required code-owner review
-            covers deletions, while suggestions follow all_changed_files.
+        include_deleted: Also return removed paths, deleted files and the old
+            side of renames; required code-owner review covers them, while
+            suggestions follow all_changed_files.
     """
     if mr.get("overflow") is not False or not mr.get("diff_refs", {}).get("head_sha"):
         raise ValueError("MR diff is incomplete or still being prepared")
     if mr["diff_refs"]["head_sha"] != mr.get("sha"):
         raise ValueError("MR diff does not match its current head")
     changes = mr["changes"]
-    deleted = {change["old_path"] for change in changes if change["deleted_file"]} if include_deleted else set()
+    paths = [(c.get("old_path", c["new_path"]), c["new_path"], c["deleted_file"]) for c in changes]
+    deleted = {old for old, new, gone in paths if gone or old != new} if include_deleted else set()
     return sorted({change["new_path"] for change in changes if not change["deleted_file"]} | deleted)
 
 
@@ -395,8 +397,9 @@ def plan_changes(
 ) -> list[dict]:
     """Reconcile the managed pools under the given prefixes.
 
-    An optional pool that a human made required stops the run. A required
-    code-owner pool that was weakened is restored to one approval.
+    Raises ValueError for an optional pool that a human made required; the
+    caller decides whether that stops the run or only the optional side. A
+    required code-owner pool that was weakened is restored to one approval.
     """
     managed = {}
     for rule in existing:

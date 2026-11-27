@@ -48,7 +48,8 @@ The engine retains the GitHub workflow's `all_changed_files` behavior for
 suggestions: renamed files use their new paths, and deleted files are excluded.
 An enforced owner is not automatically turned into a GitLab review suggestion;
 with `--require-codeowners` it becomes a required GitLab approval instead
-(below), and deleted files count for that required review as they do on GitHub.
+(below), and removed paths (deleted files and the old side of a rename) count
+for that required review as they do on GitHub.
 
 ```mermaid
 flowchart LR
@@ -139,8 +140,8 @@ Limitation: the rules are MR-local, so GitLab lets the MR author and project
 Maintainers edit them, and no webhook fires for such an edit; the adapter
 restores the rules on the next MR update. Do not enable "Prevent editing
 approval rules in merge requests": that setting also removes the adapter's own
-permission to create or update MR approval rules. Run the consumer job with
-`allow_failure: false`.
+permission to create or update MR approval rules. See "Consumer setup" below
+for how a failed run surfaces and what it does not block.
 
 Requirements: Python 3.12+, Node.js 20+, npm, and authenticated `gh` and `glab`.
 The GitHub identity needs repository-content and team-membership read access;

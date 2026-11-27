@@ -1273,7 +1273,53 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             )
         self.assertIn("Refusing to change rule github-review-pool: @org/docs", "".join(plan["problems"]))
         self.assertEqual(writes, [])
-        self.assertIsNotNone(failure)
+        self.assertIn("no writes", failure)
+
+    def test_optional_pool_without_eligible_approvers_is_not_a_required_failure(self):
+        """The no-eligible-approvers guard protects required rules only; an emptied optional pool is not fatal."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+
+        def voiding(api, rules):
+            def voiding_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+                result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
+                if method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
+                    for rule in rules.values():
+                        rule["eligible_approvers"] = [] if rule["name"].startswith(RULE_PREFIX) else rule["users"]
+                return result
+
+            return voiding_api
+
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+        ):
+            _, _, failure = self.run_main(identities, members, "--apply", wrap=voiding)
+        self.assertIsNone(failure)
+
+    def test_side_that_does_not_converge_fails_before_the_next_side(self):
+        """If GitLab does not reflect the required writes, the run stops before touching the optional side."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
+
+        def hiding(api, rules):
+            def hiding_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+                result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
+                if method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
+                    return [rule for rule in result if not rule["name"].startswith(REQUIRED_PREFIX)]
+                return result
+
+            return hiding_api
+
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+            self.assertRaisesRegex(RuntimeError, "github-codeowners pools did not converge"),
+        ):
+            self.run_main(identities, members, "--apply", wrap=hiding)
+        self.assertEqual(
+            [name for name in (r["name"] for r in self.rules.values()) if name.startswith(RULE_PREFIX)], []
+        )
 
     def test_author_as_the_only_eligible_owner_falls_back(self):
         """The most common trigger: the author is the sole mapped member of a required owner set."""

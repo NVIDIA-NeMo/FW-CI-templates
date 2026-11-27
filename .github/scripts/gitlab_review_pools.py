@@ -177,7 +177,7 @@ def github_members(owner: str) -> list[str]:
     Cached for the process lifetime: one run reads each team once even when it
     appears as a suggested owner, a required owner and the fallback.
     """
-    name = owner.removeprefix("@")
+    name = owner.removeprefix("@").casefold()
     if "@" in name:
         raise RuntimeError("email owners are not supported; use a GitHub login or team")
     if "/" not in name:
@@ -407,7 +407,14 @@ def voided_required_rules(rules: list[dict], owned: set[str]) -> list[str]:
     return sorted(rule["name"] for rule in rules if rule["name"] in owned and rule.get("eligible_approvers") == [])
 
 
-def apply_sides(hostname: str, root: str, mr: dict, sides: dict, changes_by_side: dict, existing: list) -> list:
+def apply_sides(
+    hostname: str,
+    root: str,
+    mr: dict,
+    sides: dict[str, list[dict]],
+    changes_by_side: dict[str, list[dict]],
+    existing: list[dict],
+) -> list[dict]:
     """Apply and verify each side in order, then recheck every side against one final snapshot.
 
     Returns the final approval-rule snapshot. Raises when a side did not
@@ -423,7 +430,7 @@ def apply_sides(hostname: str, root: str, mr: dict, sides: dict, changes_by_side
     for prefix in changes_by_side:
         if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
             raise RuntimeError(f"{prefix.removesuffix(': ')} pools changed during reconciliation; rerun")
-    owned = {pool["name"] for prefix in changes_by_side for pool in sides[prefix]}
+    owned = {pool["name"] for pool in sides.get(REQUIRED_PREFIX, []) if REQUIRED_PREFIX in changes_by_side}
     if voided := voided_required_rules(actual, owned):
         raise RuntimeError(f"Required pools have no eligible approvers; check the committer-approval setting: {voided}")
     return actual
@@ -642,6 +649,8 @@ def main() -> None:
             problems.append(str(error))
             reviewer_pools = []
     changes = [change for side_changes in changes_by_side.values() for change in side_changes]
+    if sides and not changes_by_side:
+        blocking = list(problems)  # every side refused: nothing can be written safely
     if not blocking and any(change["method"] == "POST" for change in changes):
         blocking = approval_inheritance_problems(api("glab", root + "/approval_state", args.gitlab_host))
         problems += blocking

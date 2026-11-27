@@ -132,9 +132,11 @@ run converges. Without a resolvable fallback nothing is written and the job
 fails. A problem in an advisory `# suggest:` pool never touches the required
 gate: that run skips optional reconciliation and reviewer assignment, writes the
 exact required pools, and exits non-zero. Runs without `--require-codeowners` never
-touch `github-codeowners:` rules. Patterns follow gitignore syntax: braces are
-literal and `*/` skips root files. A changed path containing a line terminator
-stops the run before any write, because glob engines cannot match it reliably.
+touch `github-codeowners:` rules. Patterns follow GitHub's CODEOWNERS syntax
+for enforced and `# suggest:` lines alike: braces, brackets and parentheses are
+literal, `*/` skips root files, and a directory pattern never matches a
+same-named file. A changed path containing a line terminator stops a required
+run before any write, because glob engines cannot match it reliably.
 
 Limitation: the rules are MR-local, so GitLab lets the MR author and project
 Maintainers edit them, and no webhook fires for such an edit; the adapter

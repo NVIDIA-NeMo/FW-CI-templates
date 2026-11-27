@@ -78,10 +78,15 @@ def to_glob(pattern: str) -> list[str]:
         return ["**"]
 
     if dir_only:
-        # A trailing "**" names any directory ("**/", "/src/**/"), so it must consume
-        # at least one directory component; micromatch's "**" may consume none.
-        p = re.sub(r"(\*\*/)*\*\*$", "*", p)
-        globs = [f"{p}/**"]
+        # Trailing "**" components name any directory ("**/", "/src/**/"), so they must
+        # consume at least one directory component; micromatch's "**" may consume none.
+        # Only an exact "**" component is a globstar: "***" and "\**" are ordinary stars.
+        parts = p.split("/")
+        while parts and parts[-1] == "**":
+            parts.pop()
+        if len(parts) < len(p.split("/")):
+            parts.append("*")
+        globs = ["/".join(parts) + "/**"]
     elif p.endswith(("/*", "/**")):
         globs = [p]
     else:

@@ -1001,6 +1001,11 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             ("* @org/sec\n/**/**/", ["README.md"], sec),
             ("* @org/sec\n**/src/**/", ["a/src/b.py"], sec),
             ("* @org/sec\n**/src/**/", ["a/src/d/b.py"], []),
+            ("* @org/sec\n/src/***/", ["src/a.py"], sec),
+            ("* @org/sec\n/src/***/", ["src/d/a.py"], []),
+            ("/src/foo\\**/ @org/sec", ["src/foo*/a.py", "src/foo*bar/a.py"], sec),
+            ("/src/foo\\**/ @org/sec", ["src/foobar/a.py"], []),
+            ("/src/sec**/**/ @org/sec", ["src/secret/d/a.py"], sec),
         ]
         for rules, files, expected in cases:
             with self.subTest(rules=rules, files=files):

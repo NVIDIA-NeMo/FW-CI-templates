@@ -67,13 +67,10 @@ on:
         type: string
       app-id:
         description: >
-          GitHub App ID to mint a short-lived, org-scoped token for team-reviewer
-          resolution (listing team membership, requesting a team as a PR
-          reviewer). Required for team suggestions to work -- deliberately no
-          PAT fallback. Without it, individual-user suggestions still work fine
-          on the default token; team suggestions fail (job goes red, Slack
-          alerted if configured). Needs "Pull requests: Read and write" + org
-          "Members: Read-only".
+          GitHub App ID for requesting team reviews in the calling repository.
+          The installation needs pull request write access to that repository
+          and organization member read access. Individual reviewer requests
+          use the default job token.
         required: false
         default: ""
         type: string
@@ -360,27 +357,20 @@ jobs:
           gh_output("reviewers", json.dumps(new_reviewers))
           gh_output("team_reviewers", json.dumps(new_team_reviewers))
 
-      # create-github-app-token defaults to a token scoped to just the current repo
-      # -- team resolution needs org-level context, so explicitly set `owner:` to
-      # mint an org-installation-scoped token instead. permission-members: read is
-      # required even just to request a team as a reviewer (not only to list its
-      # members), confirmed via a real, merged fix elsewhere:
-      # https://github.com/cypress-io/cypress/pull/34249
-      #
       # continue-on-error: true is deliberate -- if minting the App token fails
       # (bad key, App uninstalled, etc.), its output is empty, and the resulting
       # auth failure lands in the next step's own try/except, which reports and
       # fails cleanly instead of this step aborting the job with no Slack alert.
       # No PAT fallback by design: team suggestions require the App to work.
-      - name: Create org-scoped GitHub App token for team-reviewer request
+      - name: Create token to request team reviews in this repository
         if: steps.resolve.outputs.needs_team_step == 'true' && inputs.app-id != ''
-        id: org-app-token
+        id: team-token
         continue-on-error: true
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.BOT_KEY }}
-          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           permission-members: read
           permission-pull-requests: write
 
@@ -397,7 +387,7 @@ jobs:
         id: request-team
         shell: python
         env:
-          GITHUB_TOKEN: ${{ steps.org-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.team-token.outputs.token }}
           REVIEWERS_JSON: ${{ steps.resolve.outputs.reviewers }}
           TEAM_REVIEWERS_JSON: ${{ steps.resolve.outputs.team_reviewers }}
           PR_NUMBER: ${{ needs.resolve-pr.outputs.number }}

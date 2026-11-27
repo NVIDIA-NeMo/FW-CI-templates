@@ -129,10 +129,13 @@ def api(
     decoder = json.JSONDecoder()
     remaining = result.stdout.strip()
     pages = []
-    while remaining:
-        value, offset = decoder.raw_decode(remaining)
-        pages.append(value)
-        remaining = remaining[offset:].lstrip()
+    try:
+        while remaining:
+            value, offset = decoder.raw_decode(remaining)
+            pages.append(value)
+            remaining = remaining[offset:].lstrip()
+    except ValueError:
+        raise RuntimeError(f"{label} returned invalid JSON") from None
     if paginate:
         return [item for page in pages for item in page]
     return pages[0] if pages else None
@@ -244,7 +247,7 @@ def resolve_identities(
                 emails = {str(user.get(field) or "").strip().casefold() for field in ("email", "public_email")}
                 if email not in emails:
                     continue
-        except RuntimeError as error:
+        except (RuntimeError, KeyError, TypeError) as error:
             problems.append(f"{login}: {error}")
             continue
         identities[login] = user["username"]
@@ -306,7 +309,7 @@ class Side(NamedTuple):
 
     pools: list[dict]
     problems: list[str]
-    warnings: list[str] = []
+    warnings: tuple[str, ...] = ()
 
 
 def expand_owners(owners: list[str]) -> tuple[list[str], list[str]]:
@@ -315,7 +318,7 @@ def expand_owners(owners: list[str]) -> tuple[list[str], list[str]]:
     for owner in owners:
         try:
             logins.update(github_members(owner))
-        except RuntimeError as error:
+        except (RuntimeError, KeyError, TypeError) as error:
             problems.append(f"{owner}: {error}")
     return sorted(logins), problems
 
@@ -354,7 +357,7 @@ def resolve_sides(
         memberships = {name: logins for name, (logins, _) in expanded[key].items()}
         pools, problems, warnings = resolve_pools(memberships, identities, members, author_id, prefix=prefix)
         lookup_problems = [problem for _, problems_ in expanded[key].values() for problem in problems_]
-        return Side(pools, sorted({*problems, *lookup_problems}), warnings)
+        return Side(pools, sorted({*problems, *lookup_problems}), tuple(warnings))
 
     optional, required = side(RULE_PREFIX, RULE_PREFIX), side(REQUIRED_PREFIX, REQUIRED_PREFIX)
     return optional, required, side("fallback", REQUIRED_PREFIX) if fallback else None, identity_problems
@@ -392,9 +395,21 @@ def plan_sides(optional: Side, required: Side, fallback: Side | None, *, enforce
     return sides, blocking, degraded
 
 
-def plan_changes(
-    pools: list[dict], existing: list[dict], *, prefixes: tuple[str, ...] = MANAGED_PREFIXES
-) -> list[dict]:
+def voided_required_rules(rules: list[dict]) -> list[str]:
+    """Name required pools GitLab would auto-approve because nobody is left who may approve.
+
+    GitLab treats a regular rule with no eligible approvers as satisfied. The
+    adapter excludes only the MR author; "Prevent approvals by users who add
+    commits" can remove everyone else.
+    """
+    return sorted(
+        rule["name"]
+        for rule in rules
+        if managed_prefix(rule["name"]) == REQUIRED_PREFIX and rule.get("eligible_approvers") == []
+    )
+
+
+def plan_changes(pools: list[dict], existing: list[dict], *, prefixes: tuple[str, ...]) -> list[dict]:
     """Reconcile the managed pools under the given prefixes.
 
     Raises ValueError for an optional pool that a human made required; the
@@ -578,7 +593,10 @@ def main() -> None:
     )
     if args.identity_map:
         mapping = json.loads(args.identity_map.read_text(encoding="utf-8"))
-        identities_for = lambda logins: (mapping, [])  # noqa: E731
+
+        def identities_for(logins: set[str]) -> tuple[dict[str, str], list[str]]:
+            return mapping, []
+
     else:
         identities_for = functools.partial(
             resolve_identities, hostname=args.gitlab_host, username_from_email=args.gitlab_username_from_email
@@ -587,7 +605,7 @@ def main() -> None:
     optional, required, fallback, identity_problems = resolve_sides(
         owners, groups, args.codeowners_fallback, identities_for, members, author_id
     )
-    resolved = [side for side in (optional, required, fallback) if side]
+    resolved = [side for side in (optional, required, fallback) if side is not None]
     problems = [problem for side in resolved for problem in side.problems] + identity_problems
     warnings = [warning for side in resolved for warning in side.warnings]
     sides, blocking, degraded = plan_sides(optional, required, fallback, enforce=args.require_codeowners)
@@ -631,6 +649,7 @@ def main() -> None:
     if blocking:
         raise SystemExit("Review-pool preconditions are not satisfied; no writes performed")
     if args.apply:
+        actual = existing
         for prefix, side_changes in changes_by_side.items():
             apply_changes(args.gitlab_host, root, mr, side_changes)
             actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
@@ -641,6 +660,10 @@ def main() -> None:
         for prefix in changes_by_side:
             if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
                 raise RuntimeError(f"{prefix.rstrip(': ')} pools changed during reconciliation; rerun")
+        if voided := voided_required_rules(actual):
+            raise RuntimeError(
+                f"Required pools have no eligible approvers; check the committer-approval setting: {voided}"
+            )
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
         pool_count = sum(len(sides[prefix]) for prefix in changes_by_side)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": pool_count, "reviewers": assignment}))

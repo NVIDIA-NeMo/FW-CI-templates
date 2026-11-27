@@ -82,9 +82,9 @@ def to_glob(pattern: str) -> list[str]:
         # consume at least one directory component; micromatch's "**" may consume none.
         # Only an exact "**" component is a globstar: "***" and "\**" are ordinary stars.
         parts = p.split("/")
-        while parts and parts[-1] == "**":
-            parts.pop()
-        if len(parts) < len(p.split("/")):
+        if parts[-1] == "**":
+            while parts and parts[-1] == "**":
+                parts.pop()
             parts.append("*")
         globs = ["/".join(parts) + "/**"]
     elif p.endswith(("/*", "/**")):

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from codeowners_suggestions import enforced_owner_groups, match_rules, suggested_owners
 from gitlab_review_pools import (
+    MANAGED_PREFIXES,
     REQUIRED_PREFIX,
     RULE_PREFIX,
     Side,
@@ -29,6 +30,7 @@ from gitlab_review_pools import (
     resolve_identities,
     resolve_pools,
     resolve_sides,
+    voided_required_rules,
 )
 
 
@@ -426,16 +428,17 @@ class GitLabReviewPoolTests(unittest.TestCase):
         ]
         pool = {"name": RULE_PREFIX + "@org/a", "approvals_required": 0, "user_ids": [7], "group_ids": []}
         self.assertEqual(
-            plan_changes([pool], existing), [{"method": "DELETE", "id": 4, "name": RULE_PREFIX + "@org/old"}]
+            plan_changes([pool], existing, prefixes=(RULE_PREFIX,)),
+            [{"method": "DELETE", "id": 4, "name": RULE_PREFIX + "@org/old"}],
         )
         pool["user_ids"] = [9]
         self.assertEqual(
-            plan_changes([pool], existing)[0],
+            plan_changes([pool], existing, prefixes=(RULE_PREFIX,))[0],
             {"method": "PUT", "id": 3, "body": {**pool, "remove_hidden_groups": True}, "name": pool["name"]},
         )
         existing[2]["approvals_required"] = 1
         with self.assertRaisesRegex(ValueError, "made required by hand"):
-            plan_changes([pool], existing)
+            plan_changes([pool], existing, prefixes=(RULE_PREFIX,))
 
     def test_hidden_or_visible_groups_prevent_pool_convergence(self):
         """Managed pools must contain only the desired explicit users."""
@@ -453,11 +456,11 @@ class GitLabReviewPoolTests(unittest.TestCase):
         for groups, hidden in (([], True), ([{"id": 9}], False), ([{"id": 9}], True)):
             with self.subTest(groups=groups, hidden=hidden):
                 actual = dict(current, groups=groups, contains_hidden_groups=hidden)
-                self.assertEqual(plan_changes([pool], [actual]), expected)
+                self.assertEqual(plan_changes([pool], [actual], prefixes=(RULE_PREFIX,)), expected)
                 cleaned = dict(actual, groups=[], contains_hidden_groups=False)
-                self.assertEqual(plan_changes([pool], [cleaned]), [])
-        self.assertEqual(plan_changes([pool], [current]), [])
-        self.assertEqual(plan_changes([pool], []), [{"method": "POST", "body": pool}])
+                self.assertEqual(plan_changes([pool], [cleaned], prefixes=(RULE_PREFIX,)), [])
+        self.assertEqual(plan_changes([pool], [current], prefixes=(RULE_PREFIX,)), [])
+        self.assertEqual(plan_changes([pool], [], prefixes=(RULE_PREFIX,)), [{"method": "POST", "body": pool}])
 
     def test_explicit_site_convention_uses_audited_account_not_github_handle(self):
         """Private-email accounts resolve only through the selected site convention."""
@@ -798,7 +801,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             [{"method": "PUT", "id": 2, "body": {**required, "remove_hidden_groups": True}, "name": required["name"]}],
         )
         self.assertEqual(
-            plan_changes([required], existing),
+            plan_changes([required], existing, prefixes=MANAGED_PREFIXES),
             [
                 {
                     "method": "PUT",
@@ -1151,7 +1154,9 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         """An MR touching only un-owned files has an empty required side; stale rules go, nothing falls back."""
         stale = {1: {"id": 1, "name": REQUIRED_PREFIX + "@org/old", "approvals_required": 1, "rule_type": "regular"}}
         stale[1].update(users=[], groups=[])
-        with patch.object(self, "RULES", "/bio/ @org/bio\n/README.md"):
+        mr = json.loads(json.dumps(self.MR))
+        mr["changes"] = [{"new_path": "README.md", "deleted_file": False}]
+        with patch.object(self, "RULES", "/bio/ @org/bio\n/README.md"), patch.object(self, "MR", mr):
             plan, writes, failure = self.run_main(
                 {"bob": "bob", "mia": "mia"},
                 [self.member(11, "bob"), self.member(12, "mia")],
@@ -1161,9 +1166,38 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
                 rules=stale,
             )
         self.assertIsNone(failure)
-        self.assertEqual(plan["required_owners"], [["@org/bio"]])
+        self.assertEqual(plan["required_owners"], [])
         self.assertEqual([ident for method, ident, _ in writes if method == "DELETE"], ["1"])
         self.assertFalse(plan["fallback_applied"])
+
+    def test_foreign_rule_under_the_required_prefix_stops_the_run_before_any_write(self):
+        """A hand-made non-regular rule under github-codeowners: is not ours to rewrite; nothing is written."""
+        foreign = {
+            1: {"id": 1, "name": REQUIRED_PREFIX + "@org/arch", "approvals_required": 1, "rule_type": "any_approver"}
+        }
+        foreign[1].update(users=[], groups=[])
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        with self.assertRaisesRegex(ValueError, "not a regular rule"):
+            self.run_main(identities, members, "--apply", rules=foreign)
+        self.assertEqual(list(self.rules), [1])
+
+    def test_required_rule_without_eligible_approvers_is_reported(self):
+        """GitLab auto-approves a rule nobody may approve; the adapter must not call that converged."""
+        rules = [
+            {"name": REQUIRED_PREFIX + "@org/a", "eligible_approvers": []},
+            {"name": REQUIRED_PREFIX + "@org/b", "eligible_approvers": [{"id": 1}]},
+            {"name": RULE_PREFIX + "@org/c", "eligible_approvers": []},
+            {"name": REQUIRED_PREFIX + "@org/d"},
+        ]
+        self.assertEqual(voided_required_rules(rules), [REQUIRED_PREFIX + "@org/a"])
+
+    def test_invalid_json_from_a_cli_is_a_lookup_failure(self):
+        """Truncated gh/glab output must reach the fallback like any other failed lookup."""
+        result = subprocess.CompletedProcess(["gh"], 0, stdout='[{"login": "a"', stderr="")
+        with patch("gitlab_review_pools.subprocess.run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "returned invalid JSON"):
+                api("gh", "orgs/org/teams/bio/members")
 
     def test_healthy_run_replaces_the_fallback_rule_with_exact_pools(self):
         """Recovery: once the problems are fixed, the fallback rule gives way to the exact pools and the run exits 0."""
@@ -1186,9 +1220,11 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         required = {"name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "user_ids": [7], "group_ids": []}
         foreign = {"id": 1, "name": REQUIRED_PREFIX + "@org/a", "approvals_required": 1, "rule_type": "any_approver"}
         with self.assertRaisesRegex(ValueError, "not a regular rule"):
-            plan_changes([required], [foreign])
+            plan_changes([required], [foreign], prefixes=(REQUIRED_PREFIX,))
         strict = {**foreign, "rule_type": "regular", "approvals_required": 2, "users": [{"id": 7}], "groups": []}
-        self.assertEqual([change["method"] for change in plan_changes([required], [strict])], ["PUT"])
+        self.assertEqual(
+            [change["method"] for change in plan_changes([required], [strict], prefixes=(REQUIRED_PREFIX,))], ["PUT"]
+        )
 
     def test_changed_paths_cover_renames_and_deletions(self):
         """Renamed files use their new path; deletions count only for required review."""

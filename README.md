@@ -140,8 +140,12 @@ Limitation: the rules are MR-local, so GitLab lets the MR author and project
 Maintainers edit them, and no webhook fires for such an edit; the adapter
 restores the rules on the next MR update. Do not enable "Prevent editing
 approval rules in merge requests": that setting also removes the adapter's own
-permission to create or update MR approval rules. See "Consumer setup" below
-for how a failed run surfaces and what it does not block.
+permission to create or update MR approval rules. Likewise keep "Prevent
+approvals by users who add commits" off: GitLab treats a rule with no eligible
+approvers as satisfied, so that setting can void a required pool whose members
+all pushed to the branch (GitHub lets committing code owners approve). The
+adapter fails the run when a required rule reports no eligible approvers. See
+"Consumer setup" below for how a failed run surfaces and what it does not block.
 
 Requirements: Python 3.12+, Node.js 20+, npm, and authenticated `gh` and `glab`.
 The GitHub identity needs repository-content and team-membership read access;

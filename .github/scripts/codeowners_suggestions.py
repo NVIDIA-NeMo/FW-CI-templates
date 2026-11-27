@@ -169,8 +169,9 @@ def enforced_owner_groups(text: str, files: list[str]) -> list[list[str]]:
     Returns:
         Sorted distinct owner sets, one per winning enforced rule. GitHub
         accepts an approval from any owner of a file's last matching rule, so
-        each set maps to one approval rule with one required approval. A rule
-        without owners un-owns its files and contributes no set.
+        each set maps to one approval rule with one required approval. Mentions
+        are case-insensitive on GitHub, so they are lower-cased. A rule without
+        owners un-owns its files and contributes no set.
 
     Raises:
         ValueError: A path contains a line terminator, which glob engines do
@@ -181,7 +182,7 @@ def enforced_owner_groups(text: str, files: list[str]) -> list[list[str]]:
         raise ValueError(f"Paths with line terminators cannot be matched safely: {unsupported!r}")
     parsed = parse_codeowners(text)
     enforced = resolve_last_match_per_file(match_rules(parsed["enforced_rules"], files))
-    groups = {tuple(sorted(set(rule["owners"]))) for rule in enforced.values()} - {()}
+    groups = {tuple(sorted({owner.casefold() for owner in rule["owners"]})) for rule in enforced.values()} - {()}
     return [list(group) for group in sorted(groups)]
 
 

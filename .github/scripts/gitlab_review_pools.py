@@ -172,7 +172,7 @@ def mr_changed_paths(mr: dict, *, include_deleted: bool = False) -> list[str]:
 
 @functools.cache
 def github_members(owner: str) -> list[str]:
-    """Expand a GitHub team live, or retain a directly suggested account.
+    """Expand a GitHub team live, or retain a single account.
 
     Cached for the process lifetime: one run reads each team once even when it
     appears as a suggested owner, a required owner and the fallback.
@@ -363,7 +363,9 @@ def resolve_sides(
     return optional, required, side("fallback", REQUIRED_PREFIX) if fallback else None, identity_problems
 
 
-def plan_sides(optional: Side, required: Side, fallback: Side | None, *, enforce: bool) -> tuple[dict, list, bool]:
+def plan_sides(
+    optional: Side, required: Side, fallback: Side | None, *, enforce: bool
+) -> tuple[dict[str, list[dict]], list[str], bool]:
     """Decide what one run reconciles, so a problem on one side never weakens the other.
 
     Args:
@@ -395,18 +397,36 @@ def plan_sides(optional: Side, required: Side, fallback: Side | None, *, enforce
     return sides, blocking, degraded
 
 
-def voided_required_rules(rules: list[dict]) -> list[str]:
-    """Name required pools GitLab would auto-approve because nobody is left who may approve.
+def voided_required_rules(rules: list[dict], owned: set[str]) -> list[str]:
+    """Name this run's required pools that GitLab would auto-approve because nobody may approve.
 
     GitLab treats a regular rule with no eligible approvers as satisfied. The
     adapter excludes only the MR author; "Prevent approvals by users who add
     commits" can remove everyone else.
     """
-    return sorted(
-        rule["name"]
-        for rule in rules
-        if managed_prefix(rule["name"]) == REQUIRED_PREFIX and rule.get("eligible_approvers") == []
-    )
+    return sorted(rule["name"] for rule in rules if rule["name"] in owned and rule.get("eligible_approvers") == [])
+
+
+def apply_sides(hostname: str, root: str, mr: dict, sides: dict, changes_by_side: dict, existing: list) -> list:
+    """Apply and verify each side in order, then recheck every side against one final snapshot.
+
+    Returns the final approval-rule snapshot. Raises when a side did not
+    converge, a rule changed while a later side was being written, or one of
+    this run's required rules is left with no eligible approvers.
+    """
+    actual = existing
+    for prefix, side_changes in changes_by_side.items():
+        apply_changes(hostname, root, mr, side_changes)
+        actual = api("glab", root + "/approval_rules?per_page=100", hostname, paginate=True)
+        if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
+            raise RuntimeError(f"{prefix.removesuffix(': ')} pools did not converge; inspect the MR and rerun")
+    for prefix in changes_by_side:
+        if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
+            raise RuntimeError(f"{prefix.removesuffix(': ')} pools changed during reconciliation; rerun")
+    owned = {pool["name"] for prefix in changes_by_side for pool in sides[prefix]}
+    if voided := voided_required_rules(actual, owned):
+        raise RuntimeError(f"Required pools have no eligible approvers; check the committer-approval setting: {voided}")
+    return actual
 
 
 def plan_changes(pools: list[dict], existing: list[dict], *, prefixes: tuple[str, ...]) -> list[dict]:
@@ -649,21 +669,7 @@ def main() -> None:
     if blocking:
         raise SystemExit("Review-pool preconditions are not satisfied; no writes performed")
     if args.apply:
-        actual = existing
-        for prefix, side_changes in changes_by_side.items():
-            apply_changes(args.gitlab_host, root, mr, side_changes)
-            actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
-            if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
-                raise RuntimeError(f"{prefix.rstrip(': ')} pools did not converge; inspect the MR and rerun")
-        # One final snapshot covers every side: a rule edited while a later side was being
-        # written must not be reported as converged.
-        for prefix in changes_by_side:
-            if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
-                raise RuntimeError(f"{prefix.rstrip(': ')} pools changed during reconciliation; rerun")
-        if voided := voided_required_rules(actual):
-            raise RuntimeError(
-                f"Required pools have no eligible approvers; check the committer-approval setting: {voided}"
-            )
+        apply_sides(args.gitlab_host, root, mr, sides, changes_by_side, existing)
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
         pool_count = sum(len(sides[prefix]) for prefix in changes_by_side)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": pool_count, "reviewers": assignment}))

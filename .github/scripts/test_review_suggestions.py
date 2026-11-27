@@ -689,10 +689,15 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         overwritten: bool = True,
         enforce: bool = True,
         fail: tuple = (),
+        wrap=None,
     ) -> tuple[dict, list, str | None]:
-        """Run main() against the fake; return the printed plan, the writes, and the exit message."""
+        """Run main() against the fake; return the printed plan, the writes, and the exit message.
+
+        `wrap(api, rules)` may return a replacement api to inject behavior between calls.
+        """
         mr = json.loads(json.dumps(self.MR))
         api, self.rules, writes = self.fake_gitlab(mr, members, rules, overwritten=overwritten, fail=fail)
+        api = wrap(api, self.rules) if wrap else api
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "identities.json"
             path.write_text(json.dumps(identity_map))
@@ -1190,7 +1195,9 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             {"name": RULE_PREFIX + "@org/c", "eligible_approvers": []},
             {"name": REQUIRED_PREFIX + "@org/d"},
         ]
-        self.assertEqual(voided_required_rules(rules), [REQUIRED_PREFIX + "@org/a"])
+        owned = {REQUIRED_PREFIX + "@org/a", REQUIRED_PREFIX + "@org/b", REQUIRED_PREFIX + "@org/d"}
+        self.assertEqual(voided_required_rules(rules, owned), [REQUIRED_PREFIX + "@org/a"])
+        self.assertEqual(voided_required_rules(rules, set()), [], "rules this run does not own are ignored")
 
     def test_invalid_json_from_a_cli_is_a_lookup_failure(self):
         """Truncated gh/glab output must reach the fallback like any other failed lookup."""
@@ -1344,41 +1351,76 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         """The final snapshot covers every side, so a mid-run edit of a required rule fails the run."""
         identities = {"ann": "ann", "bob": "bob", "mia": "mia", "dan": "dan"}
         members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia"), self.member(13, "dan")]
-        mr = json.loads(json.dumps(self.MR))
-        api, self.rules, writes = self.fake_gitlab(mr, members)
-        state = {"optional_written": False}
 
-        def racing_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
-            result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
-            if method == "POST" and body["name"].startswith(RULE_PREFIX):
-                state["optional_written"] = True
-            if state["optional_written"] and method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
-                for rule in self.rules.values():
-                    if rule["name"].startswith(REQUIRED_PREFIX):
-                        rule["approvals_required"] = 0
-            return result
+        def racing(api, rules):
+            state = {"optional_written": False}
 
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "identities.json"
-            path.write_text(json.dumps(identities))
-            argv = ["script", "--gitlab-host", "example.test", "--project", "1", "--mr", "2", "--target-branch"]
-            argv += ["internal", "--github-repository", "org/repo", "--identity-map", str(path), "--apply"]
-            argv += ["--require-codeowners"]
-            with (
-                patch("sys.argv", argv),
-                patch("gitlab_review_pools.api", side_effect=racing_api),
-                patch(
-                    "gitlab_review_pools.trusted_rules",
-                    return_value=("sha", self.RULES + "\n# suggest: /README.md @org/docs"),
-                ),
-                patch(
-                    "gitlab_review_pools.github_members", side_effect=lambda o: {**self.TEAMS, "@org/docs": ["dan"]}[o]
-                ),
-                patch("builtins.print"),
-                self.assertRaisesRegex(RuntimeError, "changed during reconciliation"),
-            ):
-                main()
-        self.assertEqual([body for method, _, body in writes if "reviewer_ids" in body], [], "no reviewer assignment")
+            def racing_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+                result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
+                if method == "POST" and body["name"].startswith(RULE_PREFIX):
+                    state["optional_written"] = True
+                if state["optional_written"] and method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
+                    for rule in rules.values():
+                        if rule["name"].startswith(REQUIRED_PREFIX):
+                            rule["approvals_required"] = 0
+                return result
+
+            return racing_api
+
+        with (
+            patch.object(self, "RULES", self.RULES + "\n# suggest: /README.md @org/docs"),
+            patch.dict(self.TEAMS, {"@org/docs": ["dan"]}),
+            self.assertRaisesRegex(RuntimeError, "changed during reconciliation"),
+        ):
+            self.run_main(identities, members, "--apply", wrap=racing)
+
+    def test_required_rule_left_without_eligible_approvers_fails_the_apply(self):
+        """GitLab reporting no eligible approvers on one of our required rules is a failure, not success."""
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+
+        def voiding(api, rules):
+            def voiding_api(provider, endpoint, hostname="", *, method="GET", body=None, paginate=False):
+                result = api(provider, endpoint, hostname, method=method, body=body, paginate=paginate)
+                if method == "GET" and endpoint.endswith("/approval_rules?per_page=100"):
+                    for rule in rules.values():
+                        rule["eligible_approvers"] = (
+                            [] if rule["name"] == REQUIRED_PREFIX + "@org/arch" else rule["users"]
+                        )
+                return result
+
+            return voiding_api
+
+        with self.assertRaisesRegex(RuntimeError, "no eligible approvers.*@org/arch"):
+            self.run_main(identities, members, "--apply", wrap=voiding)
+
+    def test_foreign_required_rule_without_approvers_does_not_fail_an_optional_only_run(self):
+        """A rule this run does not own is never the reason an advisory run fails."""
+        foreign = {1: {"id": 1, "name": REQUIRED_PREFIX + "@other/team", "approvals_required": 1}}
+        foreign[1].update(rule_type="regular", users=[], groups=[], eligible_approvers=[])
+        plan, writes, failure = self.run_main(
+            {"ann": "ann", "bob": "bob"},
+            [self.member(10, "ann"), self.member(11, "bob")],
+            "--apply",
+            rules=foreign,
+            enforce=False,
+        )
+        self.assertIsNone(failure)
+
+    def test_malformed_user_payload_is_an_identity_problem(self):
+        """A GitLab user object missing a field is reported for that account, not a crash."""
+        roster = {"ann": {"nvidia_email": "ann@nvidia.com"}}
+        with (
+            patch("gitlab_review_pools.sso_roster", return_value=roster),
+            patch("gitlab_review_pools.api", side_effect=[[{"id": 7}]]),
+        ):
+            identities, problems = resolve_identities({"ann"}, "example.test", username_from_email=True)
+        self.assertEqual(identities, {})
+        self.assertEqual(problems, ["ann: 'username'"])
+
+    def test_owner_mentions_are_case_insensitive(self):
+        rules = "\n".join(["/a/ @Org/Bio", "/b/ @org/bio"])
+        self.assertEqual(enforced_owner_groups(rules, ["a/x.py", "b/y.py"]), [["@org/bio"]])
 
     def test_fallback_requires_the_enforcement_flag(self):
         argv = ["script", "--gitlab-host", "h", "--project", "1", "--mr", "2", "--target-branch", "b"]

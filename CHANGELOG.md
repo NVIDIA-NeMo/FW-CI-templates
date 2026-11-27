@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.17.0](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.3...v1.17.0) (2026-11-27)
+
+
+### Features
+
+* **code-freeze:** announce /cherrypick instead of cherry-pick labels ([#633](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/633)) ([fb3b45e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/fb3b45eed8585aafae60297464a004eb209fc95a))
+* **guardwords:** support a read-only catalog deploy key ([#640](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/640)) ([7c09a9e](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/7c09a9e67a5cd4f2e73803114195d6705738d6c1))
+* **review:** reuse github review pools for gitlab merge requests ([#627](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/627)) ([6433b3b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/6433b3b14022abe1a72da8baac638944b36e3099))
+* **triage:** reconcile community labels with repository job tokens ([#642](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/642)) ([0472fc3](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/0472fc397f9d6de36d928cae2aa270d91eb2c71d))
+* **workflows:** support protected release apps and scoped team lookups ([#636](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/636)) ([55cc544](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/55cc5446f6f10455191f78eb2c8f53bc9028aa97))
+
+
+### Bug Fixes
+
+* **review:** assign reviewers to unassigned gitlab merge requests ([#631](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/631)) ([f6e8ed5](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f6e8ed5837b263566534bf0dff0d83a7c653ca8b))
+* **reviewers:** scope team review tokens to the caller repository ([#643](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/643)) ([39d60a4](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/39d60a41dbd0f21c065492160394cd4c29ec86ce))
+* **review:** stop assigning gitlab reviewers from review pools ([#637](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/637)) ([8a895fc](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/8a895fc3b1e1d23866c273937e36b229cfd76729))
+* **template:** pin code freeze to the /cherrypick PSA ([#634](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/634)) ([f9af1d0](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f9af1d0a1c995ac62b289d8f2a9733a3d15b6b77))
+* **triage:** classify community authors from the SSO roster ([#644](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/644)) ([f47f58b](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/f47f58bcf571d7dee8678e0fc5f6eec7800dadd4))
+* **workflows:** pass dynamic values to shell commands as data ([#638](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/638)) ([b6b4df4](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/b6b4df4160277e1048091f972eda0c51319bc845))
+* **workflows:** read approval queue state with the job token ([#639](https://github.com/NVIDIA-NeMo/FW-CI-templates/issues/639)) ([682ca61](https://github.com/NVIDIA-NeMo/FW-CI-templates/commit/682ca61a1885d50dad6a9dbefb05377f1d5c5c61))
+
 ## [1.16.3](https://github.com/NVIDIA-NeMo/FW-CI-templates/compare/v1.16.2...v1.16.3) (2026-11-16)
 
 

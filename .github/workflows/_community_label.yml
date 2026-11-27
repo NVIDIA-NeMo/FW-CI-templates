@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+name: Reconcile community label
+
+on:
+  workflow_call:
+    secrets:
+      NVIDIA_MANAGEMENT_ORG_PAT:
+        description: Read-only identity credential with private member visibility in NVIDIA and NVIDIA-NeMo
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: community-label-${{ github.repository_id }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    if: >-
+      (github.event_name == 'issues' && contains(fromJSON('["opened","edited","reopened","closed"]'), github.event.action)) ||
+      (github.event_name == 'issue_comment' && contains(fromJSON('["created","edited","deleted"]'), github.event.action))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      issues: read
+      pull-requests: read
+    outputs:
+      decision: ${{ steps.author.outputs.decision }}
+    steps:
+      - name: Classify the issue or pull request author
+        id: author
+        uses: $/.github/actions/community-label
+        with:
+          phase: classify
+        env:
+          MEMBERSHIP_TOKEN: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
+
+  publish-issue:
+    if: needs.classify.outputs.decision != '' && !github.event.issue.pull_request
+    needs: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      issues: write
+    steps:
+      - name: Reconcile the issue label
+        uses: $/.github/actions/community-label
+        with:
+          phase: publish-issue
+          decision: ${{ needs.classify.outputs.decision }}
+
+  publish-pr:
+    if: needs.classify.outputs.decision != '' && github.event.issue.pull_request
+    needs: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      issues: read
+      pull-requests: write
+    steps:
+      - name: Reconcile the pull request label
+        uses: $/.github/actions/community-label
+        with:
+          phase: publish-pr
+          decision: ${{ needs.classify.outputs.decision }}

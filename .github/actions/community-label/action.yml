@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+name: Community label
+description: Classify the author or reconcile the label on the triggering GitHub item
+inputs:
+  phase:
+    description: Workflow phase
+    required: true
+  decision:
+    description: Exact item snapshot and desired label presence from the classification job
+    required: false
+outputs:
+  decision:
+    description: Label change for the triggering item, if needed
+    value: ${{ steps.run.outputs.decision }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        REPO_TOKEN: ${{ github.token }}
+        PHASE: ${{ inputs.phase }}
+        DECISION: ${{ inputs.decision }}
+      run: python3 -I "$GITHUB_ACTION_PATH/community_label.py"

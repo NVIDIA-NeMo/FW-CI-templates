@@ -28,7 +28,6 @@ OTHER_ASSOCIATIONS = {
     "NONE",
 }
 LABEL = "community-request"
-GITHUB_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}(?:\[bot\])?")
 MEMBER_ROLE = re.compile(r"([A-Za-z0-9_-]+):(?:Member|Owner)")
 COLLABORATOR_ROLE = re.compile(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+:Collaborator")
 
@@ -121,7 +120,9 @@ def snapshot(event_name, event, repository, repository_id, repo_request):
     if item_identity(current, repository, repository_id) != target:
         raise ValueError("Current GitHub item differs from the triggering item")
     login = current["user"]["login"]
-    if not isinstance(login, str) or not GITHUB_LOGIN.fullmatch(login):
+    if not isinstance(login, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}(?:\[bot\])?", login
+    ):
         raise ValueError("Unknown GitHub author")
     association = current.get("author_association")
     if association not in ASSOCIATED | OTHER_ASSOCIATIONS:
@@ -158,32 +159,55 @@ def load_sso_roster():
         return json.loads((Path(directory) / "users_sso.json").read_bytes())
 
 
-def roster_membership(roster, login):
-    """Read the original author's organization roles from a complete SSO snapshot."""
-    if not isinstance(roster, dict) or not roster:
-        raise ValueError("Invalid GitHub SSO roster")
-    matching_roles = None
-    for account, record in roster.items():
-        roles = record.get("org_roles") if isinstance(record, dict) else None
-        if (
-            not isinstance(account, str)
-            or not GITHUB_LOGIN.fullmatch(account)
-            or not isinstance(roles, list)
-            or not all(isinstance(role, str) and role for role in roles)
+def recorded_membership(record):
+    """Return target-org membership, or None for an unrecognizable audit record."""
+    if not isinstance(record, dict):
+        return None
+    roles = record.get("org_roles")
+    if roles is None:
+        email = record.get("nvidia_email")
+        if isinstance(email, str) and re.fullmatch(
+            r"[^@\s]+@nvidia\.com", email, re.IGNORECASE
         ):
-            raise ValueError("Invalid GitHub SSO roster record")
-        if account.casefold() == login.casefold():
-            if matching_roles is not None:
-                raise ValueError("Ambiguous GitHub SSO account")
-            matching_roles = roles
+            return False
+        return None
+    if not isinstance(roles, list):
+        return None
     member = False
-    for role in matching_roles or []:
+    for role in roles:
+        if not isinstance(role, str):
+            return None
         match = MEMBER_ROLE.fullmatch(role)
         if match:
             member = member or match[1].casefold() in {"nvidia", "nvidia-nemo"}
         elif not COLLABORATOR_ROLE.fullmatch(role):
-            raise ValueError("Unknown GitHub SSO organization role")
+            return None
     return member
+
+
+def roster_membership(roster, login):
+    """Look up one author and require a recognizable roster before accepting absence."""
+    if not isinstance(roster, dict) or not roster:
+        raise ValueError("Invalid GitHub SSO roster")
+    matches = [
+        (account, record)
+        for account, record in roster.items()
+        if account.strip().casefold() == login.casefold()
+    ]
+    if matches:
+        account, record = matches[0]
+        if len(matches) != 1 or account != account.strip():
+            raise ValueError("Ambiguous GitHub SSO account")
+        member = recorded_membership(record)
+        if member is None:
+            raise ValueError("Invalid GitHub SSO author record")
+        return member
+    if any(
+        account.strip() and recorded_membership(record) is not None
+        for account, record in roster.items()
+    ):
+        return False
+    raise ValueError("No recognizable account in the GitHub SSO roster")
 
 
 def internal_author(item, repo_request, load_roster):

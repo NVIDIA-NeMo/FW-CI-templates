@@ -358,6 +358,42 @@ def test_roster_enrollment_without_target_membership_receives_label(roles):
     ]
 
 
+@pytest.mark.parametrize("roles", [{}, {"org_roles": None}])
+def test_sso_email_with_omitted_or_null_roles_is_external(roles):
+    """The audited email field identifies an enrolled account with no assigned org roles."""
+    github = GitHub()
+    github.load_roster.return_value = {
+        LOGIN: {"nvidia_email": "example@nvidia.com", **roles}
+    }
+    github.run()
+    assert github.writes == [
+        ("POST", f"{github.item_path}/labels", {"labels": [LABEL]})
+    ]
+
+
+@pytest.mark.parametrize("listed", [True, False])
+def test_unrelated_legacy_records_allow_author_lookup(listed):
+    """Optional or unfamiliar fields on other users cannot invalidate a known author or absence."""
+    github = GitHub()
+    roster = {
+        "legacy.identifier": {"legacy_id": 123},
+        "no-roles": {"nvidia_email": "example@nvidia.com"},
+        "null-roles": {"org_roles": None},
+        "other-user": {"org_roles": ["Other:Owner"]},
+    }
+    if listed:
+        roster[LOGIN.upper()] = {"org_roles": ["NVIDIA-NeMo:Member"]}
+        github.item["labels"] = [{"name": LABEL}]
+    github.load_roster.return_value = roster
+    github.run()
+    if listed:
+        assert github.writes == [("DELETE", f"{github.item_path}/labels/{LABEL}", None)]
+    else:
+        assert github.writes == [
+            ("POST", f"{github.item_path}/labels", {"labels": [LABEL]})
+        ]
+
+
 @pytest.mark.parametrize(
     "roster",
     [
@@ -367,6 +403,8 @@ def test_roster_enrollment_without_target_membership_receives_label(roles):
         {"message": "unexpected payload"},
         {f"{LOGIN} ": {"org_roles": ["NVIDIA:Member"]}},
         {"other": {"org_roles": [None]}},
+        {"legacy": {}, "message": {"unexpected": "response"}},
+        {"other": {"org_roles": []}, LOGIN: {"unknown": True}},
         {LOGIN: None},
         {LOGIN: {}},
         {LOGIN: {"org_roles": "NVIDIA:Member"}},

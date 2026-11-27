@@ -19,7 +19,9 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import quote
 
 from codeowners_suggestions import enforced_owner_groups, suggested_owners
@@ -297,19 +299,72 @@ def resolve_pools(
     return pools, sorted(set(problems)), sorted(set(warnings))
 
 
-def plan_sides(
-    optional: tuple[list[dict], list[str]],
-    required: tuple[list[dict], list[str]],
-    fallback: tuple[list[dict], list[str]] | None,
-    *,
-    enforce: bool,
-) -> tuple[dict[str, list[dict]], list[str], bool]:
+class Side(NamedTuple):
+    """One family of approval rules: its desired pools and what went wrong resolving them."""
+
+    pools: list[dict]
+    problems: list[str]
+    warnings: list[str] = []
+
+
+def expand_owners(owners: list[str]) -> tuple[list[str], list[str]]:
+    """Expand owners to GitHub logins; a failed lookup becomes a problem instead of a crash."""
+    logins, problems = set(), []
+    for owner in owners:
+        try:
+            logins.update(github_members(owner))
+        except RuntimeError as error:
+            problems.append(f"{owner}: {error}")
+    return sorted(logins), problems
+
+
+def resolve_sides(
+    owners: list[str],
+    groups: list[list[str]],
+    fallback: str | None,
+    identities_for: Callable[[set[str]], tuple[dict[str, str], list[str]]],
+    members: list[dict],
+    author_id: int,
+) -> tuple[Side, Side, Side | None, list[str]]:
+    """Resolve the optional, required and fallback sides from live GitHub membership.
+
+    Args:
+        owners: Suggested owners, one optional pool each.
+        groups: Enforced owner sets, one required pool each.
+        fallback: Fallback team for the required side, or None.
+        identities_for: Maps GitHub logins to GitLab usernames, with per-account problems.
+        members: Effective GitLab project members.
+        author_id: MR author to exclude from pools.
+
+    Returns:
+        The optional side, the required side, the fallback side (None when not
+        configured) and identity-lookup problems that belong to no single side.
+    """
+    expanded = {
+        RULE_PREFIX: {owner: expand_owners([owner]) for owner in owners},
+        REQUIRED_PREFIX: {" ".join(group): expand_owners(group) for group in groups},
+        "fallback": {f"fallback {fallback}": expand_owners([fallback])} if fallback else {},
+    }
+    logins = {login for side in expanded.values() for members_, _ in side.values() for login in members_}
+    identities, identity_problems = identities_for(logins)
+
+    def side(key: str, prefix: str) -> Side:
+        memberships = {name: logins for name, (logins, _) in expanded[key].items()}
+        pools, problems, warnings = resolve_pools(memberships, identities, members, author_id, prefix=prefix)
+        lookup_problems = [problem for _, problems_ in expanded[key].values() for problem in problems_]
+        return Side(pools, sorted({*problems, *lookup_problems}), warnings)
+
+    optional, required = side(RULE_PREFIX, RULE_PREFIX), side(REQUIRED_PREFIX, REQUIRED_PREFIX)
+    return optional, required, side("fallback", REQUIRED_PREFIX) if fallback else None, identity_problems
+
+
+def plan_sides(optional: Side, required: Side, fallback: Side | None, *, enforce: bool) -> tuple[dict, list, bool]:
     """Decide what one run reconciles, so a problem on one side never weakens the other.
 
     Args:
         optional: Suggested pools and their problems.
         required: Code-owner pools and their problems.
-        fallback: The fallback pool and its problems, when configured and needed.
+        fallback: The fallback pool and its problems, when configured.
         enforce: Whether required pools are managed in this run.
 
     Returns:
@@ -323,19 +378,15 @@ def plan_sides(
     nothing is left to reconcile, every problem blocks, as it always did for
     optional-only runs.
     """
-    optional_pools, optional_problems = optional
-    required_pools, required_problems = required
-    degraded = bool(required_problems and fallback and not fallback[1])
-    if degraded:
-        required_pools = fallback[0]
+    degraded = bool(required.problems and fallback and not fallback.problems)
     sides = {}
     if enforce:
-        sides[REQUIRED_PREFIX] = required_pools
-    if not optional_problems:
-        sides[RULE_PREFIX] = optional_pools
-    blocking = [] if degraded else list(required_problems)
+        sides[REQUIRED_PREFIX] = fallback.pools if degraded else required.pools
+    if not optional.problems:
+        sides[RULE_PREFIX] = optional.pools
+    blocking = [] if degraded else list(required.problems)
     if not sides:
-        blocking = sorted({*optional_problems, *required_problems})
+        blocking = sorted({*optional.problems, *required.problems})
     return sides, blocking, degraded
 
 
@@ -522,52 +573,22 @@ def main() -> None:
     members = api(
         "glab", f"projects/{quote(args.project, safe='')}/members/all?per_page=100", args.gitlab_host, paginate=True
     )
-    lookups: dict[str, list[str]] = {"optional": [], "required": [], "fallback": []}
-
-    def expand(owner: str, side: str) -> list[str]:
-        """Expand one owner; a failed lookup becomes a problem on its side instead of a crash."""
-        try:
-            return github_members(owner)
-        except RuntimeError as error:
-            lookups[side].append(f"{owner}: {error}")
-            return []
-
-    memberships = {owner: expand(owner, "optional") for owner in owners}
-    required_memberships = {
-        " ".join(group): sorted({login for owner in group for login in expand(owner, "required")}) for group in groups
-    }
-    fallback = args.codeowners_fallback
-    fallback_memberships = {f"fallback {fallback}": expand(fallback, "fallback")} if fallback else {}
-    identities, identity_problems = (
-        (json.loads(args.identity_map.read_text(encoding="utf-8")), [])
-        if args.identity_map
-        else resolve_identities(
-            set().union(*memberships.values(), *required_memberships.values(), *fallback_memberships.values()),
-            args.gitlab_host,
-            username_from_email=args.gitlab_username_from_email,
+    if args.identity_map:
+        mapping = json.loads(args.identity_map.read_text(encoding="utf-8"))
+        identities_for = lambda logins: (mapping, [])  # noqa: E731
+    else:
+        identities_for = functools.partial(
+            resolve_identities, hostname=args.gitlab_host, username_from_email=args.gitlab_username_from_email
         )
-    )
     author_id = mr["author"]["id"]
-    pools, optional_problems, warnings = resolve_pools(memberships, identities, members, author_id)
-    required, required_problems, required_warnings = resolve_pools(
-        required_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
+    optional, required, fallback, identity_problems = resolve_sides(
+        owners, groups, args.codeowners_fallback, identities_for, members, author_id
     )
-    optional_problems += lookups["optional"]
-    required_problems += lookups["required"]
-    problems = [*optional_problems, *required_problems, *lookups["fallback"], *identity_problems]
-    warnings += required_warnings
-    fallback_side = None
-    if required_problems and fallback:
-        fallback_pools, fallback_problems, fallback_warnings = resolve_pools(
-            fallback_memberships, identities, members, author_id, prefix=REQUIRED_PREFIX
-        )
-        fallback_side = (fallback_pools, sorted({*fallback_problems, *lookups["fallback"]}))
-        problems += fallback_side[1]
-        warnings += fallback_warnings
-    sides, blocking, degraded = plan_sides(
-        (pools, optional_problems), (required, required_problems), fallback_side, enforce=args.require_codeowners
-    )
-    reviewer_pools = pools if RULE_PREFIX in sides else []
+    resolved = [side for side in (optional, required, fallback) if side]
+    problems = [problem for side in resolved for problem in side.problems] + identity_problems
+    warnings = [warning for side in resolved for warning in side.warnings]
+    sides, blocking, degraded = plan_sides(optional, required, fallback, enforce=args.require_codeowners)
+    reviewer_pools = optional.pools if RULE_PREFIX in sides else []
     existing = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
     changes_by_side = {}
     for prefix, side_pools in sides.items():
@@ -611,14 +632,14 @@ def main() -> None:
             apply_changes(args.gitlab_host, root, mr, side_changes)
             actual = api("glab", root + "/approval_rules?per_page=100", args.gitlab_host, paginate=True)
             if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
-                raise RuntimeError(f"{prefix}pools did not converge; inspect the MR and rerun")
+                raise RuntimeError(f"{prefix.rstrip(': ')} pools did not converge; inspect the MR and rerun")
         # One final snapshot covers every side: a rule edited while a later side was being
         # written must not be reported as converged.
         for prefix in changes_by_side:
             if plan_changes(sides[prefix], actual, prefixes=(prefix,)):
-                raise RuntimeError(f"{prefix}pools changed during reconciliation; rerun")
+                raise RuntimeError(f"{prefix.rstrip(': ')} pools changed during reconciliation; rerun")
         assignment = assign_reviewers_if_empty(args.gitlab_host, root, mr, reviewer_pools)
-        pool_count = sum(len(side_pools) for side_pools in sides.values())
+        pool_count = sum(len(sides[prefix]) for prefix in changes_by_side)
         print(json.dumps({"applied": True, "mr": args.mr, "pool_count": pool_count, "reviewers": assignment}))
     if degraded:
         raise SystemExit("Code-owner pools fell back to the configured team; fix the listed problems")

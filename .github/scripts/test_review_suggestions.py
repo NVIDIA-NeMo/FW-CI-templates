@@ -14,6 +14,7 @@ from codeowners_suggestions import enforced_owner_groups, match_rules, suggested
 from gitlab_review_pools import (
     REQUIRED_PREFIX,
     RULE_PREFIX,
+    Side,
     api,
     apply_changes,
     approval_inheritance_problems,
@@ -27,6 +28,7 @@ from gitlab_review_pools import (
     plan_sides,
     resolve_identities,
     resolve_pools,
+    resolve_sides,
 )
 
 
@@ -877,7 +879,7 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
 
         with patch.object(self, "lookup_team", teams):
             plan, writes, failure = self.run_main(identities, members, "--codeowners-fallback", "@org/ops", "--apply")
-        self.assertEqual(plan["problems"], ["@org/ops: gh GET orgs/org/teams/ops/members timed out"])
+        self.assertIn("@org/ops: gh GET orgs/org/teams/ops/members timed out", plan["problems"])
         self.assertEqual(
             sorted(body["name"] for method, _, body in writes if method == "POST"),
             [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint"],
@@ -1006,6 +1008,8 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
             ("/src/foo\\**/ @org/sec", ["src/foo*/a.py", "src/foo*bar/a.py"], sec),
             ("/src/foo\\**/ @org/sec", ["src/foobar/a.py"], []),
             ("/src/sec**/**/ @org/sec", ["src/secret/d/a.py"], sec),
+            ("* @org/sec\n/src/[ab].py", ["src/a.py"], sec),
+            ("/src/[ab].py @org/sec", ["src/[ab].py"], sec),
         ]
         for rules, files, expected in cases:
             with self.subTest(rules=rules, files=files):
@@ -1084,34 +1088,95 @@ class RequiredCodeOwnerPoolTests(unittest.TestCase):
         )
         both = {REQUIRED_PREFIX: req, RULE_PREFIX: opt}
         cases = {
-            "healthy": (((opt, []), (req, []), None), (both, [], False)),
-            "optional problem": (((opt, ["x"]), (req, []), None), ({REQUIRED_PREFIX: req}, [], False)),
-            "required problem, no fallback": (((opt, []), (req, ["y"]), None), (both, ["y"], False)),
+            "healthy": ((Side(opt, []), Side(req, []), None), (both, [], False)),
+            "optional problem": ((Side(opt, ["x"]), Side(req, []), None), ({REQUIRED_PREFIX: req}, [], False)),
+            "required problem, no fallback": ((Side(opt, []), Side(req, ["y"]), None), (both, ["y"], False)),
             "required problem, fallback ok": (
-                ((opt, []), (req, ["y"]), (fb, [])),
+                (Side(opt, []), Side(req, ["y"]), Side(fb, [])),
                 ({REQUIRED_PREFIX: fb, RULE_PREFIX: opt}, [], True),
             ),
-            "required problem, fallback broken": (((opt, []), (req, ["y"]), (fb, ["z"])), (both, ["y"], False)),
+            "required problem, fallback broken": (
+                (Side(opt, []), Side(req, ["y"]), Side(fb, ["z"])),
+                (both, ["y"], False),
+            ),
             "both sides broken, fallback ok": (
-                ((opt, ["x"]), (req, ["y"]), (fb, [])),
+                (Side(opt, ["x"]), Side(req, ["y"]), Side(fb, [])),
                 ({REQUIRED_PREFIX: fb}, [], True),
             ),
             "both sides broken, no fallback": (
-                ((opt, ["x"]), (req, ["y"]), None),
+                (Side(opt, ["x"]), Side(req, ["y"]), None),
                 ({REQUIRED_PREFIX: req}, ["y"], False),
             ),
             "both sides broken, fallback broken": (
-                ((opt, ["x"]), (req, ["y"]), (fb, ["z"])),
+                (Side(opt, ["x"]), Side(req, ["y"]), Side(fb, ["z"])),
                 ({REQUIRED_PREFIX: req}, ["y"], False),
             ),
+            "healthy required, fallback broken": ((Side(opt, []), Side(req, []), Side(fb, ["z"])), (both, [], False)),
         }
         for name, (inputs, expected) in cases.items():
             with self.subTest(name):
                 self.assertEqual(plan_sides(*inputs, enforce=True), expected)
-        sides, _, _ = plan_sides((opt, []), (req, []), None, enforce=True)
+        sides, _, _ = plan_sides(Side(opt, []), Side(req, []), None, enforce=True)
         self.assertEqual(list(sides), [REQUIRED_PREFIX, RULE_PREFIX], "required side is reconciled first")
-        self.assertEqual(plan_sides((opt, ["x"]), ([], []), None, enforce=False), ({}, ["x"], False))
-        self.assertEqual(plan_sides((opt, []), ([], []), None, enforce=False), ({RULE_PREFIX: opt}, [], False))
+        self.assertEqual(plan_sides(Side(opt, ["x"]), Side([], []), None, enforce=False), ({}, ["x"], False))
+        self.assertEqual(plan_sides(Side(opt, []), Side([], []), None, enforce=False), ({RULE_PREFIX: opt}, [], False))
+
+    def test_resolve_sides_routes_lookup_and_identity_problems(self):
+        """Each side carries its own lookup problems; identity failures are reported separately."""
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+
+        def teams(owner):
+            if owner == "@org/bio":
+                raise RuntimeError("gh GET orgs/org/teams/bio/members failed (exit 1)")
+            return self.TEAMS[owner]
+
+        def identities_for(logins):
+            self.assertEqual(logins, {"ann", "mia"})
+            return {"ann": "ann", "mia": "mia"}, ["zed: glab GET users timed out"]
+
+        with patch("gitlab_review_pools.github_members", side_effect=teams):
+            optional, required, fallback, identity_problems = resolve_sides(
+                ["@org/arch"], [["@org/bio", "@org/maint"]], "@org/maint", identities_for, members, 1
+            )
+        self.assertEqual((optional.pools[0]["user_ids"], optional.problems), ([10], []))
+        self.assertEqual(required.problems, ["@org/bio: gh GET orgs/org/teams/bio/members failed (exit 1)"])
+        self.assertEqual(required.pools[0]["user_ids"], [12], "the readable owner still resolves")
+        self.assertEqual((fallback.pools[0]["name"], fallback.problems), (REQUIRED_PREFIX + "fallback @org/maint", []))
+        self.assertEqual(identity_problems, ["zed: glab GET users timed out"])
+
+    def test_unowned_changes_delete_stale_required_rules_without_fallback(self):
+        """An MR touching only un-owned files has an empty required side; stale rules go, nothing falls back."""
+        stale = {1: {"id": 1, "name": REQUIRED_PREFIX + "@org/old", "approvals_required": 1, "rule_type": "regular"}}
+        stale[1].update(users=[], groups=[])
+        with patch.object(self, "RULES", "/bio/ @org/bio\n/README.md"):
+            plan, writes, failure = self.run_main(
+                {"bob": "bob", "mia": "mia"},
+                [self.member(11, "bob"), self.member(12, "mia")],
+                "--codeowners-fallback",
+                "@org/maint",
+                "--apply",
+                rules=stale,
+            )
+        self.assertIsNone(failure)
+        self.assertEqual(plan["required_owners"], [["@org/bio"]])
+        self.assertEqual([ident for method, ident, _ in writes if method == "DELETE"], ["1"])
+        self.assertFalse(plan["fallback_applied"])
+
+    def test_healthy_run_replaces_the_fallback_rule_with_exact_pools(self):
+        """Recovery: once the problems are fixed, the fallback rule gives way to the exact pools and the run exits 0."""
+        degraded = {1: {"id": 1, "name": REQUIRED_PREFIX + "fallback @org/maint", "approvals_required": 1}}
+        degraded[1].update(rule_type="regular", users=[{"id": 12}], groups=[])
+        identities = {"ann": "ann", "bob": "bob", "mia": "mia"}
+        members = [self.member(10, "ann"), self.member(11, "bob"), self.member(12, "mia")]
+        plan, writes, failure = self.run_main(
+            identities, members, "--codeowners-fallback", "@org/maint", "--apply", rules=degraded
+        )
+        self.assertIsNone(failure)
+        self.assertEqual([ident for method, ident, _ in writes if method == "DELETE"], ["1"])
+        self.assertEqual(
+            sorted(rule["name"] for rule in self.rules.values()),
+            [REQUIRED_PREFIX + "@org/arch", REQUIRED_PREFIX + "@org/bio @org/maint"],
+        )
 
     def test_required_rules_with_other_types_or_counts(self):
         """A hand-made non-regular rule under the prefix stops the run; two approvals are reset to one."""

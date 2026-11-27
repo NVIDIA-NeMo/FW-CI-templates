@@ -63,6 +63,10 @@ class ToGlobTests(unittest.TestCase):
     def test_bare_star_single_star_star_glob_matches_everything(self):
         self.assertEqual(to_glob("*"), ["**"])
 
+    def test_parentheses_and_pipes_are_quoted_unless_already_escaped(self):
+        self.assertEqual(to_glob("/src/(a|b)/"), ["src/\\(a\\|b\\)/**"])
+        self.assertEqual(to_glob("/src/\\(a\\)/"), ["src/\\(a\\)/**"])
+
     def test_directory_only_star_skips_root_files(self):
         self.assertEqual(to_glob("*/"), ["*/**", "**/*/**"])
 
